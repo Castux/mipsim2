@@ -31,7 +31,8 @@ var StateWidth float // width of the state texture
 
 // The palette is MiPSim v1's (style.css): white background, silver wires,
 // red power, blue ground, purple transistors; pink high, light blue low,
-// brown unstable; light green outline on conducting transistors; pinned
+// brown unstable; conducting transistors extend purple triangles into their
+// channel arms (owner's request, replacing v1's green outline); pinned
 // wires outlined #ff7d7d (high) or #6d6dff (low).
 
 func byteOf(x float) int {
@@ -55,6 +56,103 @@ func idAt(pos vec2) int {
 		return -role - 10
 	}
 	return net
+}
+
+// roleAt returns the role of the pixel at pos.
+func roleAt(pos vec2) int {
+	return byteOf(imageSrc0At(pos).b) / 32
+}
+
+// isOn reports whether the pixel at pos is on (bridge gaps are off pixels).
+func isOn(pos vec2) bool {
+	r := roleAt(pos)
+	return r != 0 && r != 5
+}
+
+// stateAt returns the simulated state of the net of the pixel at pos.
+func stateAt(pos vec2) int {
+	c := imageSrc0At(pos)
+	r := byteOf(c.r)
+	g := byteOf(c.g)
+	b := byteOf(c.b)
+	role := b / 32
+	net := r + g*256 + (b-role*32)*65536
+	if net == 0 {
+		return 0
+	}
+	w := int(StateWidth)
+	row := net / w
+	col := net - row*w
+	v := byteOf(imageSrc1At(imageSrc0Origin() + vec2(float(col), float(row)) + 0.5).r)
+	return v - (v/4)*4
+}
+
+// wireColor is a wire's colour for a net state: silver in edit mode; in
+// simulate mode silver floating, pink high, light blue low, brown unstable.
+func wireColor(state int) vec3 {
+	if Simulating > 0.5 {
+		if state == 1 {
+			return vec3(1, 0.753, 0.796)
+		} else if state == 2 {
+			return vec3(0.678, 0.847, 0.902)
+		} else if state == 3 {
+			return vec3(0.647, 0.165, 0.165)
+		}
+	}
+	return vec3(0.753, 0.753, 0.753)
+}
+
+// beamColor is the colour of a bridge beam joining the arm pixel at pos,
+// darkened like its wire when that net is hovered.
+func beamColor(pos vec2) vec3 {
+	c := wireColor(stateAt(pos))
+	if Hover > 0.5 && float(idAt(pos)) == Hover {
+		c = c * 0.8
+	}
+	return c
+}
+
+// inChannelTriangle reports whether point f of the cell at pos lies in the
+// flat purple triangle a conducting transistor extends into each of its two
+// channel arms: the base is the edge shared with the centre, the apex half
+// way across the arm. Transistor centres carry their gate's net, and the
+// channel runs across the axis of the centre's one off neighbour.
+func inChannelTriangle(pos vec2, f vec2) bool {
+	for i := 0; i < 4; i++ {
+		d := vec2(1, 0)
+		if i == 1 {
+			d = vec2(-1, 0)
+		} else if i == 2 {
+			d = vec2(0, 1)
+		} else if i == 3 {
+			d = vec2(0, -1)
+		}
+		c := pos + d
+		if roleAt(c) != 4 || stateAt(c) != 1 {
+			continue
+		}
+		missingVertical := !isOn(c+vec2(0, 1)) || !isOn(c-vec2(0, 1))
+		armHorizontal := d.x != 0
+		if armHorizontal != missingVertical {
+			continue // this arm is the gate
+		}
+		// t: distance from the shared edge; s: offset along it.
+		t := f.x
+		s := f.y - 0.5
+		if i == 0 {
+			t = 1 - f.x
+		} else if i == 2 {
+			t = 1 - f.y
+			s = f.x - 0.5
+		} else if i == 3 {
+			t = f.y
+			s = f.x - 0.5
+		}
+		if t <= 0.5*(1-2*abs(s)) {
+			return true
+		}
+	}
+	return false
 }
 
 // colorAt returns the colour of the circuit pixel containing pos (texture
@@ -96,13 +194,19 @@ func colorAt(pos vec2, borders bool, f vec2) vec4 {
 		col = vec3(0.88, 0.88, 0.88) // bridge gap: half-transparent silver
 	}
 
-	if Simulating > 0.5 && role == 1 {
-		if state == 1 {
-			col = vec3(1, 0.753, 0.796) // pink
-		} else if state == 2 {
-			col = vec3(0.678, 0.847, 0.902) // light blue
-		} else if state == 3 {
-			col = vec3(0.647, 0.165, 0.165) // brown
+	if role == 1 {
+		col = wireColor(state)
+	}
+
+	// A bridge gap, zoomed in, is a cross: each beam half a wire wide, coloured
+	// like the net it joins (north–south, then west–east on top).
+	if role == 5 && borders {
+		col = background()
+		if abs(f.x-0.5) < 0.25 {
+			col = beamColor(pos - vec2(0, 1))
+		}
+		if abs(f.y-0.5) < 0.25 {
+			col = beamColor(pos - vec2(1, 0))
 		}
 	}
 
@@ -114,15 +218,11 @@ func colorAt(pos vec2, borders bool, f vec2) vec4 {
 	band := vec3(-1)
 	if role == 6 {
 		band = vec3(1, 0, 0) // malformed thick region
-	} else if Simulating > 0.5 && role == 4 {
-		if state == 1 {
-			band = vec3(0.565, 0.933, 0.565) // conducting: light green
-		} else if state == 3 {
-			band = vec3(0.647, 0.165, 0.165)
-		}
-	} else if Simulating > 0.5 && pin == 1 {
+	} else if Simulating > 0.5 && role == 4 && state == 3 {
+		band = vec3(0.647, 0.165, 0.165) // gate unstable
+	} else if Simulating > 0.5 && role != 4 && pin == 1 {
 		band = vec3(1, 0.49, 0.49) // pinned high
-	} else if Simulating > 0.5 && pin == 2 {
+	} else if Simulating > 0.5 && role != 4 && pin == 2 {
 		band = vec3(0.427, 0.427, 1) // pinned low
 	}
 	if band.r >= 0 {
@@ -143,6 +243,10 @@ func colorAt(pos vec2, borders bool, f vec2) vec4 {
 				col = band
 			}
 		}
+	}
+	// A conducting transistor's purple flows into its channel arms.
+	if borders && Simulating > 0.5 && role != 4 && inChannelTriangle(pos, f) {
+		col = vec3(0.502, 0, 0.502)
 	}
 	return vec4(col, 1)
 }

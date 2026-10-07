@@ -290,3 +290,9 @@ Agreed with the owner: tools in a left column, `space` to run or pause, and the 
 **Decision:** the chrome is hand-rolled immediate-mode drawing, not ebitenui. It is a handful of rectangles and texts driven by the keymap table, which keeps buttons and keys in one place and matches the v1 look without fighting a theme. ebitenui stays only in its M0 spike.
 
 **Not verified by the agent:** clicking, hovering and typing in the real window. The layout and states were checked with screenshots in both modes, and the editor logic behind every button is unit-tested.
+
+## Canvas tweaks (owner requests)
+
+- **Conducting transistors** extend their purple into the two channel arms as flat triangles. The base is the edge shared with the centre and the tip reaches half way across the arm. This replaces v1's green outline. The shader finds the channel axis from the centre's one off neighbour, so the texture format is unchanged. The triangles show from 4× zoom; zoomed out nothing marks conduction (owner: fine).
+- **Bridge gaps**, from 4× zoom, are drawn as a cross. Each beam is half a wire wide and coloured like the net it joins (north–south, with west–east on top), so a crossing shows which wire goes where. Below 4× the gap is a flat light grey.
+- Fix: a transistor centre no longer takes the pin outline of its pinned gate wire.
