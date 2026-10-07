@@ -1,0 +1,164 @@
+# adder8.fix: 8-bit ripple-carry adder, 8 instances of one full adder
+# input a_0 -1,6
+# input b_0 -1,36
+# output sum_0 127,18
+# input a_1 -1,70
+# input b_1 -1,100
+# output sum_1 127,82
+# input a_2 -1,134
+# input b_2 -1,164
+# output sum_2 127,146
+# input a_3 -1,198
+# input b_3 -1,228
+# output sum_3 127,210
+# input a_4 -1,262
+# input b_4 -1,292
+# output sum_4 127,274
+# input a_5 -1,326
+# input b_5 -1,356
+# output sum_5 127,338
+# input a_6 -1,390
+# input b_6 -1,420
+# output sum_6 127,402
+# input a_7 -1,454
+# input b_7 -1,484
+# output sum_7 127,466
+# input cin 70,-1
+# output cout 109,509
+# expect a=0 b=0 cin=0 sum=0 cout=0
+# expect a=100 b=55 cin=0 sum=155 cout=0
+# expect a=200 b=100 cin=1 sum=45 cout=1
+# expect a=255 b=255 cin=1 sum=255 cout=1
+# def nand 9x13
+###......
+###......
+###......
+.#.......
+#########
+.#.......
+##.......
+.#.......
+##.......
+.#.......
+###......
+#.#......
+###......
+# def xor 54x41
+# place nand g1 12,14
+# place nand g2 28,0
+# place nand g3 28,28
+# place nand g4 44,14
+# line 0,6 27,6
+# px 8,5
+# line 8,7 8,20
+# line 9,20 11,20
+# line 0,36 27,36
+# px 8,37
+# line 8,22 8,35
+# line 9,22 11,22
+# line 21,18 22,18
+# px 23,18
+# line 22,8 22,34
+# line 23,8 27,8
+# line 23,34 27,34
+# line 37,4 40,4
+# line 40,5 40,20
+# line 41,20 43,20
+# line 37,32 40,32
+# line 40,22 40,31
+# line 41,22 43,22
+# px 53,18
+# def fa 127x61
+# place xor x1 10,0
+# place xor x2 72,0
+# place nand n1 12,44
+# place nand n2 82,44
+# place nand n3 100,44
+# line 0,6 9,6
+# px 2,5
+# line 2,7 2,35
+# line 2,37 2,52
+# line 3,52 11,52
+# line 0,36 1,36
+# line 3,36 9,36
+# px 6,35
+# line 6,37 6,50
+# line 7,50 11,50
+# line 64,18 66,18
+# px 67,18
+# line 66,6 66,52
+# line 67,6 69,6
+# px 71,6
+# line 67,52 81,52
+# line 70,0 70,5
+# line 70,7 70,50
+# px 69,36
+# px 71,36
+# line 71,50 81,50
+# line 21,48 22,48
+# line 22,49 22,60
+# line 23,60 95,60
+# line 96,52 96,60
+# line 97,52 99,52
+# line 91,48 94,48
+# line 94,49 94,50
+# line 95,50 99,50
+# px 109,48
+# line 109,49 109,60
+# px 126,18
+# root
+# place fa fa0 0,0
+# place fa fa1 0,64
+# place fa fa2 0,128
+# place fa fa3 0,192
+# place fa fa4 0,256
+# place fa fa5 0,320
+# place fa fa6 0,384
+# place fa fa7 0,448
+# px 70,-1
+# px -1,6
+# px -1,36
+# px 127,18
+# line 109,61 109,62
+# line 70,62 108,62
+# px 70,63
+# px -1,70
+# px -1,100
+# px 127,82
+# line 109,125 109,126
+# line 70,126 108,126
+# px 70,127
+# px -1,134
+# px -1,164
+# px 127,146
+# line 109,189 109,190
+# line 70,190 108,190
+# px 70,191
+# px -1,198
+# px -1,228
+# px 127,210
+# line 109,253 109,254
+# line 70,254 108,254
+# px 70,255
+# px -1,262
+# px -1,292
+# px 127,274
+# line 109,317 109,318
+# line 70,318 108,318
+# px 70,319
+# px -1,326
+# px -1,356
+# px 127,338
+# line 109,381 109,382
+# line 70,382 108,382
+# px 70,383
+# px -1,390
+# px -1,420
+# px 127,402
+# line 109,445 109,446
+# line 70,446 108,446
+# px 70,447
+# px -1,454
+# px -1,484
+# px 127,466
+# px 109,509

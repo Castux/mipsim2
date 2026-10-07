@@ -28,6 +28,7 @@ const (
 	toolCol          // edit mode, left column: tools
 	editCol          // edit mode, left column: selection actions
 	simCol           // simulate mode, left column
+	compCol          // edit mode, left column: components
 	modeToggle       // the edit/simulate switch
 )
 
@@ -64,6 +65,10 @@ var keymap = []binding{
 	{key: ebiten.KeyDelete, editOnly: true, action: editor.ActDelete},
 	{key: ebiten.KeyM, keyName: "m", editOnly: true, action: editor.ActMirror, place: editCol, icon: "mirror", label: "Mirror"},
 	{key: ebiten.KeyR, keyName: "r", editOnly: true, action: editor.ActRotate, place: editCol, icon: "rotate", label: "Rotate"},
+
+	{key: ebiten.KeyK, keyName: "K", shift: true, editOnly: true, action: editor.ActExplode, place: compCol, icon: "explode", label: "Explode"},
+	{key: ebiten.KeyK, keyName: "k", editOnly: true, action: editor.ActMakeComponent, place: compCol, icon: "make", label: "Component"},
+	{key: ebiten.KeyF2, keyName: "F2", editOnly: true, action: editor.ActRename, place: compCol, icon: "rename", label: "Rename"},
 
 	{key: ebiten.KeySpace, keyName: "space", simOnly: true, action: editor.ActRunPause, onRelease: true, place: simCol, icon: "run", label: "Run"},
 	{key: ebiten.KeyT, keyName: "t", simOnly: true, action: editor.ActTick, place: simCol, icon: "tick", label: "Tick"},

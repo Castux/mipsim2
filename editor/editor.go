@@ -82,6 +82,9 @@ const (
 	ActStep      // slow motion: one simulator step
 	ActSlower    // halve the clock rate
 	ActFaster    // double the clock rate
+	ActMakeComponent
+	ActExplode
+	ActRename // the selected instance
 )
 
 // cheapCompile is the compile time below which strokes recompile on every
@@ -146,9 +149,13 @@ type selection struct {
 type dragState struct {
 	start, cur image.Point // world
 	moving     bool        // dragging the selection, not drawing a new one
+	resizing   bool        // dragging a resize handle of the selected instance
+	edge       int
 }
 
 type typing struct {
+	kind   typingKind
+	inst   doc.InstID // for an instance name
 	def    doc.DefID
 	at     image.Point // local coordinates of the label
 	world  image.Point // where it was clicked
@@ -219,7 +226,7 @@ func (e *Editor) Typing() (string, bool) {
 func (e *Editor) TypeRune(r rune) {
 	if e.typing != nil && r >= ' ' && r != 127 {
 		e.typing.buffer += string(r)
-		e.Status = "label: " + e.typing.buffer + "_   (enter to apply, escape to cancel)"
+		e.Status = e.typing.kind.String() + ": " + e.typing.buffer + "_   (enter to apply, escape to cancel)"
 	}
 }
 
@@ -289,6 +296,12 @@ func (e *Editor) Do(a Action) {
 		e.sel = nil
 	case ActRunPause, ActStep, ActSlower, ActFaster:
 		e.doClock(a)
+	case ActMakeComponent:
+		e.makeComponent()
+	case ActExplode:
+		e.explode()
+	case ActRename:
+		e.startRenameInstance()
 	}
 }
 
@@ -367,7 +380,7 @@ func (e *Editor) Value(n netlist.NetID) sim.Value {
 func (e *Editor) PointerDown(p image.Point, b Button, m Mods) {
 	e.hover = p
 	if e.typing != nil {
-		e.commitLabel()
+		e.commitTyping()
 	}
 	if e.mode == SimulateMode {
 		e.pinAt(p, b)
@@ -393,6 +406,10 @@ func (e *Editor) PointerDown(p image.Point, b Button, m Mods) {
 		e.paint(p)
 		e.afterPaint()
 	case Select:
+		if edge := e.handleAt(p); edge >= 0 {
+			e.drag = &dragState{start: p, cur: p, resizing: true, edge: edge}
+			return
+		}
 		moving := e.sel != nil && p.In(e.selWorld())
 		e.drag = &dragState{start: p, cur: p, moving: moving}
 	case LabelTool:
@@ -457,7 +474,9 @@ func (e *Editor) PointerUp(p image.Point, b Button) {
 	if d := e.drag; d != nil {
 		e.drag = nil
 		d.cur = p
-		if d.moving {
+		if d.resizing {
+			e.resizeSelected(d.resizedRect(e.selWorld()))
+		} else if d.moving {
 			e.moveSelection(d)
 		} else {
 			e.selectArea(d.start, d.cur)

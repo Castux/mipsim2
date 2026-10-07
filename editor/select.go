@@ -207,16 +207,19 @@ type Overlay struct {
 	GhostRects []image.Rectangle // the preview's outline and its instances' rectangles
 	Label      image.Point       // where a label is being typed
 	Typing     bool
+	Handles    []image.Point // resize handles of a selected instance
 }
 
 // Overlay describes selection, previews and label entry for the renderer.
 func (e *Editor) Overlay() Overlay {
 	var o Overlay
-	if e.typing != nil {
+	if e.typing != nil && e.typing.kind == typeLabel {
 		o.Typing = true
 		o.Label = e.typing.world
 	}
 	switch {
+	case e.drag != nil && e.drag.resizing:
+		o.Selection = e.drag.resizedRect(e.selWorld())
 	case e.drag != nil && !e.drag.moving:
 		o.Selection = canonRect(e.drag.start, e.drag.cur)
 	case e.drag != nil && e.drag.moving:
@@ -230,6 +233,10 @@ func (e *Editor) Overlay() Overlay {
 		e.ghost(&o, e.clip, loc.Map, loc.Local)
 	default:
 		o.Selection = e.selWorld()
+		if _, ok := e.selectedInstance(); ok && e.mode == EditMode && e.tool == Select {
+			h := handles(o.Selection)
+			o.Handles = h[:]
+		}
 	}
 	return o
 }
@@ -261,24 +268,32 @@ func (e *Editor) doTyping(a Action) {
 	t := e.typing
 	switch a {
 	case ActEnter:
-		e.commitLabel()
+		e.commitTyping()
 	case ActEscape:
 		e.typing = nil
-		e.Status = "label cancelled"
+		e.Status = t.kind.String() + " cancelled"
 	case ActBackspace:
 		if r := []rune(t.buffer); len(r) > 0 {
 			t.buffer = string(r[:len(r)-1])
 		}
-		e.Status = "label: " + t.buffer + "_"
+		e.Status = t.kind.String() + ": " + t.buffer + "_"
 	}
 }
 
-func (e *Editor) commitLabel() {
+func (e *Editor) commitTyping() {
 	t := e.typing
 	e.typing = nil
 	name := strings.TrimSpace(t.buffer)
 	if name == t.old {
 		e.Status = ""
+		return
+	}
+	switch t.kind {
+	case typeDefName:
+		e.renameDefinition(t.def, name)
+		return
+	case typeInstName:
+		e.renameInstance(t.def, t.inst, name)
 		return
 	}
 	if name != "" && !doc.ValidName(name) {

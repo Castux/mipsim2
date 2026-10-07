@@ -54,7 +54,7 @@ func (a *app) computeLayout() layout {
 	var l layout
 	ed := a.ed
 	mode := ed.Mode()
-	topH, leftW, bottomH := a.u(40), a.u(132), a.statusHeight()
+	topH, leftW, bottomH := a.u(40), a.u(150), a.statusHeight()
 	rightW := 0
 	if a.panelVisible() {
 		rightW = a.u(300)
@@ -101,6 +101,7 @@ func (a *app) computeLayout() layout {
 	if mode == editor.EditMode {
 		addCol(toolCol)
 		addCol(editCol)
+		addCol(compCol)
 	} else {
 		addCol(simCol)
 	}
@@ -253,7 +254,7 @@ func (a *app) drawChrome(screen *ebiten.Image, l layout) {
 	if a.ed.Modified() {
 		name += "  •"
 	}
-	a.drawText(screen, name, float64(a.u(230)), float64(a.u(12)), 14, chromeText)
+	a.drawText(screen, name, float64(a.u(232)), float64(a.u(12)), 14, chromeText)
 
 	// Clock rate and tick count under the simulate column.
 	if a.ed.Mode() == editor.SimulateMode && a.ed.Runner() != nil {

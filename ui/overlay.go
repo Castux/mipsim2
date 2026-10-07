@@ -50,6 +50,7 @@ func (a *app) drawOverlay(dst *ebiten.Image, o editor.Overlay) {
 		strokeWorldRect(dst, v, r, lw, rectColor)
 	}
 	strokeWorldRect(dst, v, o.Selection, lw, selColor)
+	a.drawHandles(dst, o.Handles)
 	if o.Typing {
 		strokeWorldRect(dst, v, image.Rectangle{Min: o.Label, Max: o.Label.Add(image.Pt(1, 1))}, lw, selColor)
 		buf, _ := a.ed.Typing()
@@ -117,5 +118,54 @@ func (a *app) drawDiagnosticMarkers(dst *ebiten.Image, nl *netlist.Netlist) {
 		x, y := a.view.ToScreen(d.Pos)
 		cx, cy := x+a.view.Scale/2, y+a.view.Scale/2
 		vector.StrokeRect(dst, float32(cx-size/2-2), float32(cy-size/2-2), float32(size+4), float32(size+4), float32(1.5*a.scale), clr, false)
+	}
+}
+
+var (
+	instColor  = color.RGBA{208, 161, 208, 255} // v1's drain-source purple
+	cueColor   = color.RGBA{128, 0, 128, 255}   // v1's transistor purple
+	maxOutline = 3000                           // skip plain outlines beyond this many
+)
+
+// drawInstances outlines component instances. The instance under the
+// pointer is labelled, and every other instance of the same definition is
+// highlighted, so an edit that changes them all is visible.
+func (a *app) drawInstances(dst *ebiten.Image) {
+	cues := a.ed.Instances()
+	if a.ed.Mode() == editor.SimulateMode {
+		return
+	}
+	plain := len(cues) <= maxOutline && a.view.Scale >= 0.5
+	for _, c := range cues {
+		switch {
+		case c.Hovered || c.Sibling:
+			strokeWorldRect(dst, &a.view, c.Rect, float32(2*a.scale), cueColor)
+		case plain:
+			strokeWorldRect(dst, &a.view, c.Rect, 1, instColor)
+		}
+	}
+	for _, c := range cues {
+		if !c.Hovered {
+			continue
+		}
+		x, y := a.view.ToScreen(c.Rect.Min)
+		s := c.Path + " : " + c.Name
+		a.face.Size = 12 * a.scale
+		w, h := text.Measure(s, a.face, 0)
+		vector.FillRect(dst, float32(x), float32(y-h-2*a.scale), float32(w+6*a.scale), float32(h+2*a.scale), cueColor, false)
+		op := &text.DrawOptions{}
+		op.GeoM.Translate(x+3*a.scale, y-h-1*a.scale)
+		op.ColorScale.ScaleWithColor(color.White)
+		text.Draw(dst, s, a.face, op)
+	}
+}
+
+// drawHandles draws resize handles as filled squares.
+func (a *app) drawHandles(dst *ebiten.Image, hs []image.Point) {
+	s := max(a.view.Scale, 6*a.scale)
+	for _, h := range hs {
+		x, y := a.view.ToScreen(h)
+		cx, cy := x+a.view.Scale/2, y+a.view.Scale/2
+		vector.FillRect(dst, float32(cx-s/2), float32(cy-s/2), float32(s), float32(s), cueColor, false)
 	}
 }

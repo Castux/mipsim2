@@ -372,6 +372,7 @@ func (a *app) Draw(screen *ebiten.Image) {
 		cells, value := a.ed.Stroke()
 		drawStroke(canvasImg, &a.view, cells, value)
 	}
+	a.drawInstances(canvasImg)
 	a.drawLabels(canvasImg)
 	a.drawDiagnosticMarkers(canvasImg, nl)
 	a.drawOverlay(canvasImg, a.ed.Overlay())
@@ -421,6 +422,9 @@ func (a *app) drawStatus(screen *ebiten.Image, l layout, hover string) {
 
 	cx, cy := ebiten.CursorPosition()
 	hint := a.buttonHint(l, image.Pt(cx, cy))
+	if hint == "" {
+		hint = a.panelHint(l, image.Pt(cx, cy))
+	}
 	if hint == "" {
 		hint = a.ed.Hint()
 	}

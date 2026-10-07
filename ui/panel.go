@@ -21,6 +21,7 @@ type panelTab int
 const (
 	tabDiagnostics panelTab = iota
 	tabWatch
+	tabComponents
 )
 
 type tabInfo struct {
@@ -32,6 +33,8 @@ func (a *app) panelTabs() []tabInfo {
 	var ts []tabInfo
 	if a.ed.Mode() == editor.SimulateMode {
 		ts = append(ts, tabInfo{tabWatch, "Watch"})
+	} else {
+		ts = append(ts, tabInfo{tabComponents, fmt.Sprintf("Components (%d)", len(a.ed.Definitions()))})
 	}
 	if n := len(a.ed.Netlist().Diagnostics); n > 0 {
 		ts = append(ts, tabInfo{tabDiagnostics, fmt.Sprintf("Diagnostics (%d)", n)})
@@ -60,7 +63,7 @@ func (a *app) panelBody(l layout) image.Rectangle {
 }
 
 func (a *app) rowHeight() float64 {
-	if a.currentTab() == tabWatch {
+	if t := a.currentTab(); t == tabWatch || t == tabComponents {
 		return 22 * a.scale
 	}
 	return 34 * a.scale
@@ -85,6 +88,19 @@ func (a *app) panelClick(l layout, p image.Point, mb ebiten.MouseButton) {
 		}
 		a.view.CenterOn(diags[i].Pos, l.canvas)
 		a.ed.Status = diags[i].String()
+	case tabComponents:
+		defs := a.ed.Definitions()
+		if i < 0 || i >= len(defs) {
+			return
+		}
+		switch mb {
+		case ebiten.MouseButtonLeft:
+			a.ed.PlaceDefinition(defs[i].ID)
+		case ebiten.MouseButtonRight:
+			a.ed.StartRenameDefinition(defs[i].ID)
+		case ebiten.MouseButtonMiddle:
+			a.ed.DeleteDefinition(defs[i].ID)
+		}
 	case tabWatch:
 		r := a.ed.Runner()
 		if r == nil {
@@ -146,6 +162,25 @@ func (a *app) drawPanel(screen *ebiten.Image, l layout) {
 			}
 			a.drawText(bodyImg, fmt.Sprintf("%s at %d,%d", d.Code, d.Pos.X, d.Pos.Y), x, y, 12, clr)
 			a.drawText(bodyImg, truncate(d.Msg, 44), x+8*a.scale, y+15*a.scale, 12, chromeDim)
+			y += a.rowHeight()
+		}
+	case tabComponents:
+		defs := a.ed.Definitions()
+		a.panelScroll = max(0, min(a.panelScroll, len(defs)-1))
+		if len(defs) == 0 {
+			a.drawText(bodyImg, "none yet: select an area and press k", x, y, 12, chromeDim)
+		}
+		for _, d := range defs[a.panelScroll:] {
+			if y > float64(body.Max.Y) {
+				break
+			}
+			a.drawText(bodyImg, truncate(d.Name, 22), x, y+3*a.scale, 13, chromeText)
+			info := fmt.Sprintf("%dx%d  ×%d", d.W, d.H, d.Instances)
+			clr := chromeDim
+			if d.Instances == 0 {
+				clr = chromeOff
+			}
+			a.drawText(bodyImg, info, float64(body.Max.X)-a.textWidth(info, 12)-10*a.scale, y+4*a.scale, 12, clr)
 			y += a.rowHeight()
 		}
 	case tabWatch:
@@ -220,4 +255,20 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n-1]) + "…"
+}
+
+// panelHint explains the mouse buttons on the panel's rows.
+func (a *app) panelHint(l layout, p image.Point) string {
+	if !p.In(a.panelBody(l)) {
+		return ""
+	}
+	switch a.currentTab() {
+	case tabComponents:
+		return "left click place a copy · right click rename · middle click delete (only if unused) · wheel scroll"
+	case tabWatch:
+		return "wire: left pin high · right pin low · middle release · number: left click type a value, middle release · wheel scroll"
+	case tabDiagnostics:
+		return "click show it on the canvas · wheel scroll"
+	}
+	return ""
 }

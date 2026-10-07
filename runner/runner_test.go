@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"math/rand/v2"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -137,5 +138,31 @@ func TestClockToggles(t *testing.T) {
 	}
 	if err := r.Tick(3); err != nil || r.Ticks() != 4 || r.Format("out") != "1" {
 		t.Errorf("after 3 more ticks: out=%s ticks=%d err=%v", r.Format("out"), r.Ticks(), err)
+	}
+}
+
+func TestAdder8Sampled(t *testing.T) {
+	r := load(t, filepath.Join("..", "testdata", "runner", "adder8.fix"), Options{})
+	rng := rand.New(rand.NewPCG(9, 9))
+	cases := [][3]int{{0, 0, 0}, {255, 255, 1}, {255, 1, 0}, {128, 128, 0}, {85, 170, 1}}
+	for range 1500 {
+		cases = append(cases, [3]int{rng.IntN(256), rng.IntN(256), rng.IntN(2)})
+	}
+	for _, c := range cases {
+		r.Set("a", strconv.Itoa(c[0]))
+		r.Set("b", strconv.Itoa(c[1]))
+		r.Set("cin", strconv.Itoa(c[2]))
+		r.Settle()
+		sum, err := r.Number("sum")
+		if err != nil {
+			t.Fatalf("%v: %v", c, err)
+		}
+		got := int(sum)
+		if r.Format("cout") == "1" {
+			got += 256
+		}
+		if want := c[0] + c[1] + c[2]; got != want {
+			t.Fatalf("%d+%d+%d = %d, want %d", c[0], c[1], c[2], got, want)
+		}
 	}
 }

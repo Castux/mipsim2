@@ -296,3 +296,24 @@ Agreed with the owner: tools in a left column, `space` to run or pause, and the 
 - **Conducting transistors** extend their purple into the two channel arms as flat triangles. The base is the edge shared with the centre and the tip reaches half way across the arm. This replaces v1's green outline. The shader finds the channel axis from the centre's one off neighbour, so the texture format is unchanged. The triangles show from 4× zoom; zoomed out nothing marks conduction (owner: fine).
 - **Bridge gaps**, from 4× zoom, are drawn as a cross. Each beam is half a wire wide and coloured like the net it joins (north–south, with west–east on top), so a crossing shows which wire goes where. Below 4× the gap is a flat light grey.
 - Fix: a transistor centre no longer takes the pin outline of its pinned gate wire.
+
+## M7 Component UI
+
+**Works** (`editor`, tested; every command is a validated snapshot, so it can be undone):
+
+- **Make component** (`k`): the selection becomes a new definition (pixels, labels and the instances inside it), replaced by one instance. The editor then asks for the component's name.
+- **Explode** (`K`): the selected instances are replaced by copies of their content, with their orientation applied. The definition stays in the palette.
+- **Place**: from the Components tab, through the paste preview, so instances can be mirrored or rotated before placing.
+- **Rename**: an instance with F2 (instance names must be valid names); a definition's display name with a right click in the palette.
+- **Delete** an unused definition with a middle click in the palette. Used definitions are refused, with the instance count.
+- **Resize**: a selected instance shows four square handles just outside its edges. Dragging one resizes the definition, and every instance keeps its content fixed in the world, whatever its orientation (tested on a plain and a rotated instance). Shrinking past content is rejected with the reason.
+- **Cues**: instances are outlined in v1's light purple. The instance under the pointer is outlined in purple and labelled "path : component", and every other instance of the same definition is outlined too, so an edit that changes them all is visible.
+- **Completion check:** `testdata/runner/adder8.fix` is an 8-bit adder built from 8 instances of one full adder. A runner test checks 1,500 random sums plus edge cases. `TestAdder8SharedEdit` erases one pixel inside one instance and checks that all 8 copies lose it, in the flattened circuit and in simulation (the sum stops reading as a number), and that undo restores it.
+
+**Decisions:**
+
+- The left column grew to 150 points to fit the component buttons.
+- New definitions get IDs `part1`, `part2`, ... and a display name you type. IDs never change, so renaming a definition does not touch its instances.
+- Clicking selects top-level instances only. Selecting a nested instance means dragging a rectangle inside its parent.
+
+**Not verified by the agent:** the interactive feel of handle dragging and palette clicks. Logic and rendering were checked by tests and screenshots.

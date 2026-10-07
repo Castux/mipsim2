@@ -105,6 +105,13 @@ func (e *Editor) Enabled(a Action) bool {
 		return sim && e.run != nil && e.run.HasClock()
 	case ActStep, ActResetSim, ActSlower, ActFaster:
 		return sim
+	case ActMakeComponent:
+		return !sim && e.sel != nil
+	case ActExplode:
+		return !sim && len(e.selectedInstances()) > 0
+	case ActRename:
+		_, ok := e.selectedInstance()
+		return !sim && ok
 	}
 	return true
 }
@@ -114,12 +121,16 @@ func (e *Editor) Enabled(a Action) bool {
 func (e *Editor) Hint() string {
 	const view = "space+drag pan · wheel zoom"
 	switch {
-	case e.typing != nil:
+	case e.typing != nil && e.typing.kind == typeLabel:
 		return "type a name · enter apply · esc cancel · empty name removes the label"
+	case e.typing != nil:
+		return "type the " + e.typing.kind.String() + " · enter apply · esc cancel"
 	case e.mode == SimulateMode:
 		return "left click pin high · right click pin low · middle click release · space run/pause · " + view
 	case e.paste:
 		return "click place · right click or esc cancel · m/r mirror/rotate the paste · " + view
+	case e.tool == Select && e.Enabled(ActRename):
+		return "drag a square handle to resize the component (all its instances) · drag the selection to move it · esc clear · " + view
 	case e.tool == Select:
 		return "drag select an area · click select a component · drag the selection to move it · esc clear · " + view
 	case e.tool == LabelTool:
