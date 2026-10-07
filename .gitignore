@@ -1,0 +1,8 @@
+# build output
+/mipsim
+/mipsim-run
+*.exe
+/web/*.wasm
+# local scratch
+*.png.tmp
+/tmp/
