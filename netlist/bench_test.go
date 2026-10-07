@@ -8,6 +8,9 @@ import (
 	"github.com/Castux/mipsim2/internal/synth"
 )
 
+// raceEnabled is set in race builds, where timings are meaningless.
+var raceEnabled bool
+
 func TestInverterChainsCompileClean(t *testing.T) {
 	d := synth.InverterChains(3, 4)
 	if err := d.Validate(); err != nil {
@@ -53,7 +56,7 @@ func TestCompileBudget(t *testing.T) {
 	if len(nl.Diagnostics) > 0 {
 		t.Fatalf("unexpected diagnostics, first: %v", nl.Diagnostics[0])
 	}
-	if compile > 2*time.Second {
+	if compile > 2*time.Second && !raceEnabled {
 		t.Errorf("compile took %v, far over the 50 ms budget", compile)
 	}
 }
