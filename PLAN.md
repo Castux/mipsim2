@@ -198,12 +198,12 @@ Build the headless core first and the editor second: M1 to M4 produce a working 
 
 ## Testing
 
-Most tests are ASCII fixtures in `testdata/`, so a failing case is readable in a diff and easy for an agent to write. A fixture is a text file with a header and a drawing:
+Most tests are ASCII fixtures in `testdata/`, so a failing case is readable in a diff and easy for an agent to write. A fixture is a text file with directive lines (`# ` then a word) and drawing rows of `#` and `.`; the full syntax, including `def`, `place` and `root` for multi-definition fixtures, is documented in `internal/fixture`:
 
 ```
 # inverter.fix
-# label in 0,6
-# label out 8,4
+# input in 0,6
+# output out 8,4
 # expect in=low  out=high
 # expect in=high out=low
 ###......
