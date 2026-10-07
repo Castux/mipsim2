@@ -390,3 +390,14 @@ Memories are configured in the editor, not only by editing the `.mip` JSON.
 - **Init file:** typed, or chosen with the file dialog's new Pick mode (lists every file). Stored relative to the document's folder when inside it. Saving the document elsewhere does not move the path, so a relative init file may then be missing (the status line says so).
 - **Reload:** in simulate mode, clicking a memory's header in the Memory tab re-reads its init file, for a rebuilt program.
 - The check result is cached per document version and compile, so a file created on disk shows as found only after the next edit.
+
+## Code review round (before M9)
+
+Four parallel reviews: core, format and devices, editor and ui, performance. Fixed:
+
+- **Format hardening** (before real files exist, since tightening later would reject them): limits on coordinates (±2^24), definition sizes (65536) and the flattened circuit (2^20 instances, 2^28 pixels), so a 3 KB file can no longer hang Flatten. Duplicate keys and trailing data are rejected, a BOM is accepted, and syntax errors have a line and column. Device kind and name come from one constructor and are validated (present, valid, unique). The root origin's x snaps to 16 for stable diffs.
+- **Bugs:** pressing e mid-stroke crashed (stale runner netlist); a dialog opening mid-stroke lost the stroke from history; tool buttons were swallowed while typing; undo back to the saved state still showed modified; Watch-tab errors were dropped; stale pin-conflict errors; a 1-word memory wanted an address bit; `Change.Step` off by one; `Or` with itself; init paths that are absolute in the CLI.
+- **Performance** (1M-pixel synthetic circuit): flatten 50 → 22 ms; worst-case tick 4.0 → 2.5 ms (about 400 ticks/s); instance cues 5–8 ms → 0.26 ms per frame; strokes on slow circuits no longer recompile every frame; clock work capped at 8 ms per frame; compile refuses a bounding box above 2^28 pixels (`E_TOO_LARGE`) instead of allocating gigabytes.
+- **Architecture:** archtest also checks ui/filebrowser, forbids `os` in core packages and keeps the CLI headless.
+
+Open, by decision: compile is still about 60 ms (+22 ms flatten) against the 50 ms budget; the canvas texture stops at 8192 px; ui (3000 lines) has no tests and duplicated widgets; undo snapshots copy whole definitions; wasm-port items (synchronous init-file reads, path-based document identity).
