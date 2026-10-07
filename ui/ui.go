@@ -8,7 +8,6 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-
 	"strings"
 	"time"
 
@@ -42,6 +41,12 @@ var background = color.RGBA{24, 24, 28, 255}
 
 const statusLines = 2
 
+// prompt is an in-app text field for a file path (open, save as).
+type prompt struct {
+	kind   uiAction
+	buffer string
+}
+
 type app struct {
 	opts   Options
 	ed     *editor.Editor
@@ -49,20 +54,23 @@ type app struct {
 	canvas *canvas
 	face   *text.GoTextFace
 
-	scale  float64 // device scale factor
-	w, h   int
-	fitted bool
-	frames int
-	err    error
+	scale       float64 // device scale factor
+	w, h        int
+	fitted      bool
+	frames      int
+	err         error
+	prompt      *prompt
+	panelScroll int
 
 	shotPath string // save the next frame at or after shotAt here
 	shotAt   int
 	shotQuit bool // quit after saving (the -screenshot flag)
 	timeFrom time.Time
-	panning  bool
-	panFrom  [2]int
-	pressed  [3]bool
-	lastWord image.Point
+
+	panning   bool
+	panFrom   [2]int
+	pressed   [3]bool
+	lastWorld image.Point
 }
 
 func newApp(opts Options) (*app, error) {
@@ -108,7 +116,12 @@ func (a *app) statusHeight() int {
 func (a *app) lineHeight() float64 { return 18 * a.scale }
 
 func (a *app) canvasArea() image.Rectangle {
-	return image.Rect(0, 0, a.w, a.h-a.statusHeight())
+	return image.Rect(0, 0, a.w-a.panelWidth(), a.h-a.statusHeight())
+}
+
+func (a *app) fit() {
+	area := a.canvasArea()
+	a.view.Fit(a.ed.Netlist().Bounds().Inset(2), float64(area.Dx()), float64(area.Dy()))
 }
 
 func (a *app) Update() error {
@@ -117,10 +130,9 @@ func (a *app) Update() error {
 	}
 	if !a.fitted && a.w > 0 {
 		a.fitted = true
-		area := a.canvasArea()
-		a.view.Fit(a.ed.Netlist().Bounds().Inset(2), float64(area.Dx()), float64(area.Dy()))
+		a.fit()
 		if a.opts.Zoom > 0 {
-			c := area.Size().Div(2)
+			c := a.canvasArea().Size().Div(2)
 			for a.view.Scale < a.opts.Zoom {
 				a.view.Zoom(1, float64(c.X), float64(c.Y))
 			}
@@ -129,7 +141,9 @@ func (a *app) Update() error {
 			}
 		}
 	}
-	a.handleKeys()
+	if !a.handleTyping() {
+		a.handleKeys()
+	}
 	a.handlePointer()
 	return nil
 }
@@ -140,6 +154,44 @@ func (a *app) mods() editor.Mods {
 		Ctrl:  ebiten.IsKeyPressed(ebiten.KeyControl) || ebiten.IsKeyPressed(ebiten.KeyMeta),
 		Alt:   ebiten.IsKeyPressed(ebiten.KeyAlt),
 	}
+}
+
+// handleTyping feeds keyboard input to a file prompt or a label being typed,
+// and reports whether it took the keyboard this frame.
+func (a *app) handleTyping() bool {
+	chars := ebiten.AppendInputChars(nil)
+	pressed := inpututil.IsKeyJustPressed
+	if p := a.prompt; p != nil {
+		p.buffer += string(chars)
+		switch {
+		case pressed(ebiten.KeyEnter) || pressed(ebiten.KeyNumpadEnter):
+			a.prompt = nil
+			a.runPrompt(p)
+		case pressed(ebiten.KeyEscape):
+			a.prompt = nil
+			a.ed.Status = "cancelled"
+		case pressed(ebiten.KeyBackspace):
+			if r := []rune(p.buffer); len(r) > 0 {
+				p.buffer = string(r[:len(r)-1])
+			}
+		}
+		return true
+	}
+	if _, typing := a.ed.Typing(); typing {
+		for _, r := range chars {
+			a.ed.TypeRune(r)
+		}
+		switch {
+		case pressed(ebiten.KeyEnter) || pressed(ebiten.KeyNumpadEnter):
+			a.ed.Do(editor.ActEnter)
+		case pressed(ebiten.KeyEscape):
+			a.ed.Do(editor.ActEscape)
+		case pressed(ebiten.KeyBackspace):
+			a.ed.Do(editor.ActBackspace)
+		}
+		return true
+	}
+	return false
 }
 
 func (a *app) handleKeys() {
@@ -153,10 +205,17 @@ func (a *app) handleKeys() {
 		case uiNone:
 			a.ed.Do(b.action)
 		case uiSave:
-			a.save()
+			if a.opts.Path == "" {
+				a.prompt = &prompt{kind: uiSaveAs, buffer: "circuit.mip"}
+			} else {
+				a.save(a.opts.Path)
+			}
+		case uiSaveAs:
+			a.prompt = &prompt{kind: uiSaveAs, buffer: a.opts.Path}
+		case uiOpen:
+			a.prompt = &prompt{kind: uiOpen, buffer: a.opts.Path}
 		case uiFit:
-			area := a.canvasArea()
-			a.view.Fit(a.ed.Netlist().Bounds().Inset(2), float64(area.Dx()), float64(area.Dy()))
+			a.fit()
 		case uiFilter:
 			a.canvas.filter = (a.canvas.filter + 1) % 3
 			a.ed.Status = "zoomed-out filter: " + [...]string{"average", "contrast boost", "any-on"}[a.canvas.filter]
@@ -166,39 +225,83 @@ func (a *app) handleKeys() {
 	}
 }
 
-func (a *app) save() {
-	if a.opts.Path == "" {
-		a.ed.Status = "no file name: start mipsim with a file path to save (file dialogs come in M6)"
+func (a *app) runPrompt(p *prompt) {
+	path := strings.TrimSpace(p.buffer)
+	if path == "" {
+		a.ed.Status = "no file name given"
 		return
 	}
+	switch p.kind {
+	case uiSaveAs:
+		a.save(path)
+	case uiOpen:
+		platform.ReadFile(path, func(data []byte, err error) {
+			if err != nil {
+				a.ed.Status = "open failed: " + err.Error()
+				return
+			}
+			d, err := doc.Load(data)
+			if err != nil {
+				a.ed.Status = "open failed: " + firstLine(err.Error())
+				return
+			}
+			a.ed.ReplaceDocument(d)
+			a.setPath(path)
+			a.fit()
+			a.ed.Status = "opened " + path
+		})
+	}
+}
+
+func (a *app) setPath(path string) {
+	a.opts.Path = path
+	ebiten.SetWindowTitle("MiPSim — " + path)
+}
+
+func (a *app) save(path string) {
 	data, err := a.ed.Doc.Save()
 	if err != nil {
-		a.ed.Status = "save failed: " + err.Error()
+		a.ed.Status = "save failed: " + firstLine(err.Error())
 		return
 	}
-	path := a.opts.Path
 	platform.WriteFile(path, data, func(err error) {
 		if err != nil {
 			a.ed.Status = "save failed: " + err.Error()
 			return
 		}
+		a.setPath(path)
 		a.ed.Status = "saved " + path
 	})
+}
+
+func firstLine(s string) string {
+	s, _, _ = strings.Cut(s, "\n")
+	return s
 }
 
 var buttons = [3]ebiten.MouseButton{ebiten.MouseButtonLeft, ebiten.MouseButtonRight, ebiten.MouseButtonMiddle}
 
 func (a *app) handlePointer() {
 	cx, cy := ebiten.CursorPosition()
+	cur := image.Pt(cx, cy)
 	area := a.canvasArea()
-	inCanvas := image.Pt(cx, cy).In(area)
+	inCanvas := cur.In(area)
 
-	if _, wy := ebiten.Wheel(); wy != 0 && inCanvas {
+	if _, wy := ebiten.Wheel(); wy != 0 {
 		n := 1
 		if wy < 0 {
 			n = -1
 		}
-		a.view.Zoom(n, float64(cx), float64(cy))
+		switch {
+		case inCanvas:
+			a.view.Zoom(n, float64(cx), float64(cy))
+		case cur.In(a.panelArea()):
+			a.panelScroll -= n
+		}
+	}
+	if cur.In(a.panelArea()) && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		a.panelClick(cur)
+		return
 	}
 
 	// Space+drag pans.
@@ -227,8 +330,8 @@ func (a *app) handlePointer() {
 			a.ed.PointerUp(p, editor.Button(i))
 		}
 	}
-	if p != a.lastWord || a.pressed[0] {
-		a.lastWord = p
+	if p != a.lastWorld || a.pressed[0] {
+		a.lastWorld = p
 		a.ed.PointerMove(p, m)
 	}
 }
@@ -236,6 +339,7 @@ func (a *app) handlePointer() {
 func (a *app) Draw(screen *ebiten.Image) {
 	screen.Fill(background)
 	area := a.canvasArea()
+	nl := a.ed.Netlist()
 	a.canvas.sync(a.ed)
 	_, hoverNet, hoverText := a.ed.Hover()
 	canvasImg := screen.SubImage(area).(*ebiten.Image)
@@ -244,8 +348,15 @@ func (a *app) Draw(screen *ebiten.Image) {
 		cells, value := a.ed.Stroke()
 		drawStroke(canvasImg, &a.view, cells, value)
 	}
+	a.drawLabels(canvasImg)
+	a.drawDiagnosticMarkers(canvasImg, nl)
+	a.drawOverlay(canvasImg, a.ed.Overlay())
+	a.drawPanel(screen)
 	a.drawStatus(screen, hoverText)
+	a.screenshot(screen)
+}
 
+func (a *app) screenshot(screen *ebiten.Image) {
 	a.frames++
 	if a.frames == 5 {
 		a.timeFrom = time.Now()
@@ -253,27 +364,28 @@ func (a *app) Draw(screen *ebiten.Image) {
 	if a.shotQuit && a.opts.Frames > 0 && a.frames == a.shotAt {
 		fmt.Printf("average frame time over %d frames: %v\n", a.opts.Frames, time.Since(a.timeFrom)/time.Duration(a.opts.Frames))
 	}
-	if a.shotPath != "" && a.frames >= a.shotAt {
-		path := a.shotPath
-		a.shotPath = ""
-		data, err := encodePNG(screen)
-		if err != nil {
-			a.err = err
-			return
-		}
-		platform.WriteFile(path, data, func(err error) {
-			switch {
-			case err != nil && a.shotQuit:
-				a.err = err
-			case err != nil:
-				a.ed.Status = "screenshot failed: " + err.Error()
-			case a.shotQuit:
-				a.err = ebiten.Termination
-			default:
-				a.ed.Status = "screenshot saved: " + path
-			}
-		})
+	if a.shotPath == "" || a.frames < a.shotAt {
+		return
 	}
+	path := a.shotPath
+	a.shotPath = ""
+	data, err := encodePNG(screen)
+	if err != nil {
+		a.err = err
+		return
+	}
+	platform.WriteFile(path, data, func(err error) {
+		switch {
+		case err != nil && a.shotQuit:
+			a.err = err
+		case err != nil:
+			a.ed.Status = "screenshot failed: " + err.Error()
+		case a.shotQuit:
+			a.err = ebiten.Termination
+		default:
+			a.ed.Status = "screenshot saved: " + path
+		}
+	})
 }
 
 func (a *app) drawStatus(screen *ebiten.Image, hover string) {
@@ -295,10 +407,16 @@ func (a *app) drawStatus(screen *ebiten.Image, hover string) {
 	if a.view.Scale < 1 {
 		zoom = fmt.Sprintf("1/%gx", 1/a.view.Scale)
 	}
-	line1 := fmt.Sprintf("%s | %s | %s | %d nets, %d transistors, %d errors, %d warnings | %s",
-		a.ed.Mode(), a.ed.Tool(), zoom, len(nl.Nets), len(nl.Transistors), errs, warns, hover)
+	file := a.opts.Path
+	if file == "" {
+		file = "untitled"
+	}
+	line1 := fmt.Sprintf("%s | %s | %s | %s | %d nets, %d transistors, %d errors, %d warnings | %s",
+		file, a.ed.Mode(), a.ed.Tool(), zoom, len(nl.Nets), len(nl.Transistors), errs, warns, hover)
 	line2 := a.ed.Status
-	if line2 == "" {
+	if p := a.prompt; p != nil {
+		line2 = map[uiAction]string{uiOpen: "open: ", uiSaveAs: "save as: "}[p.kind] + p.buffer + "_   (enter to confirm, escape to cancel)"
+	} else if line2 == "" {
 		line2 = helpLine(a.ed.Mode())
 	}
 	for i, s := range []string{line1, line2} {

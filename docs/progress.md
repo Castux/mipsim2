@@ -219,4 +219,39 @@ The thin-wires variant stays the default until decided.
 - Opening files still uses `os` in `cmd/mipsim`; M6 moves it into `platform` with an in-app Save As prompt.
 - The status bar text is not yet an ebitenui panel; panels arrive with the diagnostics list in M6.
 
-**Not done / next:** M6 (editing conveniences).
+## M6 Editing conveniences
+
+**Works** (`editor`, tested with scripted event sequences; every command's undo and redo are checked against document snapshots):
+
+- **Select** (`s`): drag a rectangle. The selection lives in the definition where the drag started, clipped to it. It holds that definition's pixels and labels in the rectangle and the instances entirely inside it. A click without a drag selects the top-level instance under the pointer.
+- **Move:** drag inside the selection; a ghost preview follows. Moves happen in the selection's own definition, through its orientation.
+- **Copy, cut, paste** (`c`, `x`, `v`):
+  - The clipboard holds pixels, labels and linked instances.
+  - The paste preview follows the pointer; left click places, right click or escape cancels.
+  - Pasted instances keep their definition (still linked) and get fresh IDs, plus a fresh name if theirs is taken.
+  - Paste lands in the definition under the pointer.
+  - The clipboard also converts to and from ASCII rows (`SetClipboardRows`, `ClipboardRows`).
+- **Delete** (backspace or delete).
+- **Mirror, rotate** (`m`, `r`): on the selection, or on the paste preview before it is placed. The top-left corner stays fixed and contained instances compose their orientation. A single selected instance therefore just rotates; its definition is unchanged.
+- **Labels** (`n`): click a pixel, type, enter. Clicking an existing label edits it; an empty name removes it; invalid names are refused; escape cancels.
+- **Undo and redo** for every command:
+  - Strokes record individual pixel changes.
+  - Every other command snapshots the definitions it touches. The document is validated after the command; an edit that breaks an invariant is reverted with the reason in the status bar.
+  - Tested rejections: moving pixels into an instance, pasting an instance over another, pasting a definition into itself.
+- `ui`:
+  - The diagnostics panel lists errors and warnings on the right whenever there are any; click one to centre on it, wheel to scroll. Diagnostics are also outlined on the canvas.
+  - Label names are drawn next to their pixels from 6× zoom; the full hierarchical name shows in the hover text.
+  - Selection outline, move and paste ghosts, and the label being typed.
+  - Native file handling through `platform`: ctrl+s saves in place, ctrl+shift+s opens a Save As prompt and ctrl+o an Open prompt, both typed in the status bar. A new document asks for a name on its first save.
+
+**Decisions:**
+
+- **Paste is opaque for pixels and labels**: the target rectangle is cleared first, as in pixel editors, so an old wire under the pasted area cannot merge with the new content. Paste never removes instances. Pasting or moving onto an instance breaks an invariant and is rejected, rather than silently deleting the instance.
+- Shift-adding to a selection is not implemented; a selection is one rectangle. Multi-selection would complicate move, rotate and context handling, and nothing in the plan needs it before M7.
+- Undo and redo clear the selection, because the selected definition may have changed shape.
+- There is no system clipboard yet: Ebitengine has no clipboard API, and adding one means a new dependency. ASCII paste exists in the editor API for when it lands.
+- Typing (labels and prompts) takes the keyboard, so single-letter keys type rather than switch tools.
+
+**Not verified by the agent:** as for M5, interactive mouse and keyboard use (drag-selecting, moving, typing labels, prompts). The logic is covered by `editor` tests, and rendering was checked with screenshots of the diagnostics panel, markers and labels.
+
+**Not done / next:** M7 (component UI). The plan says to pause here for the owner.

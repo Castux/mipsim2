@@ -69,6 +69,16 @@ func (v *View) Zoom(n int, sx, sy float64) {
 	v.Offset[1] = math.Round(sy - wy*v.Scale)
 }
 
+// CenterOn moves the view so world pixel p is in the middle of a w×h screen,
+// zooming in to at least 8× so it is visible.
+func (v *View) CenterOn(p image.Point, w, h float64) {
+	for v.Scale < 8 && v.level < len(zoomLevels)-1 {
+		v.setLevel(v.level + 1)
+	}
+	v.Offset[0] = math.Round(w/2 - (float64(p.X)+0.5)*v.Scale)
+	v.Offset[1] = math.Round(h/2 - (float64(p.Y)+0.5)*v.Scale)
+}
+
 // Fit centres the rectangle r in a screen of size w×h at the largest zoom
 // level that shows all of it.
 func (v *View) Fit(r image.Rectangle, w, h float64) {

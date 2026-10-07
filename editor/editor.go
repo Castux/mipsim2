@@ -36,9 +36,11 @@ type Tool int
 
 const (
 	Pencil Tool = iota
+	Select
+	LabelTool
 )
 
-func (t Tool) String() string { return [...]string{"pencil"}[t] }
+func (t Tool) String() string { return [...]string{"pencil", "select", "label"}[t] }
 
 // Button is a pointer button.
 type Button int
@@ -59,12 +61,23 @@ type Action int
 
 const (
 	ActPencil Action = iota
+	ActSelect
+	ActLabel
 	ActToggleSimulate
 	ActTick
 	ActHalfTick
 	ActResetSim
 	ActUndo
 	ActRedo
+	ActCopy
+	ActCut
+	ActPaste
+	ActDelete
+	ActMirror
+	ActRotate
+	ActEscape
+	ActEnter     // while typing
+	ActBackspace // while typing
 )
 
 // cheapCompile is the compile time below which strokes recompile on every
@@ -78,6 +91,7 @@ type Editor struct {
 	mode Mode
 	tool Tool
 
+	flat        *doc.Flat
 	nl          *netlist.Netlist
 	dirty       bool
 	lastCompile time.Duration
@@ -86,7 +100,13 @@ type Editor struct {
 	run *runner.Runner
 
 	undo, redo []Command
-	stroke     *stroke
+
+	stroke *stroke
+	sel    *selection
+	drag   *dragState
+	clip   *clip
+	paste  bool // the clipboard follows the pointer until a click
+	typing *typing
 
 	hover image.Point
 
@@ -99,10 +119,31 @@ type stroke struct {
 	start  image.Point
 	last   image.Point
 	axis   int // 0 free, 1 horizontal, 2 vertical (alt line lock)
+	locked bool
 	edit   *pixelEdit
 	done   map[image.Point]bool // world cells visited by this stroke (lookups only)
 	cells  []image.Point        // world cells changed by this stroke, in order
-	locked bool
+}
+
+// selection is a rectangle in one definition, its context.
+type selection struct {
+	path []int           // instance indices from the root to the context
+	def  doc.DefID       // the context definition
+	toW  doc.Affine      // context local -> world
+	rect image.Rectangle // local coordinates
+}
+
+type dragState struct {
+	start, cur image.Point // world
+	moving     bool        // dragging the selection, not drawing a new one
+}
+
+type typing struct {
+	def    doc.DefID
+	at     image.Point // local coordinates of the label
+	world  image.Point // where it was clicked
+	old    string      // existing label name, "" for a new label
+	buffer string
 }
 
 // New returns an editor on d in edit mode.
@@ -132,12 +173,19 @@ func (e *Editor) Runner() *runner.Runner { return e.run }
 func (e *Editor) Netlist() *netlist.Netlist {
 	if e.dirty {
 		start := time.Now()
-		e.nl = netlist.CompileDoc(e.Doc, netlist.Options{})
+		e.flat = e.Doc.Flatten()
+		e.nl = netlist.Compile(e.flat, netlist.Options{})
 		e.lastCompile = time.Since(start)
 		e.dirty = false
 		e.compiles++
 	}
 	return e.nl
+}
+
+// Flat returns the flattened document of the last compile (for drawing labels).
+func (e *Editor) Flat() *doc.Flat {
+	e.Netlist()
+	return e.flat
 }
 
 // Stroke returns the pixels changed by the stroke in progress, in world
@@ -149,16 +197,40 @@ func (e *Editor) Stroke() (cells []image.Point, value bool) {
 	return e.stroke.cells, e.stroke.value
 }
 
+// Typing returns the label being typed, if any.
+func (e *Editor) Typing() (string, bool) {
+	if e.typing == nil {
+		return "", false
+	}
+	return e.typing.buffer, true
+}
+
+// TypeRune adds a character to the label being typed.
+func (e *Editor) TypeRune(r rune) {
+	if e.typing != nil && r >= ' ' && r != 127 {
+		e.typing.buffer += string(r)
+		e.Status = "label: " + e.typing.buffer + "_   (enter to apply, escape to cancel)"
+	}
+}
+
 // Do performs a keyboard action.
 func (e *Editor) Do(a Action) {
+	if e.typing != nil {
+		e.doTyping(a)
+		return
+	}
 	switch a {
 	case ActPencil:
-		e.tool = Pencil
-		e.setMode(EditMode)
+		e.setTool(Pencil)
+	case ActSelect:
+		e.setTool(Select)
+	case ActLabel:
+		e.setTool(LabelTool)
 	case ActToggleSimulate:
 		if e.mode == SimulateMode {
 			e.setMode(EditMode)
 		} else {
+			e.cancel()
 			e.setMode(SimulateMode)
 		}
 	case ActTick, ActHalfTick:
@@ -183,10 +255,45 @@ func (e *Editor) Do(a Action) {
 			e.Status = "simulation reset"
 		}
 	case ActUndo:
+		e.cancel()
 		e.Undo()
 	case ActRedo:
+		e.cancel()
 		e.Redo()
+	case ActCopy:
+		e.copySelection()
+	case ActCut:
+		if e.copySelection() {
+			e.deleteSelection("cut")
+		}
+	case ActPaste:
+		e.startPaste()
+	case ActDelete:
+		e.deleteSelection("delete")
+	case ActMirror:
+		e.transformSelection(doc.Orient{Flip: true}, "mirror")
+	case ActRotate:
+		e.transformSelection(doc.Orient{Rot: 1}, "rotate")
+	case ActEscape:
+		e.cancel()
+		e.sel = nil
 	}
+}
+
+func (e *Editor) setTool(t Tool) {
+	e.cancel()
+	e.tool = t
+	if t != Select {
+		e.sel = nil
+	}
+	e.setMode(EditMode)
+	e.Status = t.String()
+}
+
+// cancel abandons a paste preview or a drag in progress.
+func (e *Editor) cancel() {
+	e.paste = false
+	e.drag = nil
 }
 
 func (e *Editor) setMode(m Mode) {
@@ -243,26 +350,50 @@ func (e *Editor) Value(n netlist.NetID) sim.Value {
 	return e.run.Sim().Value(n)
 }
 
-// PointerDown starts a stroke (edit mode) or pins a net (simulate mode).
+// PointerDown handles a button press at world pixel p.
 func (e *Editor) PointerDown(p image.Point, b Button, m Mods) {
 	e.hover = p
+	if e.typing != nil {
+		e.commitLabel()
+	}
 	if e.mode == SimulateMode {
 		e.pinAt(p, b)
+		return
+	}
+	if e.paste {
+		if b == Left {
+			e.placePaste(p)
+		} else {
+			e.paste = false
+			e.Status = "paste cancelled"
+		}
 		return
 	}
 	if b != Left {
 		return
 	}
-	loc := e.Doc.Locate(p)
-	value := !e.Doc.Defs[loc.Def].Pixels.Get(loc.Local.X, loc.Local.Y)
-	e.stroke = &stroke{value: value, start: p, last: p, edit: &pixelEdit{}, done: map[image.Point]bool{}}
-	e.paint(p)
-	e.afterPaint()
+	switch e.tool {
+	case Pencil:
+		loc := e.Doc.Locate(p)
+		value := !e.Doc.Defs[loc.Def].Pixels.Get(loc.Local.X, loc.Local.Y)
+		e.stroke = &stroke{value: value, start: p, last: p, edit: &pixelEdit{}, done: map[image.Point]bool{}}
+		e.paint(p)
+		e.afterPaint()
+	case Select:
+		moving := e.sel != nil && p.In(e.selWorld())
+		e.drag = &dragState{start: p, cur: p, moving: moving}
+	case LabelTool:
+		e.startLabel(p)
+	}
 }
 
-// PointerMove extends the stroke and updates the hover position.
+// PointerMove extends a stroke or drag and updates the hover position.
 func (e *Editor) PointerMove(p image.Point, m Mods) {
 	e.hover = p
+	if e.drag != nil {
+		e.drag.cur = p
+		return
+	}
 	s := e.stroke
 	if s == nil {
 		return
@@ -297,10 +428,7 @@ func (s *stroke) lockTo(p image.Point) image.Point {
 		} else {
 			s.axis = 2
 		}
-		// Continue from the start so the locked line is straight.
-		if s.last != s.start {
-			s.last = s.start
-		}
+		s.last = s.start // continue from the start so the line is straight
 	}
 	if s.axis == 1 {
 		return image.Pt(p.X, s.start.Y)
@@ -308,10 +436,23 @@ func (s *stroke) lockTo(p image.Point) image.Point {
 	return image.Pt(s.start.X, p.Y)
 }
 
-// PointerUp finishes a stroke as one undoable command.
+// PointerUp finishes a stroke or a drag.
 func (e *Editor) PointerUp(p image.Point, b Button) {
+	if b != Left {
+		return
+	}
+	if d := e.drag; d != nil {
+		e.drag = nil
+		d.cur = p
+		if d.moving {
+			e.moveSelection(d)
+		} else {
+			e.selectArea(d.start, d.cur)
+		}
+		return
+	}
 	s := e.stroke
-	if s == nil || b != Left {
+	if s == nil {
 		return
 	}
 	e.stroke = nil
@@ -375,6 +516,7 @@ func (e *Editor) Undo() {
 	e.undo = e.undo[:len(e.undo)-1]
 	c.Undo(e.Doc)
 	e.redo = append(e.redo, c)
+	e.sel = nil
 	e.changed("undo " + c.Name())
 }
 
@@ -388,6 +530,7 @@ func (e *Editor) Redo() {
 	e.redo = e.redo[:len(e.redo)-1]
 	c.Do(e.Doc)
 	e.undo = append(e.undo, c)
+	e.sel = nil
 	e.changed("redo " + c.Name())
 }
 
@@ -401,6 +544,13 @@ func (e *Editor) changed(what string) {
 	if e.Status == "" {
 		e.Status = what
 	}
+}
+
+// ReplaceDocument swaps in a new document (after opening a file), clearing
+// history and selection.
+func (e *Editor) ReplaceDocument(d *doc.Document) {
+	*e = Editor{Doc: d, dirty: true, tool: e.tool}
+	e.Netlist()
 }
 
 func (e *Editor) pinAt(p image.Point, b Button) {

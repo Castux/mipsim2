@@ -9,3 +9,9 @@ package platform
 func WriteFile(name string, data []byte, done func(error)) {
 	writeFile(name, data, done)
 }
+
+// ReadFile loads the file called name (a path on desktop) and calls done
+// with its content.
+func ReadFile(name string, done func([]byte, error)) {
+	readFile(name, done)
+}
