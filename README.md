@@ -15,17 +15,29 @@ A 3×3 square pulls its wire high, and a 3×3 ring pulls it low (low wins). A T 
 
 ## Status
 
-In development; not usable yet. Done so far: the document model (`.mip` files, components with rotation and mirroring) and the pattern compiler, which turns pixels into a netlist and reports located errors and warnings. The simulator, headless runner, desktop editor, memory devices and web version follow. See [PLAN.md](PLAN.md) for the milestones and [docs/progress.md](docs/progress.md) for what works today.
+In development. Done so far:
+
+- the document model (`.mip` files, components with rotation and mirroring);
+- the pattern compiler, which reports located errors and warnings;
+- the switch-level simulator;
+- a headless runner and CLI;
+- a desktop editor: draw, select, move, copy and paste, rotate and mirror, labels, undo, a diagnostics panel, and simulate mode.
+
+Still to come: the editor UI for making and placing components, memory devices, and the web version. See [PLAN.md](PLAN.md) for the milestones and [docs/progress.md](docs/progress.md) for details.
 
 ## Building
 
 You need Go 1.25 or later. On Linux, Ebitengine also needs the X11 and OpenGL development packages; see the [Ebitengine install guide](https://ebitengine.org/en/documents/install.html).
 
 ```sh
-go test ./...                # run the tests
-go run ./cmd/mipsim          # open the editor window (blank for now)
-scripts/check.sh             # every check CI runs: gofmt, vet, staticcheck, tests, wasm build
+go test ./...                                   # run the tests
+go run ./cmd/mipsim circuit.mip                 # edit a circuit (created on first save)
+go run ./cmd/mipsim testdata/sim/xor.fix        # open a test fixture
+go run ./cmd/mipsim-run testdata/runner/adder4.fix --set a=3,b=5,cin=0 --watch sum,cout
+scripts/check.sh                                # every check CI runs
 ```
+
+In the editor: `d` draws (hold alt for straight lines), `s` selects, `n` labels, `e` toggles simulation (then left click pins a wire high, right click pins it low, middle click releases it). The status bar lists the rest.
 
 ## Layout
 
