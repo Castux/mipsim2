@@ -40,7 +40,6 @@ var allowed = map[string][]string{
 // Core packages must not depend on these at any depth.
 var forbiddenPrefixes = []string{
 	"github.com/hajimehoshi/ebiten",
-	"github.com/ebitenui/",
 	"github.com/ebitengine/",
 }
 

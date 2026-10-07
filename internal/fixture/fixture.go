@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -263,4 +264,22 @@ func placeName(s string) string {
 		return ""
 	}
 	return s
+}
+
+// LoadDocument decodes a file's contents as a document: a test fixture if
+// the name ends in .fix (any case), else a .mip file. It also returns where
+// the document saves: a fixture is saved as a .mip file next to it.
+func LoadDocument(path string, data []byte) (d *doc.Document, savePath string, err error) {
+	if ext := filepath.Ext(path); strings.EqualFold(ext, ".fix") {
+		f, err := Parse(string(data))
+		if err != nil {
+			return nil, "", fmt.Errorf("%s: %w", path, err)
+		}
+		return f.Doc, strings.TrimSuffix(path, ext) + ".mip", nil
+	}
+	d, err = doc.Load(data)
+	if err != nil {
+		return nil, "", fmt.Errorf("%s: %w", path, err)
+	}
+	return d, path, nil
 }

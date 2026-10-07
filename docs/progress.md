@@ -1,12 +1,12 @@
 # Progress
 
-What works, what does not, and decisions made, milestone by milestone. See [PLAN.md](../PLAN.md) for the milestones and [SPEC.md](SPEC.md) for the specification.
+What works, what does not, and decisions made, in the order they happened. It is a log: later sections can supersede earlier ones (for example, ebitenui was chosen in M0 and dropped in the UI rework). For the current state, see the Status section of [PLAN.md](../PLAN.md) and the specification in [SPEC.md](SPEC.md).
 
 ## M0 Setup
 
 **Works:**
 
-- Module `github.com/Castux/mipsim2`, Go 1.25, Ebitengine v2.10.4.
+- Module `github.com/Castux/mipsim2`, Go 1.25 (since moved to 1.26), Ebitengine v2.10.4.
 - Package skeleton for every package in the plan's layout.
 - `internal/archtest` enforces the dependency rules: core packages never depend on Ebitengine, ebitenui or `syscall/js` (checked for the host and for wasm), and imports between module packages only point downward. Both checks were confirmed to fail on a deliberate violation.
 - CI on GitHub Actions:
@@ -43,7 +43,7 @@ Decision: use ebitenui for panels. It adds `golang.org/x/image` (for the Go font
 - The spec was split out of `PLAN.md` into `docs/SPEC.md`, and cross-references now use section headings instead of numbers.
 - The dependency rules in `PLAN.md` were made precise to match `internal/archtest`. The runner may import `doc` and `netlist` (device configs, net names), and `devices` imports no module package.
 - `.gitattributes` forces LF line endings, so Windows checkouts do not upset `gofmt`.
-- Spikes live in `spikes/` and stay as runnable references; they are not part of the product.
+- Spikes lived in `spikes/` as runnable references. They were removed in the cleanup before M9, once the canvas shader and the hand-rolled chrome had replaced them; they remain in git history.
 
 ## M1 Bitmap and document
 
@@ -194,7 +194,7 @@ The thin-wires variant stays the default until decided.
   - Transistor centres light up when conducting; sources keep a tint of their kind in simulate mode; the hovered net is highlighted; a grid shows at 8× and above.
   - The status bar shows mode, tool, zoom, net, transistor and diagnostic counts, hover details and a key help line.
   - All keys live in one keymap table (`ui/keymap.go`).
-- `mipsim [file.mip|file.fix]` opens a file and fits it to the window; ctrl+s saves `.mip` files in place. Flags for scripted checks and demos: `-simulate`, `-set`, `-zoom`, `-filter`, `-screenshot`, `-frames`. Screenshots in `docs/m5/` are rendered this way (`inv_edit.png`, `inv_sim.png`, `xor_sim.png`).
+- `mipsim [file.mip|file.fix]` opens a file and fits it to the window; ctrl+s saves `.mip` files in place. Flags for scripted checks and demos: `-simulate`, `-set`, `-zoom`, `-filter`, `-screenshot`, `-frames`. The M5 screenshots were rendered this way. They showed the pre-rework UI and were removed in the cleanup before M9 (in git history); `docs/screenshot.png` is the current one.
 - File writes go through `platform.WriteFile`, which is asynchronous (callback). It has a native implementation and a wasm stub, so `ui` has no direct filesystem access.
 - `go run ./internal/tools/synth` writes the synthetic inverter-chain circuit as a `.mip` file.
 
@@ -205,11 +205,11 @@ The thin-wires variant stays the default until decided.
   - contrast boost (square root of coverage);
   - any-on.
 - Measured on the 830k-pixel synthetic circuit in simulate mode, vsync off, 120 frames, including the per-frame state upload for 46k nets: **0.6–0.8 ms per frame** at 1/2, 1/4, 1/8 and 1/16 with every filter. The "colour then mip" candidate is not needed for speed.
-- Screenshots are in `docs/m5/zoom025_filter{0,1,2}.png` and `zoom00625_filter{0,1,2}.png`:
+- Screenshots at 1/4 and 1/16 with each filter (in git history, under `docs/m5/`):
   - Average reads as a dim, even texture.
   - Contrast boost keeps the high/low pattern of the chains visible.
   - Any-on saturates into solid blocks, as the plan predicted.
-- **Default: contrast boost. Owner to pick.**
+- **Default: contrast boost, confirmed by the owner.**
 
 **Not verified by the agent:** interactive use. No one was at the keyboard, so mouse drawing, alt-drag, panning, wheel zoom and clicking pins were tested through the editor's unit tests and screenshots, not by hand. **The M5 completion check, "the owner can draw an inverter in the desktop editor and toggle it", needs the owner:** `go run ./cmd/mipsim test.mip`, draw, press `e`, click.
 
@@ -401,3 +401,9 @@ Four parallel reviews: core, format and devices, editor and ui, performance. Fix
 - **Architecture:** archtest also checks ui/filebrowser, forbids `os` in core packages and keeps the CLI headless.
 
 Open, by decision: compile is still about 60 ms (+22 ms flatten) against the 50 ms budget; the canvas texture stops at 8192 px; ui (3000 lines) has no tests and duplicated widgets; undo snapshots copy whole definitions; wasm-port items (synchronous init-file reads, path-based document identity).
+
+## Cleanup before M9
+
+- Removed: the M0 spikes (and with them the ebitenui dependency), the M5 screenshots of the old UI, and a duplicate inverter fixture.
+- One loader for `.mip` and `.fix` files (`fixture.LoadDocument`), used by the editor command, the file dialog and the CLI, which had three versions with slightly different rules.
+- README rewritten with a screenshot; PLAN has a Status section and matches what was built.

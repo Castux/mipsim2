@@ -55,25 +55,14 @@ func main() {
 // open loads a .mip or .fix file. A missing .mip file starts a new document
 // that will be saved there.
 func open(path string) (*doc.Document, string, error) {
-	if filepath.Ext(path) == ".fix" {
-		fx, err := fixture.ParseFile(path)
-		if err != nil {
-			return nil, "", err
-		}
-		return fx.Doc, strings.TrimSuffix(path, ".fix") + ".mip", nil
-	}
 	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
+	if errors.Is(err, fs.ErrNotExist) && !strings.EqualFold(filepath.Ext(path), ".fix") {
 		return doc.New(), path, nil
 	}
 	if err != nil {
 		return nil, "", err
 	}
-	d, err := doc.Load(data)
-	if err != nil {
-		return nil, "", fmt.Errorf("%s: %w", path, err)
-	}
-	return d, path, nil
+	return fixture.LoadDocument(path, data)
 }
 
 // parseClick parses "X,Y" for the -click flag.

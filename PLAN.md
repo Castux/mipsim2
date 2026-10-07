@@ -2,6 +2,17 @@
 
 Oct 7, 2026 · @Noé
 
+## Status
+
+M0 to M8 are done and merged to `master`. The headless core, the CLI and the desktop editor (drawing, selection, components, simulation, memory devices) all work. Next is M9: the owner builds a processor from the ground up, and the agent supports it. Per-milestone notes, measurements and decisions are in [docs/progress.md](docs/progress.md).
+
+Where the build departs from the original plan below, the plan has been updated to match, and the decision is recorded in `docs/progress.md`. The main departures:
+
+- **UI:** hand-rolled immediate-mode chrome instead of ebitenui. Text-only buttons, each showing its key, and raylib's bitmap font drawn at integer scale.
+- **File dialog:** an in-app file dialog instead of a native one.
+- **Memories:** configured in a Devices tab, as well as in the file.
+- **Edit and file actions:** clicking selects the innermost instance; instance names are optional; New, and a save guard before replacing or closing a modified document.
+
 ## Context
 
 MiPSim v2 is a rewrite of [Castux/mipsim](https://github.com/Castux/mipsim) in Go, with a one-bit pixel editor, reusable components, and attachable memory. This document is the handover for an AI agent building it. The specification (tile semantics, simulation, components, devices, file format) lives in [docs/SPEC.md](docs/SPEC.md).
@@ -46,11 +57,11 @@ Use Go (latest stable release, pinned in `go.mod`) with [Ebitengine](https://ebi
 | go-gl + GLFW, separate WebGL path | rejected | Two rendering and input backends to keep in sync |
 | Gio | fallback | Strong widgets and WASM support, but less natural for a large zoomable pixel canvas |
 
-**UI widgets.** Keep all UI inside Ebitengine so desktop and web behave identically. In M0, spike [ebitenui](https://github.com/ebitenui/ebitenui) for panels, buttons and text fields; if it fights the layout, hand-roll a small immediate-mode panel set. Text uses `ebiten/v2/text/v2` with an embedded open font.
+**UI widgets.** Keep all UI inside Ebitengine so desktop and web behave identically. The M0 spike found [ebitenui](https://github.com/ebitenui/ebitenui) workable. However, the UI rework after M6 replaced it with a small hand-rolled immediate-mode chrome. It is driven by the keymap table, so every button shows its key. Text is raylib's default bitmap font (zlib licence), stored as glyph rows and drawn at integer scale, so it stays pixel-exact.
 
 **Rendering approach.** Draw the canvas with one shader pass instead of per-pixel draw calls. Upload the visible region as two textures: pixel role (wire, source, transistor, bridge, off) and net ID packed into RGBA. Upload net states as a small lookup texture each frame. The shader colours each pixel from its role and its net's state. Only the state texture changes during simulation, so frame cost stays flat as circuits grow. The state texture is 2D (a processor can have well over 100k nets, more than one texture row allows), indexed by net ID split into row and column.
 
-This depends on Kage reading a second source image of a different size at arbitrary texel coordinates, which Ebitengine has restricted in some versions. M0 includes a spike with a pass/fail result: a shader that colours a 4096×4096 role/ID texture from a 512×512 state texture, run on desktop with the default backend and with OpenGL forced (the closest to WebGL, so the web port is unlikely to hit surprises). If it fails, the fallback is to pack the state into the same image as an atlas region, or to repaint changed nets on the CPU into a cached canvas image.
+This depends on Kage reading a second source image of a different size at arbitrary texel coordinates, which Ebitengine has restricted in some versions. M0 included a spike with a pass/fail result (it passed, and the canvas shader is built this way): a shader that colours a 4096×4096 role/ID texture from a 512×512 state texture, run on desktop with the default backend and with OpenGL forced (the closest to WebGL, so the web port is unlikely to hit surprises). If it fails, the fallback is to pack the state into the same image as an atlas region, or to repaint changed nets on the CPU into a cached canvas image.
 
 **Zoomed-out rendering (to investigate in M5).** Below 1:1, each screen pixel covers many circuit pixels. Showing a screen pixel as on when any circuit pixel under it is on turns dense logic into solid blocks, so render with area filtering (antialiasing) instead. Each circuit pixel is coloured first, from its role and net state, and the colours are then averaged over the screen pixel's footprint. Averaging must happen after colouring, because net IDs and roles cannot be interpolated. A one-pixel wire at 1/4 scale then shows as a faint line of its state colour, instead of vanishing or filling the block. With filtering, zoom-out no longer needs integer steps, and zoom can be continuous below 1:1. Candidates for the M5 spike:
 
@@ -74,22 +85,18 @@ CI compiles everything for `GOOS=js GOARCH=wasm` as a check (build only, not dep
 **Setup:**
 
 ```sh
-# repo
-go mod init github.com/Castux/mipsim2   # or a v2/ directory, see open questions
-go get github.com/hajimehoshi/ebiten/v2
-
-# desktop
-go run ./cmd/mipsim examples/inverter.mip
+# desktop editor
+go run ./cmd/mipsim testdata/runner/adder4.fix
 
 # headless
-go run ./cmd/mipsim-run examples/bf.mip --ticks 2000 --watch pc,op
+go run ./cmd/mipsim-run testdata/runner/ram.fix --set sel=1,we=1,addr=17,data=0xab --dump ram
 
 # web (M10)
 GOOS=js GOARCH=wasm go build -o web/mipsim.wasm ./cmd/mipsim
 cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/   # path differs on older Go: misc/wasm
 
-# checks
-go vet ./... && staticcheck ./... && go test ./...
+# every check CI runs: gofmt, vet, staticcheck, tests, wasm build
+scripts/check.sh
 ```
 
 **CI** (GitHub Actions): install Ebitengine's Linux build dependencies first (cgo plus the X11, Xrandr, Xcursor, Xinerama, Xi, Xxf86vm and GL dev packages listed in its install docs) and `staticcheck` (`go install honnef.co/go/tools/cmd/staticcheck@latest`); otherwise `go vet ./...` fails on the `ui` package. Then vet, staticcheck, tests with `-race`, a compile-only WASM build, and a dependency check that fails if `bitmap`, `doc`, `netlist`, `sim`, `devices` or `runner` import Ebitengine (a test running `go list -deps` on those packages is enough). From M10, publish the WASM build to GitHub Pages on the main branch, as v1 does.
@@ -128,14 +135,20 @@ mipsim2/
   devices/           Device interface, memory
   runner/            clock, settle loop, named nets and numbers, traces
   editor/            tools, selection, clipboard, commands, undo (no graphics)
-  ui/                Ebitengine game loop, shader canvas, panels, input mapping
+  ui/                Ebitengine game loop, shader canvas, chrome, panels, dialogs
+    filebrowser/     the file dialog's logic (headless, unit-tested)
+    fonts/           raylib's bitmap font as glyph rows
   platform/          file I/O: native.go, js.go (build tags)
-  web/               index.html, wasm_exec.js, build script
-  internal/archtest/ dependency rule checks
-  spikes/            M0 experiments kept as runnable references
+  internal/
+    archtest/        dependency rule checks
+    fixture/         ASCII fixture parser, and the shared .mip/.fix loader
+    synth/           synthetic processor-scale circuits for benchmarks
+    tools/           classify (print a fixture's roles), synth, raylibfont
+  scripts/check.sh   every check CI runs
   testdata/          ASCII fixtures and goldens
-  examples/          .mip circuits
-  docs/              SPEC.md, progress.md, user guide
+  docs/              SPEC.md, progress.md, screenshot
+  web/               index.html, wasm_exec.js, build script (M10)
+  examples/          .mip circuits (M11)
 ```
 
 Dependency direction is strictly downward: `ui` and `cmd` may import anything; `editor` imports any core package; `runner` imports `bitmap`, `doc`, `netlist`, `sim`, `devices` (it reads device configs from the document and names from the netlist); `netlist` imports `doc`, `bitmap`; `doc` imports `bitmap`; `sim` imports only `netlist` types; `bitmap` and `devices` import no module packages (devices see the circuit only through an interface they define). No package below `ui` imports Ebitengine or `syscall/js`. `internal/archtest` enforces all of this.
@@ -146,14 +159,16 @@ The editor is a state machine over the document plus a command stack; it has no 
 
 **Layout** (agreed with the owner after M6). The principle is that every keystroke that applies is always visible:
 
-- **Top bar:** an Edit/Simulate switch (`e`) on the left, then the file name with a dot when modified. Undo, redo, open and save buttons sit on the right.
-- **Left column:** buttons for the current mode, each with a 12×12 one-bit icon (drawn from `#`/`.` rows like circuits), a name and its key. Actions that cannot apply right now are greyed out.
-  - Edit mode: the tools (draw, select, label; M7 adds make component and explode), then the selection actions.
+- **Top bar:** an Edit/Simulate switch (`e`) on the left, then the file name with a star when modified. Undo, redo, new, open and save buttons sit on the right. New, Open and closing the window ask to save a modified document first.
+- **Left column:** text buttons for the current mode, each with its name and key. Actions that cannot apply right now are greyed out.
+  - Edit mode: the tools (draw, select, label), then the selection actions, then the component actions (make component, explode, rename).
   - Simulate mode: run/pause (`space` tap), tick, half tick, step (`.`), reset, slower (`[`), faster (`]`), with the clock rate and tick count shown below.
 - **Right panel:** tabs, shown only when there is something to show.
   - Watch, in simulate mode: every labelled net and `name_N` bus, with value and pin. Click a net to pin it as on the canvas; click a bus to type a number.
+  - Memory, in simulate mode: each memory as a hex grid with the last access highlighted. Click a word to edit it while paused. Click a header to reload the init file.
+  - Components, in edit mode: the palette. Click to place, right click to rename, middle click to delete an unused one.
+  - Devices, in edit mode: add, configure and delete memories, with a status line checking each against the circuit.
   - Diagnostics: click one to centre on it.
-  - M7 adds Components and M8 adds Memory.
 - **Status lines:** the first describes what the mouse and modifiers do in the current state (or the hovered button, or the prompt being typed). The second shows position, counts and messages.
 - **Simulate mode** frames the canvas in v1 pink.
 - **Keymap:** buttons and keys come from the same table (`ui/keymap.go`). `space` held pans in both modes; a tap without panning runs or pauses in simulate mode.
@@ -164,7 +179,7 @@ The editor is a state machine over the document plus a command stack; it has no 
 | Tool | Key | Behaviour |
 | --- | --- | --- |
 | Pencil | `d` | Click toggles a pixel; drag paints the value of the first pixel toggled. Holding alt during a drag locks it to a horizontal or vertical line: the axis is the dominant direction once the cursor has moved 2 pixels from the start, and stays until release |
-| Select | `s` | Drag a rectangle; shift adds; click an instance to select it whole |
+| Select | `s` | Drag a rectangle; click selects the innermost instance under the pointer (click again for its parent) |
 | Move | drag selection | Moves pixels, labels and whole instances; invariants checked on drop |
 | Copy, cut, paste | `c` `x` `v` | Clipboard holds pixels, labels and linked instances; paste follows the cursor until click |
 | Delete | backspace | Clears selected pixels and labels; removes selected instances |
@@ -172,7 +187,7 @@ The editor is a state machine over the document plus a command stack; it has no 
 | Label | `n` | Click a wire pixel, type a name |
 | Make component | `k` | From the selection rectangle |
 | Explode | `K` | On a selected instance |
-| Undo, redo | ctrl+z, ctrl+shift+z | Command stack, unlimited within a session |
+| Undo, redo | ctrl+z, ctrl+y or ctrl+shift+z | Command stack, unlimited within a session |
 | Pan, zoom | space+drag, wheel | Zoomed in, snaps to integer scales (n screen pixels per circuit pixel). Zoomed out, filtered rendering so a whole processor fits on screen and stays readable (Technology and setup) |
 
 Keys are a starting proposal close to v1's (`x`, `c`, `v`, `m`, `r`, `e`); they live in one keymap table, modifiers included. Two known conflicts with alt as the line modifier: many Linux window managers take alt+drag to move the window, and in browsers a lone alt press can focus the menu bar (the `js` platform layer calls `preventDefault` on it). If alt proves unreliable on a platform, the keymap falls back to shift, which the pencil does not otherwise use. Every command records the definition it changed, so undo works across instances.
@@ -185,7 +200,7 @@ Keys are a starting proposal close to v1's (`x`, `c`, `v`, `m`, `r`, `e`); they 
 
 ## Milestones
 
-Build the headless core first and the editor second: M1 to M4 produce a working simulator with no graphics, which de-risks the hardest spec questions before any UI work. Each milestone ends with a short demo note in `docs/progress.md` and green CI.
+Build the headless core first and the editor second: M1 to M4 produce a working simulator with no graphics, which de-risks the hardest spec questions before any UI work. Each milestone ends with a short demo note in `docs/progress.md` and green CI. M0 to M8 are done (see Status).
 
 1. **M0 Setup.** Module, CI, package skeleton, dependency check, Ebitengine window that opens on desktop, ebitenui spike, Kage lookup-texture spike (Technology and setup).
    - Done when: `go test ./...` and the compile-only WASM build pass in CI, the desktop window opens, and both spikes have a recorded pass/fail in `docs/progress.md`.
@@ -251,11 +266,11 @@ Test layers:
 
 1. Read the v1 sources (`Simulator.lua`, `Geom.lua`, `bf-proc/BFHost.lua`) before M3 and M8; v2 behaviour should match v1 wherever this spec does not say otherwise.
 2. `docs/SPEC.md` is the only copy of the spec (split out of this plan in M0). Any behaviour change updates it and adds a fixture in the same commit.
-3. Core packages (`bitmap`, `doc`, `netlist`, `sim`, `devices`, `runner`, `editor`) never import graphics or `syscall/js`.
+3. Core packages (`bitmap`, `doc`, `netlist`, `sim`, `devices`, `runner`, `editor`, and `ui/filebrowser`) never import graphics, `syscall/js` or `os`. They get file access through callbacks.
 4. No map iteration in `bitmap`, `doc` (flatten), `netlist`, `sim` or `runner`. Use slices and stable ordering.
 5. One milestone per branch, small commits, pushed after each significant piece of work, CI green before merging to `master`. Update `docs/progress.md` with what works, what does not, and decisions made.
 6. When the spec is ambiguous, choose the simplest behaviour that is testable, record it under "Decisions" in `docs/progress.md`, and flag it for the owner. Do not guess on the open questions below; implement the stated default.
-7. Prefer standard library over dependencies. Allowed by default: Ebitengine, ebitenui (pending the M0 spike), a font package. Anything else gets a one-line justification in `docs/progress.md`.
+7. Prefer standard library over dependencies. The only direct dependency is Ebitengine. Anything else gets a one-line justification in `docs/progress.md`.
 8. Desktop first: do not implement web-specific code before M10, but follow the "web later" constraints in Technology and setup so the port stays cheap.
 
 ## Open questions for the owner
@@ -270,7 +285,7 @@ Each has a default the agent implements until the owner decides.
 | Do instances need rotation and mirroring? | Decided: yes, all 8 orientations, in the data model from M1 |
 | New repo (`mipsim2`) or a `v2/` directory in `mipsim`? | New repo, linked from the v1 README |
 | Memory writes: level-sensitive at each settle or on a strobe edge? | Level-sensitive, as v1 |
-| Memory reading a `Floating` or `Unstable` bit? | Decided: runtime error (SPEC: Memory devices and buses) |
+| Memory reading a `Floating` or `Unstable` bit? | Decided: runtime error, except that a floating `select` means idle (SPEC: Memory devices and buses) |
 | Clock net name: fixed `clock` or per document? | Per document, defaulting to `clock` |
 | Which processor is the M9 workload? | A full 8-bit processor, built from the ground up by the owner; no prepared component library |
 | Flip threshold for `Unstable` | 20, configurable; trips when a count goes above it, as in v1 |

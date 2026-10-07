@@ -11,7 +11,7 @@ import (
 )
 
 func TestInverterFixture(t *testing.T) {
-	f, err := ParseFile(filepath.Join("..", "..", "testdata", "doc", "inverter.fix"))
+	f, err := ParseFile(filepath.Join("..", "..", "testdata", "sim", "inverter.fix"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,5 +118,15 @@ func TestParseErrors(t *testing.T) {
 		if !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%q: error %q does not mention %q", c.src, err, c.want)
 		}
+	}
+}
+
+func TestLoadDocument(t *testing.T) {
+	d, save, err := LoadDocument(filepath.Join("x", "inv.FIX"), []byte("###\n"))
+	if err != nil || save != filepath.Join("x", "inv.mip") || d.RootDef().Pixels.Count() != 3 {
+		t.Errorf("fixture: %v %q", err, save)
+	}
+	if _, _, err := LoadDocument("bad.mip", []byte("{")); err == nil || !strings.Contains(err.Error(), "bad.mip") {
+		t.Errorf("bad .mip: %v", err)
 	}
 }

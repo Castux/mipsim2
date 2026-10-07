@@ -218,20 +218,10 @@ func dump(w io.Writer, m *devices.Memory) {
 }
 
 func load(path string) (*doc.Document, error) {
-	if filepath.Ext(path) == ".fix" {
-		fx, err := fixture.ParseFile(path)
-		if err != nil {
-			return nil, err
-		}
-		return fx.Doc, nil
-	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	d, err := doc.Load(data)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return d, nil
+	d, _, err := fixture.LoadDocument(path, data)
+	return d, err
 }
