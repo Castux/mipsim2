@@ -111,7 +111,7 @@ The simulator owns a persistent FIFO queue of nets. `Update(net)` only pushes on
 
 The editor's slow-motion view calls `Step()` and redraws between calls, replacing v1's coroutine yield. A step is one queue entry, which is coarser than v1's yield per component; that is acceptable.
 
-**Determinism is a hard requirement.** v1 iterates Lua tables with `pairs`, so ties resolve arbitrarily; Go map iteration is randomised on purpose. Use slices indexed by `NetID`, iterate in ascending order, and never range over a map in `bitmap/`, `doc/` (flatten), `netlist/`, `sim/` or `runner/`. The chunked bitmap exposes chunks and pixels in sorted order (chunk y, chunk x, then raster within the chunk); flatten walks instances in their slice order. Two runs of the same circuit and inputs must produce identical traces.
+**Determinism is a hard requirement.** v1 iterates Lua tables with `pairs`, so ties resolve arbitrarily; Go map iteration is randomised on purpose. Use slices indexed by `NetID`, iterate in ascending order, and never range over a map in `bitmap/`, `doc/` (flatten), `netlist/`, `sim/` or `runner/`. The chunked bitmap iterates pixels in raster order (y, then x), whatever order they were set in; flatten walks instances in their slice order. Two runs of the same circuit and inputs must produce identical traces.
 
 ### Pins and clock
 
@@ -128,7 +128,6 @@ type Definition struct {
     ID        DefID
     Name      string
     W, H      int            // the rectangle; pixels live in [0,W)x[0,H)
-    Origin    Point          // root only: world position of local (0,0); zero elsewhere
     Pixels    Bitmap         // local coordinates
     Labels    []Label        // {X, Y, Name}, on wire or source pixels
     Instances []Instance     // children
@@ -148,14 +147,13 @@ type Orient struct {
 }
 
 type Document struct {
-    Root    DefID         // unbounded; W,H ignored
+    Root    DefID         // unbounded: W,H ignored, pixels in world coordinates
     Defs    map[DefID]*Definition
     Devices []DeviceConfig // see Memory devices and buses
-    Version int
 }
 ```
 
-**Orientation.** Instances can be rotated and mirrored from v2.0. An instance's placed rectangle is W×H, or H×W when `Rot` is odd. All five patterns are symmetric under every rotation and mirroring, so recognition needs no orientation logic: flatten applies the transform, and the compiler sees ordinary pixels. Orientations compose: a rotated instance inside a mirrored instance is transformed by both, applied from the innermost outward. All geometry (flatten, hit-testing, label positions, rectangle checks) goes through one `Orient` type in `doc` with `Apply`, `Inverse` and `Compose`, tested exhaustively over all 8×8 pairs.
+**Orientation.** Instances can be rotated and mirrored from v2.0. An instance's placed rectangle is W×H, or H×W when `Rot` is odd. All five patterns are symmetric under every rotation and mirroring, so recognition needs no orientation logic: flatten applies the transform, and the compiler sees ordinary pixels. Orientations compose: a rotated instance inside a mirrored instance is transformed by both, applied from the innermost outward. All geometry (flatten, hit-testing, label positions, rectangle checks) goes through the `Orient` type in `doc` (`Then`, `Inverse`, `Size`) and the integer `Affine` maps built from it, tested exhaustively over all 8×8 pairs.
 
 **Invariants**, checked after every edit command and on load (rectangles are the placed, oriented ones):
 
@@ -164,7 +162,9 @@ type Document struct {
 - A parent has no pixels or labels inside a child instance's rectangle. Instance rectangles are opaque.
 - Every child instance lies fully inside its parent definition's rectangle (the root is unbounded).
 - The root definition is never instanced.
-- Instance names are unique among siblings, non-empty and contain no `.`.
+- Instance names are unique among siblings. Instance and label names use only ASCII letters, digits and underscores (dots are reserved for hierarchical names).
+- Instance IDs are non-empty and unique among siblings.
+- At most one label per pixel within a definition.
 
 Definitions with no instances stay in the document and the palette until the user deletes them from the palette.
 
@@ -235,7 +235,7 @@ In v2.0 the editor shows each memory as a hex panel, editable while paused.
 
 ## File format
 
-One JSON file per document, extension `.mip`, designed to diff well in git and to be readable by an AI agent. Pixels are stored as rows of `#` and `.` strings within each definition's rectangle; the root stores its bounding box origin. This is verbose but compresses well and makes small circuits legible in a pull request.
+One JSON file per document, extension `.mip`, designed to diff well in git and to be readable by an AI agent. Pixels are stored as rows of `#` and `.` strings within each definition's rectangle; the root stores its rows relative to `origin`, which save sets to the bounding box of its pixels. Root labels and instance positions are in world coordinates, not relative to `origin`. A definition may have a display `name`, which defaults to its ID. The file version is not part of the in-memory document. This is verbose but compresses well and makes small circuits legible in a pull request.
 
 ```json
 {
@@ -246,7 +246,7 @@ One JSON file per document, extension `.mip`, designed to diff well in git and t
     "top": {
       "origin": [-12, -8],
       "rows": ["...#.....", "..###....", "...#...."],
-      "labels": [{"x": 3, "y": 0, "name": "clock"}],
+      "labels": [{"x": -9, "y": -8, "name": "clock"}],
       "instances": [{"id": "i1", "def": "nand2", "x": 20, "y": 4, "orient": "r90", "name": "g1"}]
     },
     "nand2": {
@@ -260,5 +260,5 @@ One JSON file per document, extension `.mip`, designed to diff well in git and t
 }
 ```
 
-Rules: `orient` is one of `r0`, `r90`, `r180`, `r270`, `f0`, `f90`, `f180`, `f270` (`f` = mirrored first, then rotated clockwise), and may be omitted for `r0`; trailing `.` characters on a row may be omitted; rows beyond the last on pixel may be omitted; the loader validates every invariant from Components and instances and rejects the file with a located error rather than repairing it. A `version` bump comes with a migration function and a test. Memory init files are raw binary, referenced by path relative to the `.mip` file (on web, uploaded alongside). The same row format is used for test fixtures and for the clipboard, so a user can paste ASCII art directly.
+Rules: unknown fields are rejected; `orient` is one of `r0`, `r90`, `r180`, `r270`, `f0`, `f90`, `f180`, `f270` (`f` = mirrored first, then rotated clockwise), and may be omitted for `r0`; trailing `.` characters on a row may be omitted; rows beyond the last on pixel may be omitted; the loader validates every invariant from Components and instances and rejects the file with a located error rather than repairing it. A `version` bump comes with a migration function and a test. Memory init files are raw binary, referenced by path relative to the `.mip` file (on web, uploaded alongside). The same row format is used for test fixtures and for the clipboard, so a user can paste ASCII art directly.
 
