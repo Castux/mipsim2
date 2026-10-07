@@ -37,7 +37,7 @@ go run ./cmd/mipsim-run testdata/runner/adder4.fix --set a=3,b=5,cin=0 --watch s
 scripts/check.sh                                # every check CI runs
 ```
 
-In the editor: `d` draws (hold alt for straight lines), `s` selects, `n` labels, `e` toggles simulation (then left click pins a wire high, right click pins it low, middle click releases it). The status bar lists the rest.
+In the editor every action is a button showing its key, and the bottom line explains what the mouse does in the current mode. In simulate mode, left click pins a wire high, right click pins it low and middle click releases it; tap space to run the clock.
 
 ## Layout
 

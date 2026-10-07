@@ -84,8 +84,21 @@ func (a *app) drawLabel(dst *ebiten.Image, p image.Point, s string) {
 	x, y := a.view.ToScreen(p)
 	a.face.Size = 12 * a.scale
 	w, h := text.Measure(s, a.face, 0)
-	px := x + a.view.Scale + 2*a.scale
-	py := y + a.view.Scale/2 - h/2
+	sc := a.view.Scale
+	gap := 2 * a.scale
+	// Put the label on a side whose neighbouring pixel is off, so it covers
+	// as little of the circuit as possible: right, left, above, below.
+	px, py := x+sc+gap, y+sc/2-h/2
+	if on := a.ed.Flat().Pixels; on.Get(p.X+1, p.Y) {
+		switch {
+		case !on.Get(p.X-1, p.Y):
+			px = x - w - gap
+		case !on.Get(p.X, p.Y-1):
+			px, py = x+sc/2-w/2, y-h-gap
+		case !on.Get(p.X, p.Y+1):
+			px, py = x+sc/2-w/2, y+sc+gap
+		}
+	}
 	vector.FillRect(dst, float32(px-2*a.scale), float32(py), float32(w+4*a.scale), float32(h), labelBg, false)
 	op := &text.DrawOptions{}
 	op.GeoM.Translate(px, py)

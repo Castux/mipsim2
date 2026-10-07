@@ -1,5 +1,11 @@
 // Package ui is the Ebitengine front end: game loop, shader canvas, panels and
 // input mapping. It is the only package (with cmd) that imports graphics.
+//
+// Layout: a top bar (edit/simulate switch, file name, history and file
+// buttons), a left column of tool and action buttons for the current mode, the
+// canvas, a right panel with tabs when there is something to show, and two
+// status lines (gesture hints, then position and messages). Every button
+// shows its key, and every key and button comes from the keymap table.
 package ui
 
 import (
@@ -35,15 +41,17 @@ type Options struct {
 	Zoom       float64  // fixed zoom (screen pixels per circuit pixel); 0 fits the circuit
 	Filter     int      // zoomed-out filter: 0 average, 1 contrast boost, 2 any-on
 	Frames     int      // with Screenshot: render this many extra frames without vsync and print the average frame time
+	Tool       string   // start with this tool selected: draw, select or label
 }
 
-var background = color.RGBA{255, 255, 255, 255}
+var background = color.RGBA{255, 255, 255, 255} // v1's white canvas
 
 const statusLines = 2
 
-// prompt is an in-app text field for a file path (open, save as).
+// prompt is an in-app text field: a file path, or a value for a watched bus.
 type prompt struct {
 	kind   uiAction
+	target string // the bus, for uiSetWatch
 	buffer string
 }
 
@@ -60,17 +68,21 @@ type app struct {
 	frames      int
 	err         error
 	prompt      *prompt
+	tab         panelTab
 	panelScroll int
+	lastFrame   time.Time
 
 	shotPath string // save the next frame at or after shotAt here
 	shotAt   int
 	shotQuit bool // quit after saving (the -screenshot flag)
 	timeFrom time.Time
 
-	panning   bool
-	panFrom   [2]int
-	pressed   [3]bool
-	lastWorld image.Point
+	panning     bool
+	spaceDown   bool
+	spacePanned bool // space was used to pan, so its release does not run/pause
+	panFrom     [2]int
+	pressed     [3]bool
+	lastWorld   image.Point
 }
 
 func newApp(opts Options) (*app, error) {
@@ -87,13 +99,20 @@ func newApp(opts Options) (*app, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &app{opts: opts, ed: editor.New(d), view: editor.NewView(), canvas: c, face: &text.GoTextFace{Source: src}}
+	a := &app{opts: opts, ed: editor.New(d), view: editor.NewView(), canvas: c, face: &text.GoTextFace{Source: src}, tab: tabWatch}
 	if opts.Screenshot != "" {
 		a.shotPath, a.shotAt, a.shotQuit = opts.Screenshot, 5+opts.Frames, true
 		if opts.Frames > 0 {
 			ebiten.SetVsyncEnabled(false)
 		}
 	}
+	switch opts.Tool {
+	case "select":
+		a.ed.Do(editor.ActSelect)
+	case "label":
+		a.ed.Do(editor.ActLabel)
+	}
+	a.ed.Status = ""
 	if opts.Simulate {
 		a.ed.Do(editor.ActToggleSimulate)
 		if r := a.ed.Runner(); r != nil {
@@ -110,41 +129,44 @@ func newApp(opts Options) (*app, error) {
 }
 
 func (a *app) statusHeight() int {
-	return int(float64(statusLines)*a.lineHeight()) + int(8*a.scale)
+	return int(float64(statusLines)*a.lineHeight()) + a.u(10)
 }
 
 func (a *app) lineHeight() float64 { return 18 * a.scale }
 
-func (a *app) canvasArea() image.Rectangle {
-	return image.Rect(0, 0, a.w-a.panelWidth(), a.h-a.statusHeight())
-}
-
 func (a *app) fit() {
-	area := a.canvasArea()
-	a.view.Fit(a.ed.Netlist().Bounds().Inset(2), float64(area.Dx()), float64(area.Dy()))
+	a.view.Fit(a.ed.Netlist().Bounds().Inset(2), a.computeLayout().canvas)
 }
 
 func (a *app) Update() error {
 	if a.err != nil {
 		return a.err
 	}
+	now := time.Now()
+	if !a.lastFrame.IsZero() {
+		a.ed.Advance(now.Sub(a.lastFrame))
+	}
+	a.lastFrame = now
+
 	if !a.fitted && a.w > 0 {
 		a.fitted = true
 		a.fit()
 		if a.opts.Zoom > 0 {
-			c := a.canvasArea().Size().Div(2)
+			c := a.computeLayout().canvas
+			mid := c.Min.Add(c.Size().Div(2))
 			for a.view.Scale < a.opts.Zoom {
-				a.view.Zoom(1, float64(c.X), float64(c.Y))
+				a.view.Zoom(1, float64(mid.X), float64(mid.Y))
 			}
 			for a.view.Scale > a.opts.Zoom {
-				a.view.Zoom(-1, float64(c.X), float64(c.Y))
+				a.view.Zoom(-1, float64(mid.X), float64(mid.Y))
 			}
 		}
 	}
+	l := a.computeLayout()
 	if !a.handleTyping() {
 		a.handleKeys()
 	}
-	a.handlePointer()
+	a.handlePointer(l)
 	return nil
 }
 
@@ -156,7 +178,7 @@ func (a *app) mods() editor.Mods {
 	}
 }
 
-// handleTyping feeds keyboard input to a file prompt or a label being typed,
+// handleTyping feeds keyboard input to a prompt or a label being typed,
 // and reports whether it took the keyboard this frame.
 func (a *app) handleTyping() bool {
 	chars := ebiten.AppendInputChars(nil)
@@ -197,45 +219,37 @@ func (a *app) handleTyping() bool {
 func (a *app) handleKeys() {
 	m := a.mods()
 	for _, k := range inpututil.AppendJustPressedKeys(nil) {
-		b, ok := lookupKey(k, m, a.ed.Mode())
-		if !ok {
-			continue
+		if b, ok := lookupKey(k, m, a.ed.Mode()); ok {
+			a.trigger(b)
 		}
-		switch b.ui {
-		case uiNone:
-			a.ed.Do(b.action)
-		case uiSave:
-			if a.opts.Path == "" {
-				a.prompt = &prompt{kind: uiSaveAs, buffer: "circuit.mip"}
-			} else {
-				a.save(a.opts.Path)
+	}
+	// Space: held for panning; a tap (no pan) runs or pauses in simulate mode.
+	if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
+		a.spaceDown, a.spacePanned = true, false
+	}
+	if a.spaceDown && inpututil.IsKeyJustReleased(ebiten.KeySpace) {
+		a.spaceDown = false
+		if !a.spacePanned {
+			for _, b := range keymap {
+				if b.onRelease && b.key == ebiten.KeySpace && b.applies(a.ed.Mode()) {
+					a.trigger(b)
+				}
 			}
-		case uiSaveAs:
-			a.prompt = &prompt{kind: uiSaveAs, buffer: a.opts.Path}
-		case uiOpen:
-			a.prompt = &prompt{kind: uiOpen, buffer: a.opts.Path}
-		case uiFit:
-			a.fit()
-		case uiFilter:
-			a.canvas.filter = (a.canvas.filter + 1) % 3
-			a.ed.Status = "zoomed-out filter: " + [...]string{"average", "contrast boost", "any-on"}[a.canvas.filter]
-		case uiScreenshot:
-			a.shotPath, a.shotAt = fmt.Sprintf("mipsim-%d.png", a.frames), a.frames+1
 		}
 	}
 }
 
 func (a *app) runPrompt(p *prompt) {
-	path := strings.TrimSpace(p.buffer)
-	if path == "" {
-		a.ed.Status = "no file name given"
+	value := strings.TrimSpace(p.buffer)
+	if value == "" {
+		a.ed.Status = "nothing entered"
 		return
 	}
 	switch p.kind {
 	case uiSaveAs:
-		a.save(path)
+		a.save(value)
 	case uiOpen:
-		platform.ReadFile(path, func(data []byte, err error) {
+		platform.ReadFile(value, func(data []byte, err error) {
 			if err != nil {
 				a.ed.Status = "open failed: " + err.Error()
 				return
@@ -246,10 +260,19 @@ func (a *app) runPrompt(p *prompt) {
 				return
 			}
 			a.ed.ReplaceDocument(d)
-			a.setPath(path)
+			a.setPath(value)
 			a.fit()
-			a.ed.Status = "opened " + path
+			a.ed.Status = "opened " + value
 		})
+	case uiSetWatch:
+		if r := a.ed.Runner(); r != nil {
+			if err := r.Set(p.target, value); err != nil {
+				a.ed.Status = err.Error()
+				return
+			}
+			r.Settle()
+			a.ed.Status = p.target + " = " + value
+		}
 	}
 }
 
@@ -270,6 +293,7 @@ func (a *app) save(path string) {
 			return
 		}
 		a.setPath(path)
+		a.ed.MarkSaved()
 		a.ed.Status = "saved " + path
 	})
 }
@@ -279,13 +303,12 @@ func firstLine(s string) string {
 	return s
 }
 
-var buttons = [3]ebiten.MouseButton{ebiten.MouseButtonLeft, ebiten.MouseButtonRight, ebiten.MouseButtonMiddle}
+var mouseButtons = [3]ebiten.MouseButton{ebiten.MouseButtonLeft, ebiten.MouseButtonRight, ebiten.MouseButtonMiddle}
 
-func (a *app) handlePointer() {
+func (a *app) handlePointer(l layout) {
 	cx, cy := ebiten.CursorPosition()
 	cur := image.Pt(cx, cy)
-	area := a.canvasArea()
-	inCanvas := cur.In(area)
+	inCanvas := cur.In(l.canvas)
 
 	if _, wy := ebiten.Wheel(); wy != 0 {
 		n := 1
@@ -295,18 +318,14 @@ func (a *app) handlePointer() {
 		switch {
 		case inCanvas:
 			a.view.Zoom(n, float64(cx), float64(cy))
-		case cur.In(a.panelArea()):
+		case cur.In(l.right):
 			a.panelScroll -= n
 		}
-	}
-	if cur.In(a.panelArea()) && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		a.panelClick(cur)
-		return
 	}
 
 	// Space+drag pans.
 	if ebiten.IsKeyPressed(ebiten.KeySpace) && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		a.panning, a.panFrom = true, [2]int{cx, cy}
+		a.panning, a.panFrom, a.spacePanned = true, [2]int{cx, cy}, true
 	}
 	if a.panning {
 		if !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
@@ -320,9 +339,11 @@ func (a *app) handlePointer() {
 
 	p := a.view.ToWorld(float64(cx), float64(cy))
 	m := a.mods()
-	for i, b := range buttons {
+	for i, b := range mouseButtons {
 		switch {
-		case inpututil.IsMouseButtonJustPressed(b) && inCanvas:
+		case inpututil.IsMouseButtonJustPressed(b) && !inCanvas:
+			a.clickChrome(l, cur, b)
+		case inpututil.IsMouseButtonJustPressed(b):
 			a.pressed[i] = true
 			a.ed.PointerDown(p, editor.Button(i), m)
 		case a.pressed[i] && inpututil.IsMouseButtonJustReleased(b):
@@ -330,7 +351,7 @@ func (a *app) handlePointer() {
 			a.ed.PointerUp(p, editor.Button(i))
 		}
 	}
-	if p != a.lastWorld || a.pressed[0] {
+	if (p != a.lastWorld && inCanvas) || a.pressed[0] {
 		a.lastWorld = p
 		a.ed.PointerMove(p, m)
 	}
@@ -338,12 +359,15 @@ func (a *app) handlePointer() {
 
 func (a *app) Draw(screen *ebiten.Image) {
 	screen.Fill(background)
-	area := a.canvasArea()
+	l := a.computeLayout()
 	nl := a.ed.Netlist()
 	a.canvas.sync(a.ed)
 	_, hoverNet, hoverText := a.ed.Hover()
-	canvasImg := screen.SubImage(area).(*ebiten.Image)
-	a.canvas.draw(canvasImg, area, &a.view, hoverNet, a.ed.Mode() == editor.SimulateMode)
+	if cx, cy := ebiten.CursorPosition(); !image.Pt(cx, cy).In(l.canvas) {
+		hoverNet, hoverText = netlist.NoNet, ""
+	}
+	canvasImg := screen.SubImage(l.canvas).(*ebiten.Image)
+	a.canvas.draw(canvasImg, l.canvas, &a.view, hoverNet, a.ed.Mode() == editor.SimulateMode)
 	if a.ed.Stale() {
 		cells, value := a.ed.Stroke()
 		drawStroke(canvasImg, &a.view, cells, value)
@@ -351,8 +375,9 @@ func (a *app) Draw(screen *ebiten.Image) {
 	a.drawLabels(canvasImg)
 	a.drawDiagnosticMarkers(canvasImg, nl)
 	a.drawOverlay(canvasImg, a.ed.Overlay())
-	a.drawPanel(screen)
-	a.drawStatus(screen, hoverText)
+	a.drawChrome(screen, l)
+	a.drawPanel(screen, l)
+	a.drawStatus(screen, l, hoverText)
 	a.screenshot(screen)
 }
 
@@ -388,12 +413,22 @@ func (a *app) screenshot(screen *ebiten.Image) {
 	})
 }
 
-func (a *app) drawStatus(screen *ebiten.Image, hover string) {
-	y0 := float64(a.h - a.statusHeight())
-	bar := screen.SubImage(image.Rect(0, int(y0), a.w, a.h)).(*ebiten.Image)
-	bar.Fill(color.RGBA{238, 238, 238, 255})
+// drawStatus writes the two status lines: what the mouse and modifiers do
+// now (or the prompt being typed), then position, counts and messages.
+func (a *app) drawStatus(screen *ebiten.Image, l layout, hover string) {
+	fillRect(screen, l.bottom, chromeBg)
+	fillRect(screen, image.Rect(0, l.bottom.Min.Y, a.w, l.bottom.Min.Y+1), chromeLine)
 
-	a.face.Size = 14 * a.scale
+	cx, cy := ebiten.CursorPosition()
+	hint := a.buttonHint(l, image.Pt(cx, cy))
+	if hint == "" {
+		hint = a.ed.Hint()
+	}
+	if p := a.prompt; p != nil {
+		label := map[uiAction]string{uiOpen: "open: ", uiSaveAs: "save as: ", uiSetWatch: "set " + p.target + " = "}[p.kind]
+		hint = label + p.buffer + "_   (enter to confirm, esc to cancel)"
+	}
+
 	nl := a.ed.Netlist()
 	errs, warns := 0, 0
 	for _, d := range nl.Diagnostics {
@@ -407,24 +442,17 @@ func (a *app) drawStatus(screen *ebiten.Image, hover string) {
 	if a.view.Scale < 1 {
 		zoom = fmt.Sprintf("1/%gx", 1/a.view.Scale)
 	}
-	file := a.opts.Path
-	if file == "" {
-		file = "untitled"
+	info := fmt.Sprintf("%d nets, %d transistors · %d errors, %d warnings · zoom %s (f fits)",
+		len(nl.Nets), len(nl.Transistors), errs, warns, zoom)
+	if hover != "" {
+		info = hover + " · " + info
 	}
-	line1 := fmt.Sprintf("%s | %s | %s | %s | %d nets, %d transistors, %d errors, %d warnings | %s",
-		file, a.ed.Mode(), a.ed.Tool(), zoom, len(nl.Nets), len(nl.Transistors), errs, warns, hover)
-	line2 := a.ed.Status
-	if p := a.prompt; p != nil {
-		line2 = map[uiAction]string{uiOpen: "open: ", uiSaveAs: "save as: "}[p.kind] + p.buffer + "_   (enter to confirm, escape to cancel)"
-	} else if line2 == "" {
-		line2 = helpLine(a.ed.Mode())
+	if a.ed.Status != "" {
+		info = a.ed.Status + "   |   " + info
 	}
-	for i, s := range []string{line1, line2} {
-		op := &text.DrawOptions{}
-		op.GeoM.Translate(8*a.scale, y0+4*a.scale+float64(i)*a.lineHeight())
-		op.ColorScale.ScaleWithColor(color.RGBA{20, 20, 20, 255})
-		text.Draw(screen, s, a.face, op)
-	}
+	y := float64(l.bottom.Min.Y) + 5*a.scale
+	a.drawText(screen, hint, 8*a.scale, y, 14, chromeText)
+	a.drawText(screen, info, 8*a.scale, y+a.lineHeight(), 13, chromeDim)
 }
 
 func (a *app) Layout(w, h int) (int, int) {

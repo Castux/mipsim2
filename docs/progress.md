@@ -265,3 +265,28 @@ The thin-wires variant stays the default until decided.
   - in simulate mode: pink high, light blue low, brown unstable; a light green outline on conducting transistors; pinned wires outlined `#ff7d7d` (high) or `#6d6dff` (low).
 
   Outlines follow the shape of the whole net, not each pixel (from 4× zoom), using a neighbour check in the shader. Pin state is now encoded in the state texture alongside the value.
+
+## UI rework (before M7)
+
+Agreed with the owner: tools in a left column, `space` to run or pause, and the rework done before M7.
+
+**Works:**
+
+- **Top bar:** the Edit/Simulate switch, the file name with a modified dot, and undo, redo, open and save buttons.
+- **Left column:** icon buttons with name and key for every action of the current mode. Unavailable actions are greyed out (copy without a selection, run without a `clock` net). Hovering a button names it and its key in the hint line.
+- **Simulate mode:**
+  - Run/pause on a `space` tap; space held still pans.
+  - Step (`.`) runs one simulator step. If nothing is queued, it first toggles the clock, so a clock edge can be watched propagating (v1's slow motion).
+  - Slower and faster (`[`, `]`) halve or double the clock rate, from 0.25 to 1024 Hz. The clock rate and tick count are shown in the column.
+  - The editor advances the clock from real elapsed time, at most 64 half ticks per frame, so a slow circuit at a high rate drops its backlog instead of freezing.
+- **Right panel tabs:**
+  - Watch: every labelled net and bus, in v1 colours, with pin markers. Click a net to pin it (left high, right low, middle release); click a bus to type a value.
+  - Diagnostics.
+- **Status lines:** a gesture hint for the current state, then position, counts and messages.
+- The canvas is framed in v1 pink in simulate mode. Labels are placed on a free side of their pixel.
+- Icons are 12×12 one-bit pixel art defined as `#`/`.` rows in `ui/icons.go`.
+- `runner.ToggleClock` splits a half tick into "toggle" and "settle"; `editor` gains `Advance`, `Running`, `Hz`, `Modified`/`MarkSaved`, `Enabled` and `Hint`, all tested.
+
+**Decision:** the chrome is hand-rolled immediate-mode drawing, not ebitenui. It is a handful of rectangles and texts driven by the keymap table, which keeps buttons and keys in one place and matches the v1 look without fighting a theme. ebitenui stays only in its M0 spike.
+
+**Not verified by the agent:** clicking, hovering and typing in the real window. The layout and states were checked with screenshots in both modes, and the editor logic behind every button is unit-tested.

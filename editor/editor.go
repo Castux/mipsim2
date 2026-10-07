@@ -78,6 +78,10 @@ const (
 	ActEscape
 	ActEnter     // while typing
 	ActBackspace // while typing
+	ActRunPause  // run or pause the clock
+	ActStep      // slow motion: one simulator step
+	ActSlower    // halve the clock rate
+	ActFaster    // double the clock rate
 )
 
 // cheapCompile is the compile time below which strokes recompile on every
@@ -109,6 +113,12 @@ type Editor struct {
 	typing *typing
 
 	hover image.Point
+
+	running bool    // the clock runs on its own (simulate mode)
+	hz      float64 // clock rate in full periods per second
+	due     float64 // half ticks owed by Advance
+
+	version, savedVersion int // document changes, and the version last saved
 
 	// Status is a one-line message for the status bar.
 	Status string
@@ -148,7 +158,7 @@ type typing struct {
 
 // New returns an editor on d in edit mode.
 func New(d *doc.Document) *Editor {
-	e := &Editor{Doc: d, dirty: true}
+	e := &Editor{Doc: d, dirty: true, hz: 4}
 	e.Netlist()
 	return e
 }
@@ -277,6 +287,8 @@ func (e *Editor) Do(a Action) {
 	case ActEscape:
 		e.cancel()
 		e.sel = nil
+	case ActRunPause, ActStep, ActSlower, ActFaster:
+		e.doClock(a)
 	}
 }
 
@@ -303,6 +315,7 @@ func (e *Editor) setMode(m Mode) {
 	if m == EditMode {
 		e.mode = EditMode
 		e.run = nil
+		e.running = false
 		e.Status = "edit mode"
 		return
 	}
@@ -459,6 +472,7 @@ func (e *Editor) PointerUp(p image.Point, b Button) {
 	if len(s.edit.changes) > 0 {
 		e.undo = append(e.undo, s.edit)
 		e.redo = nil
+		e.version++
 	}
 	e.dirty = true
 	e.Netlist()
@@ -537,6 +551,7 @@ func (e *Editor) Redo() {
 // changed handles a document change outside a stroke: leave simulate mode,
 // recompile and report.
 func (e *Editor) changed(what string) {
+	e.version++
 	e.setMode(EditMode)
 	e.dirty = true
 	e.Netlist()
@@ -549,7 +564,7 @@ func (e *Editor) changed(what string) {
 // ReplaceDocument swaps in a new document (after opening a file), clearing
 // history and selection.
 func (e *Editor) ReplaceDocument(d *doc.Document) {
-	*e = Editor{Doc: d, dirty: true, tool: e.tool}
+	*e = Editor{Doc: d, dirty: true, tool: e.tool, hz: e.hz}
 	e.Netlist()
 }
 

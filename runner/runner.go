@@ -130,6 +130,16 @@ func (r *Runner) Settle() {
 
 // HalfTick toggles the clock and settles.
 func (r *Runner) HalfTick() error {
+	if err := r.ToggleClock(); err != nil {
+		return err
+	}
+	r.Settle()
+	return nil
+}
+
+// ToggleClock flips the clock pin without settling, so the change can be
+// watched propagating with Sim().Step (slow motion). It counts as a half tick.
+func (r *Runner) ToggleClock() error {
 	if r.clock == netlist.NoNet {
 		return fmt.Errorf("the circuit has no clock net")
 	}
@@ -139,10 +149,12 @@ func (r *Runner) HalfTick() error {
 		v = sim.High
 	}
 	r.sim.Pin(r.clock, v)
-	r.Settle()
 	r.halfTicks++
 	return nil
 }
+
+// ClockHigh reports the clock's current level.
+func (r *Runner) ClockHigh() bool { return r.clockHigh }
 
 // Tick runs n full clock periods (rising then falling edge).
 func (r *Runner) Tick(n int) error {

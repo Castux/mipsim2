@@ -27,9 +27,10 @@ func main() {
 	zoom := flag.Float64("zoom", 0, "fixed zoom, screen pixels per circuit pixel (0 fits the circuit)")
 	filter := flag.Int("filter", 1, "zoomed-out filter: 0 average, 1 contrast boost, 2 any-on")
 	frames := flag.Int("frames", 0, "with -screenshot: time this many frames without vsync first")
+	tool := flag.String("tool", "", "start with this tool: draw, select or label")
 	flag.Parse()
 
-	opts := ui.Options{Screenshot: *screenshot, Simulate: *simulate, Zoom: *zoom, Filter: *filter, Frames: *frames}
+	opts := ui.Options{Screenshot: *screenshot, Simulate: *simulate, Zoom: *zoom, Filter: *filter, Frames: *frames, Tool: *tool}
 	if *set != "" {
 		opts.Sets = strings.Split(*set, ",")
 	}

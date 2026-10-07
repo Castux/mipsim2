@@ -16,54 +16,84 @@ const (
 	uiFit
 	uiFilter
 	uiScreenshot
+	uiSetWatch // prompt: set a watched bus
 )
 
-// binding maps a key with modifiers, in some modes, to an action. All keys
-// live in this one table.
+// place says where a binding's button goes.
+type place int
+
+const (
+	noButton   place = iota
+	topBar           // file and history, right of the top bar
+	toolCol          // edit mode, left column: tools
+	editCol          // edit mode, left column: selection actions
+	simCol           // simulate mode, left column
+	modeToggle       // the edit/simulate switch
+)
+
+// binding maps a key with modifiers, in some modes, to an action, and
+// describes its button. Every key and every button comes from this one
+// table, so they cannot drift apart.
 type binding struct {
-	key      ebiten.Key
-	ctrl     bool
-	shift    bool
-	editOnly bool
-	simOnly  bool
-	action   editor.Action
-	ui       uiAction
-	help     string
+	key       ebiten.Key
+	keyName   string // as shown on the button
+	ctrl      bool
+	shift     bool
+	editOnly  bool
+	simOnly   bool
+	action    editor.Action
+	ui        uiAction
+	onRelease bool // handled by the ui on key release (space)
+
+	place place
+	icon  string
+	label string
 }
 
 var keymap = []binding{
-	{key: ebiten.KeyD, action: editor.ActPencil, help: "d draw (alt: line)"},
-	{key: ebiten.KeyS, editOnly: true, action: editor.ActSelect, help: "s select"},
-	{key: ebiten.KeyN, editOnly: true, action: editor.ActLabel, help: "n label"},
-	{key: ebiten.KeyE, action: editor.ActToggleSimulate, help: "e simulate"},
-	{key: ebiten.KeyC, editOnly: true, action: editor.ActCopy, help: "c/x/v clipboard"},
-	{key: ebiten.KeyX, editOnly: true, action: editor.ActCut},
-	{key: ebiten.KeyV, editOnly: true, action: editor.ActPaste},
-	{key: ebiten.KeyBackspace, editOnly: true, action: editor.ActDelete, help: "bksp delete"},
+	{key: ebiten.KeyE, keyName: "e", action: editor.ActToggleSimulate, place: modeToggle},
+
+	{key: ebiten.KeyD, keyName: "d", editOnly: true, action: editor.ActPencil, place: toolCol, icon: "draw", label: "Draw"},
+	{key: ebiten.KeyS, keyName: "s", editOnly: true, action: editor.ActSelect, place: toolCol, icon: "select", label: "Select"},
+	{key: ebiten.KeyN, keyName: "n", editOnly: true, action: editor.ActLabel, place: toolCol, icon: "label", label: "Label"},
+
+	{key: ebiten.KeyC, keyName: "c", editOnly: true, action: editor.ActCopy, place: editCol, icon: "copy", label: "Copy"},
+	{key: ebiten.KeyX, keyName: "x", editOnly: true, action: editor.ActCut, place: editCol, icon: "cut", label: "Cut"},
+	{key: ebiten.KeyV, keyName: "v", editOnly: true, action: editor.ActPaste, place: editCol, icon: "paste", label: "Paste"},
+	{key: ebiten.KeyBackspace, keyName: "bksp", editOnly: true, action: editor.ActDelete, place: editCol, icon: "delete", label: "Delete"},
 	{key: ebiten.KeyDelete, editOnly: true, action: editor.ActDelete},
-	{key: ebiten.KeyM, editOnly: true, action: editor.ActMirror, help: "m/r mirror/rotate"},
-	{key: ebiten.KeyR, editOnly: true, action: editor.ActRotate},
+	{key: ebiten.KeyM, keyName: "m", editOnly: true, action: editor.ActMirror, place: editCol, icon: "mirror", label: "Mirror"},
+	{key: ebiten.KeyR, keyName: "r", editOnly: true, action: editor.ActRotate, place: editCol, icon: "rotate", label: "Rotate"},
+
+	{key: ebiten.KeySpace, keyName: "space", simOnly: true, action: editor.ActRunPause, onRelease: true, place: simCol, icon: "run", label: "Run"},
+	{key: ebiten.KeyT, keyName: "t", simOnly: true, action: editor.ActTick, place: simCol, icon: "tick", label: "Tick"},
+	{key: ebiten.KeyH, keyName: "h", simOnly: true, action: editor.ActHalfTick, place: simCol, icon: "half", label: "Half tick"},
+	{key: ebiten.KeyPeriod, keyName: ".", simOnly: true, action: editor.ActStep, place: simCol, icon: "step", label: "Step"},
+	{key: ebiten.KeyR, keyName: "r", simOnly: true, action: editor.ActResetSim, place: simCol, icon: "reset", label: "Reset"},
+	{key: ebiten.KeyBracketLeft, keyName: "[", simOnly: true, action: editor.ActSlower, place: simCol, icon: "slower", label: "Slower"},
+	{key: ebiten.KeyBracketRight, keyName: "]", simOnly: true, action: editor.ActFaster, place: simCol, icon: "faster", label: "Faster"},
+
 	{key: ebiten.KeyEscape, action: editor.ActEscape},
-	{key: ebiten.KeyT, simOnly: true, action: editor.ActTick, help: "t tick"},
-	{key: ebiten.KeyH, simOnly: true, action: editor.ActHalfTick, help: "h half tick"},
-	{key: ebiten.KeyR, simOnly: true, action: editor.ActResetSim, help: "r reset"},
+
 	{key: ebiten.KeyZ, ctrl: true, shift: true, action: editor.ActRedo},
-	{key: ebiten.KeyZ, ctrl: true, action: editor.ActUndo, help: "ctrl+z/y undo/redo"},
-	{key: ebiten.KeyY, ctrl: true, action: editor.ActRedo},
+	{key: ebiten.KeyZ, keyName: "^Z", ctrl: true, action: editor.ActUndo, place: topBar, icon: "undo", label: "Undo"},
+	{key: ebiten.KeyY, keyName: "^Y", ctrl: true, action: editor.ActRedo, place: topBar, icon: "redo", label: "Redo"},
+	{key: ebiten.KeyO, keyName: "^O", ctrl: true, ui: uiOpen, place: topBar, icon: "open", label: "Open"},
 	{key: ebiten.KeyS, ctrl: true, shift: true, ui: uiSaveAs},
-	{key: ebiten.KeyS, ctrl: true, ui: uiSave, help: "ctrl+s/o save/open"},
-	{key: ebiten.KeyO, ctrl: true, ui: uiOpen},
-	{key: ebiten.KeyF, ui: uiFit, help: "f fit"},
+	{key: ebiten.KeyS, keyName: "^S", ctrl: true, ui: uiSave, place: topBar, icon: "save", label: "Save"},
+
+	{key: ebiten.KeyF, ui: uiFit},
 	{key: ebiten.KeyB, ui: uiFilter},
 	{key: ebiten.KeyF12, ui: uiScreenshot},
 }
 
+func (b binding) applies(mode editor.Mode) bool {
+	return !(b.editOnly && mode != editor.EditMode || b.simOnly && mode != editor.SimulateMode)
+}
+
 func lookupKey(k ebiten.Key, m editor.Mods, mode editor.Mode) (binding, bool) {
 	for _, b := range keymap {
-		if b.key != k || b.ctrl != m.Ctrl || b.shift && !m.Shift {
-			continue
-		}
-		if b.editOnly && mode != editor.EditMode || b.simOnly && mode != editor.SimulateMode {
+		if b.key != k || b.ctrl != m.Ctrl || b.shift && !m.Shift || b.onRelease || !b.applies(mode) {
 			continue
 		}
 		return b, true
@@ -71,16 +101,13 @@ func lookupKey(k ebiten.Key, m editor.Mods, mode editor.Mode) (binding, bool) {
 	return binding{}, false
 }
 
-func helpLine(mode editor.Mode) string {
-	s := "space+drag pan, wheel zoom"
-	if mode == editor.SimulateMode {
-		s = "left pin high, right pin low, middle release, " + s
-	}
+// buttons returns the bindings with a button in the given place, in table order.
+func buttonsAt(p place, mode editor.Mode) []binding {
+	var bs []binding
 	for _, b := range keymap {
-		if b.help == "" || b.editOnly && mode != editor.EditMode || b.simOnly && mode != editor.SimulateMode {
-			continue
+		if b.place == p && b.applies(mode) {
+			bs = append(bs, b)
 		}
-		s += ", " + b.help
 	}
-	return s
+	return bs
 }

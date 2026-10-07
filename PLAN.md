@@ -144,6 +144,21 @@ Dependency direction is strictly downward: `ui` and `cmd` may import anything; `
 
 The editor is a state machine over the document plus a command stack; it has no Ebitengine dependency, so every tool is unit-testable with synthetic input events. Rendering and widgets read editor state and send it events.
 
+**Layout** (agreed with the owner after M6). The principle is that every keystroke that applies is always visible:
+
+- **Top bar:** an Edit/Simulate switch (`e`) on the left, then the file name with a dot when modified. Undo, redo, open and save buttons sit on the right.
+- **Left column:** buttons for the current mode, each with a 12×12 one-bit icon (drawn from `#`/`.` rows like circuits), a name and its key. Actions that cannot apply right now are greyed out.
+  - Edit mode: the tools (draw, select, label; M7 adds make component and explode), then the selection actions.
+  - Simulate mode: run/pause (`space` tap), tick, half tick, step (`.`), reset, slower (`[`), faster (`]`), with the clock rate and tick count shown below.
+- **Right panel:** tabs, shown only when there is something to show.
+  - Watch, in simulate mode: every labelled net and `name_N` bus, with value and pin. Click a net to pin it as on the canvas; click a bus to type a number.
+  - Diagnostics: click one to centre on it.
+  - M7 adds Components and M8 adds Memory.
+- **Status lines:** the first describes what the mouse and modifiers do in the current state (or the hovered button, or the prompt being typed). The second shows position, counts and messages.
+- **Simulate mode** frames the canvas in v1 pink.
+- **Keymap:** buttons and keys come from the same table (`ui/keymap.go`). `space` held pans in both modes; a tap without panning runs or pauses in simulate mode.
+- **Palette:** MiPSim v1's (see `docs/progress.md`, "After M6").
+
 **Edit mode tools:**
 
 | Tool | Key | Behaviour |

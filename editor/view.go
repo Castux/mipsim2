@@ -69,31 +69,33 @@ func (v *View) Zoom(n int, sx, sy float64) {
 	v.Offset[1] = math.Round(sy - wy*v.Scale)
 }
 
-// CenterOn moves the view so world pixel p is in the middle of a w×h screen,
-// zooming in to at least 8× so it is visible.
-func (v *View) CenterOn(p image.Point, w, h float64) {
+// CenterOn moves the view so world pixel p is in the middle of the screen
+// area, zooming in to at least 8× so it is visible.
+func (v *View) CenterOn(p image.Point, area image.Rectangle) {
 	for v.Scale < 8 && v.level < len(zoomLevels)-1 {
 		v.setLevel(v.level + 1)
 	}
-	v.Offset[0] = math.Round(w/2 - (float64(p.X)+0.5)*v.Scale)
-	v.Offset[1] = math.Round(h/2 - (float64(p.Y)+0.5)*v.Scale)
+	c := area.Min.Add(area.Size().Div(2))
+	v.Offset[0] = math.Round(float64(c.X) - (float64(p.X)+0.5)*v.Scale)
+	v.Offset[1] = math.Round(float64(c.Y) - (float64(p.Y)+0.5)*v.Scale)
 }
 
-// Fit centres the rectangle r in a screen of size w×h at the largest zoom
+// Fit centres the world rectangle r in the screen area at the largest zoom
 // level that shows all of it.
-func (v *View) Fit(r image.Rectangle, w, h float64) {
+func (v *View) Fit(r image.Rectangle, area image.Rectangle) {
 	if r.Empty() {
 		r = image.Rect(-8, -8, 8, 8)
 	}
 	r = r.Inset(-2)
 	i := 0
 	for j, z := range zoomLevels {
-		if float64(r.Dx())*z <= w && float64(r.Dy())*z <= h {
+		if float64(r.Dx())*z <= float64(area.Dx()) && float64(r.Dy())*z <= float64(area.Dy()) {
 			i = j
 		}
 	}
 	v.setLevel(i)
 	cx, cy := float64(r.Min.X+r.Max.X)/2, float64(r.Min.Y+r.Max.Y)/2
-	v.Offset[0] = math.Round(w/2 - cx*v.Scale)
-	v.Offset[1] = math.Round(h/2 - cy*v.Scale)
+	c := area.Min.Add(area.Size().Div(2))
+	v.Offset[0] = math.Round(float64(c.X) - cx*v.Scale)
+	v.Offset[1] = math.Round(float64(c.Y) - cy*v.Scale)
 }

@@ -208,7 +208,10 @@ func TestViewZoomKeepsPointFixed(t *testing.T) {
 			t.Fatalf("zoom %d moved the point under the cursor from %v to %v (scale %v)", n, before, got, v.Scale)
 		}
 	}
-	v.Fit(image.Rect(0, 0, 1000, 500), 800, 600)
+	v.Fit(image.Rect(0, 0, 1000, 500), image.Rect(100, 50, 900, 650))
+	if got := v.ToWorld(500, 350); got.X < 495 || got.X > 505 || got.Y < 245 || got.Y > 255 {
+		t.Errorf("fit does not centre: area centre shows %v", got)
+	}
 	if v.Scale != 0.5 {
 		t.Errorf("fit scale %v, want 0.5", v.Scale)
 	}
