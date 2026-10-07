@@ -327,3 +327,12 @@ Buses in the Watch tab are inline number fields, like v1's number inputs.
 - Up and down step the value by one (wrapping at the bus width) and apply it at once.
 - Opening a field and leaving it without typing changes nothing, so clicking an output such as `sum` does not pin it.
 - Middle click releases a bus.
+
+## Pixel font and outlines (owner choice)
+
+- All ui text uses one pixel font at one size: buttons, panel, status lines and canvas labels. The font is **Pixelify Sans** (SIL Open Font License 1.1, Copyright 2021 The Pixelify Sans Project Authors; licence in `ui/fonts/pixelifysans/OFL.txt`).
+- At startup it is rasterised once at 11 px to one-bit glyphs, which are drawn at a whole-number scale for the screen's DPI, so text is pixel-exact.
+- Icons were removed; buttons are text with their key.
+- Every box, button and tab has a single-pixel dark border (one ui pixel, so it scales with the text).
+- Candidates compared and dropped: raylib's default font, VT323, Silkscreen, Tiny5.
+- Layout sizes (bars, rows, columns, tabs) are derived from the font's line height and measured text, not fixed pixel values.

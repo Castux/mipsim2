@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"github.com/Castux/mipsim2/editor"
@@ -83,8 +82,7 @@ func (a *app) drawLabels(dst *ebiten.Image) {
 
 func (a *app) drawLabel(dst *ebiten.Image, p image.Point, s string) {
 	x, y := a.view.ToScreen(p)
-	a.face.Size = 12 * a.scale
-	w, h := text.Measure(s, a.face, 0)
+	w, h := a.textWidth(s, 0), a.lineHeight()
 	sc := a.view.Scale
 	gap := 2 * a.scale
 	// Put the label on a side whose neighbouring pixel is off, so it covers
@@ -100,11 +98,8 @@ func (a *app) drawLabel(dst *ebiten.Image, p image.Point, s string) {
 			px, py = x+sc/2-w/2, y+sc+gap
 		}
 	}
-	vector.FillRect(dst, float32(px-2*a.scale), float32(py), float32(w+4*a.scale), float32(h), labelBg, false)
-	op := &text.DrawOptions{}
-	op.GeoM.Translate(px, py)
-	op.ColorScale.ScaleWithColor(labelFg)
-	text.Draw(dst, s, a.face, op)
+	vector.FillRect(dst, float32(px-2*a.scale), float32(py-1*a.scale), float32(w+4*a.scale), float32(h+2*a.scale), labelBg, false)
+	a.drawText(dst, s, px, py, 0, labelFg)
 }
 
 // drawDiagnosticMarkers outlines every diagnostic's pixel on the canvas.
@@ -150,13 +145,9 @@ func (a *app) drawInstances(dst *ebiten.Image) {
 		}
 		x, y := a.view.ToScreen(c.Rect.Min)
 		s := c.Path + " : " + c.Name
-		a.face.Size = 12 * a.scale
-		w, h := text.Measure(s, a.face, 0)
-		vector.FillRect(dst, float32(x), float32(y-h-2*a.scale), float32(w+6*a.scale), float32(h+2*a.scale), cueColor, false)
-		op := &text.DrawOptions{}
-		op.GeoM.Translate(x+3*a.scale, y-h-1*a.scale)
-		op.ColorScale.ScaleWithColor(color.White)
-		text.Draw(dst, s, a.face, op)
+		w, h := a.textWidth(s, 0), a.lineHeight()
+		vector.FillRect(dst, float32(x), float32(y-h-4*a.scale), float32(w+6*a.scale), float32(h+4*a.scale), cueColor, false)
+		a.drawText(dst, s, x+3*a.scale, y-h-2*a.scale, 0, color.White)
 	}
 }
 

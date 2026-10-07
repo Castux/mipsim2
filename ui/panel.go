@@ -62,14 +62,14 @@ func (a *app) currentTab() panelTab {
 }
 
 func (a *app) panelBody(l layout) image.Rectangle {
-	return image.Rect(l.right.Min.X, l.right.Min.Y+a.u(38), l.right.Max.X, l.right.Max.Y)
+	return image.Rect(l.right.Min.X, l.right.Min.Y+int(a.lineHeight())+a.u(26), l.right.Max.X, l.right.Max.Y)
 }
 
 func (a *app) rowHeight() float64 {
 	if t := a.currentTab(); t == tabWatch || t == tabComponents {
-		return 22 * a.scale
+		return a.lineHeight() + 10*a.scale
 	}
-	return 34 * a.scale
+	return 2*a.lineHeight() + 14*a.scale
 }
 
 // rowAt returns the index of the panel row under p.
@@ -143,8 +143,8 @@ func (a *app) drawPanel(screen *ebiten.Image, l layout) {
 		if t.id == cur {
 			bg = chromeActive
 		}
-		fillRect(screen, t.rect, bg)
-		a.drawText(screen, t.text, float64(t.rect.Min.X)+8*a.scale, float64(t.rect.Min.Y)+5*a.scale, 13, chromeText)
+		a.box(screen, t.rect, bg)
+		a.drawText(screen, t.text, float64(t.rect.Min.X)+8*a.scale, float64(t.rect.Min.Y+t.rect.Max.Y)/2-a.lineHeight()/2, 0, chromeText)
 	}
 
 	body := a.panelBody(l)
@@ -163,27 +163,27 @@ func (a *app) drawPanel(screen *ebiten.Image, l layout) {
 			if d.Level == netlist.Error {
 				clr = errColor
 			}
-			a.drawText(bodyImg, fmt.Sprintf("%s at %d,%d", d.Code, d.Pos.X, d.Pos.Y), x, y, 12, clr)
-			a.drawText(bodyImg, truncate(d.Msg, 44), x+8*a.scale, y+15*a.scale, 12, chromeDim)
+			a.drawText(bodyImg, fmt.Sprintf("%s at %d,%d", d.Code, d.Pos.X, d.Pos.Y), x, y, 0, clr)
+			a.drawText(bodyImg, a.fitText(d.Msg, float64(body.Max.X)-x-18*a.scale), x+8*a.scale, y+a.lineHeight()+3*a.scale, 0, chromeDim)
 			y += a.rowHeight()
 		}
 	case tabComponents:
 		defs := a.ed.Definitions()
 		a.panelScroll = max(0, min(a.panelScroll, len(defs)-1))
 		if len(defs) == 0 {
-			a.drawText(bodyImg, "none yet: select an area and press k", x, y, 12, chromeDim)
+			a.drawText(bodyImg, "none yet: select an area and press k", x, y, 0, chromeDim)
 		}
 		for _, d := range defs[a.panelScroll:] {
 			if y > float64(body.Max.Y) {
 				break
 			}
-			a.drawText(bodyImg, truncate(d.Name, 22), x, y+3*a.scale, 13, chromeText)
 			info := fmt.Sprintf("%dx%d  ×%d", d.W, d.H, d.Instances)
+			a.drawText(bodyImg, a.fitText(d.Name, float64(body.Max.X)-x-a.textWidth(info, 0)-24*a.scale), x, y+5*a.scale, 0, chromeText)
 			clr := chromeDim
 			if d.Instances == 0 {
 				clr = chromeOff
 			}
-			a.drawText(bodyImg, info, float64(body.Max.X)-a.textWidth(info, 12)-10*a.scale, y+4*a.scale, 12, clr)
+			a.drawText(bodyImg, info, float64(body.Max.X)-a.textWidth(info, 12)-10*a.scale, y+5*a.scale, 0, clr)
 			y += a.rowHeight()
 		}
 	case tabWatch:
@@ -194,18 +194,18 @@ func (a *app) drawPanel(screen *ebiten.Image, l layout) {
 		names := r.Names()
 		a.panelScroll = max(0, min(a.panelScroll, len(names)-1))
 		if len(names) == 0 {
-			a.drawText(bodyImg, "no labelled nets: label wires with n", x, y, 12, chromeDim)
+			a.drawText(bodyImg, "no labelled nets: label wires with n", x, y, 0, chromeDim)
 		}
 		valueX := float64(body.Max.X) - 90*a.scale
 		for _, name := range names[a.panelScroll:] {
 			if y > float64(body.Max.Y) {
 				break
 			}
-			a.drawText(bodyImg, truncate(name, 24), x, y+3*a.scale, 13, chromeText)
+			a.drawText(bodyImg, a.fitText(name, valueX-x-10*a.scale), x, y+5*a.scale, 0, chromeText)
 			if _, isBus := r.Bus(name); isBus {
 				a.drawWatchField(bodyImg, name, valueX, y, float64(body.Max.X)-34*a.scale)
 			} else {
-				a.drawText(bodyImg, r.Format(name), valueX, y+3*a.scale, 13, a.valueColor(name))
+				a.drawText(bodyImg, r.Format(name), valueX, y+5*a.scale, 0, a.valueColor(name))
 			}
 			if pin := a.pinOf(name); pin != sim.Floating {
 				clr := color.RGBA{255, 125, 125, 255} // v1 pinned high
@@ -214,7 +214,8 @@ func (a *app) drawPanel(screen *ebiten.Image, l layout) {
 				} else if pin == sim.Unstable {
 					clr = chromeDim // some bits of a bus
 				}
-				drawIcon(bodyImg, "pin", float64(body.Max.X)-26*a.scale, y+3*a.scale, float64(max(1, int(a.scale*1.5+0.5))), clr)
+				sq := a.lineHeight() / 2
+				fillRect(bodyImg, image.Rect(int(float64(body.Max.X)-24*a.scale), int(y+5*a.scale+sq/2), int(float64(body.Max.X)-24*a.scale+sq), int(y+5*a.scale+sq*1.5)), clr)
 			}
 			y += a.rowHeight()
 		}
@@ -254,14 +255,6 @@ func (a *app) pinOf(name string) sim.Value {
 		}
 	}
 	return sim.Floating
-}
-
-func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n-1]) + "…"
 }
 
 // panelHint explains the mouse buttons on the panel's rows.
@@ -324,17 +317,31 @@ func (a *app) stepWatch(delta int) {
 // drawWatchField draws a bus value as an editable box from x0 to x1.
 func (a *app) drawWatchField(dst *ebiten.Image, name string, x0, y, x1 float64) {
 	r := a.ed.Runner()
-	box := image.Rect(int(x0-4*a.scale), int(y+1*a.scale), int(x1), int(y+20*a.scale))
+	box := image.Rect(int(x0-5*a.scale), int(y+1*a.scale), int(x1), int(y+a.lineHeight()+9*a.scale))
 	editing := a.prompt != nil && a.prompt.kind == uiSetWatch && a.prompt.target == name
 	border := chromeLine
 	if editing {
 		border = cueColor
 	}
-	fillRect(dst, box, color.White)
-	vector.StrokeRect(dst, float32(box.Min.X), float32(box.Min.Y), float32(box.Dx()), float32(box.Dy()), float32(max(1, a.scale)), border, false)
+	a.box(dst, box, color.White)
 	if editing {
-		a.drawText(dst, a.prompt.buffer+"_", x0, y+3*a.scale, 13, chromeText)
+		vector.StrokeRect(dst, float32(box.Min.X), float32(box.Min.Y), float32(box.Dx()), float32(box.Dy()), float32(2*max(1, int(a.scale+0.5))), border, false)
+	}
+	if editing {
+		a.drawText(dst, a.prompt.buffer+"_", x0, y+5*a.scale, 0, chromeText)
 		return
 	}
-	a.drawText(dst, r.Format(name), x0, y+3*a.scale, 13, a.valueColor(name))
+	a.drawText(dst, r.Format(name), x0, y+5*a.scale, 0, a.valueColor(name))
+}
+
+// fitText shortens s with ".." so it is at most w pixels wide.
+func (a *app) fitText(s string, w float64) string {
+	if a.textWidth(s, 0) <= w {
+		return s
+	}
+	r := []rune(s)
+	for len(r) > 0 && a.textWidth(string(r)+"..", 0) > w {
+		r = r[:len(r)-1]
+	}
+	return string(r) + ".."
 }

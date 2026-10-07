@@ -47,45 +47,44 @@ type binding struct {
 	onRelease bool // handled by the ui on key release (space)
 
 	place place
-	icon  string
 	label string
 }
 
 var keymap = []binding{
 	{key: ebiten.KeyE, keyName: "e", action: editor.ActToggleSimulate, place: modeToggle},
 
-	{key: ebiten.KeyD, keyName: "d", editOnly: true, action: editor.ActPencil, place: toolCol, icon: "draw", label: "Draw"},
-	{key: ebiten.KeyS, keyName: "s", editOnly: true, action: editor.ActSelect, place: toolCol, icon: "select", label: "Select"},
-	{key: ebiten.KeyN, keyName: "n", editOnly: true, action: editor.ActLabel, place: toolCol, icon: "label", label: "Label"},
+	{key: ebiten.KeyD, keyName: "d", editOnly: true, action: editor.ActPencil, place: toolCol, label: "Draw"},
+	{key: ebiten.KeyS, keyName: "s", editOnly: true, action: editor.ActSelect, place: toolCol, label: "Select"},
+	{key: ebiten.KeyN, keyName: "n", editOnly: true, action: editor.ActLabel, place: toolCol, label: "Label"},
 
-	{key: ebiten.KeyC, keyName: "c", editOnly: true, action: editor.ActCopy, place: editCol, icon: "copy", label: "Copy"},
-	{key: ebiten.KeyX, keyName: "x", editOnly: true, action: editor.ActCut, place: editCol, icon: "cut", label: "Cut"},
-	{key: ebiten.KeyV, keyName: "v", editOnly: true, action: editor.ActPaste, place: editCol, icon: "paste", label: "Paste"},
-	{key: ebiten.KeyBackspace, keyName: "bksp", editOnly: true, action: editor.ActDelete, place: editCol, icon: "delete", label: "Delete"},
+	{key: ebiten.KeyC, keyName: "c", editOnly: true, action: editor.ActCopy, place: editCol, label: "Copy"},
+	{key: ebiten.KeyX, keyName: "x", editOnly: true, action: editor.ActCut, place: editCol, label: "Cut"},
+	{key: ebiten.KeyV, keyName: "v", editOnly: true, action: editor.ActPaste, place: editCol, label: "Paste"},
+	{key: ebiten.KeyBackspace, keyName: "bksp", editOnly: true, action: editor.ActDelete, place: editCol, label: "Delete"},
 	{key: ebiten.KeyDelete, editOnly: true, action: editor.ActDelete},
-	{key: ebiten.KeyM, keyName: "m", editOnly: true, action: editor.ActMirror, place: editCol, icon: "mirror", label: "Mirror"},
-	{key: ebiten.KeyR, keyName: "r", editOnly: true, action: editor.ActRotate, place: editCol, icon: "rotate", label: "Rotate"},
+	{key: ebiten.KeyM, keyName: "m", editOnly: true, action: editor.ActMirror, place: editCol, label: "Mirror"},
+	{key: ebiten.KeyR, keyName: "r", editOnly: true, action: editor.ActRotate, place: editCol, label: "Rotate"},
 
-	{key: ebiten.KeyK, keyName: "K", shift: true, editOnly: true, action: editor.ActExplode, place: compCol, icon: "explode", label: "Explode"},
-	{key: ebiten.KeyK, keyName: "k", editOnly: true, action: editor.ActMakeComponent, place: compCol, icon: "make", label: "Component"},
-	{key: ebiten.KeyF2, keyName: "F2", editOnly: true, action: editor.ActRename, place: compCol, icon: "rename", label: "Rename"},
+	{key: ebiten.KeyK, keyName: "K", shift: true, editOnly: true, action: editor.ActExplode, place: compCol, label: "Explode"},
+	{key: ebiten.KeyK, keyName: "k", editOnly: true, action: editor.ActMakeComponent, place: compCol, label: "Component"},
+	{key: ebiten.KeyF2, keyName: "F2", editOnly: true, action: editor.ActRename, place: compCol, label: "Rename"},
 
-	{key: ebiten.KeySpace, keyName: "space", simOnly: true, action: editor.ActRunPause, onRelease: true, place: simCol, icon: "run", label: "Run"},
-	{key: ebiten.KeyT, keyName: "t", simOnly: true, action: editor.ActTick, place: simCol, icon: "tick", label: "Tick"},
-	{key: ebiten.KeyH, keyName: "h", simOnly: true, action: editor.ActHalfTick, place: simCol, icon: "half", label: "Half tick"},
-	{key: ebiten.KeyPeriod, keyName: ".", simOnly: true, action: editor.ActStep, place: simCol, icon: "step", label: "Step"},
-	{key: ebiten.KeyR, keyName: "r", simOnly: true, action: editor.ActResetSim, place: simCol, icon: "reset", label: "Reset"},
-	{key: ebiten.KeyBracketLeft, keyName: "[", simOnly: true, action: editor.ActSlower, place: simCol, icon: "slower", label: "Slower"},
-	{key: ebiten.KeyBracketRight, keyName: "]", simOnly: true, action: editor.ActFaster, place: simCol, icon: "faster", label: "Faster"},
+	{key: ebiten.KeySpace, keyName: "space", simOnly: true, action: editor.ActRunPause, onRelease: true, place: simCol, label: "Run"},
+	{key: ebiten.KeyT, keyName: "t", simOnly: true, action: editor.ActTick, place: simCol, label: "Tick"},
+	{key: ebiten.KeyH, keyName: "h", simOnly: true, action: editor.ActHalfTick, place: simCol, label: "Half tick"},
+	{key: ebiten.KeyPeriod, keyName: ".", simOnly: true, action: editor.ActStep, place: simCol, label: "Step"},
+	{key: ebiten.KeyR, keyName: "r", simOnly: true, action: editor.ActResetSim, place: simCol, label: "Reset"},
+	{key: ebiten.KeyBracketLeft, keyName: "[", simOnly: true, action: editor.ActSlower, place: simCol, label: "Slower"},
+	{key: ebiten.KeyBracketRight, keyName: "]", simOnly: true, action: editor.ActFaster, place: simCol, label: "Faster"},
 
 	{key: ebiten.KeyEscape, action: editor.ActEscape},
 
 	{key: ebiten.KeyZ, ctrl: true, shift: true, action: editor.ActRedo},
-	{key: ebiten.KeyZ, keyName: "^Z", ctrl: true, action: editor.ActUndo, place: topBar, icon: "undo", label: "Undo"},
-	{key: ebiten.KeyY, keyName: "^Y", ctrl: true, action: editor.ActRedo, place: topBar, icon: "redo", label: "Redo"},
-	{key: ebiten.KeyO, keyName: "^O", ctrl: true, ui: uiOpen, place: topBar, icon: "open", label: "Open"},
+	{key: ebiten.KeyZ, keyName: "^Z", ctrl: true, action: editor.ActUndo, place: topBar, label: "Undo"},
+	{key: ebiten.KeyY, keyName: "^Y", ctrl: true, action: editor.ActRedo, place: topBar, label: "Redo"},
+	{key: ebiten.KeyO, keyName: "^O", ctrl: true, ui: uiOpen, place: topBar, label: "Open"},
 	{key: ebiten.KeyS, ctrl: true, shift: true, ui: uiSaveAs},
-	{key: ebiten.KeyS, keyName: "^S", ctrl: true, ui: uiSave, place: topBar, icon: "save", label: "Save"},
+	{key: ebiten.KeyS, keyName: "^S", ctrl: true, ui: uiSave, place: topBar, label: "Save"},
 
 	{key: ebiten.KeyF, ui: uiFit},
 	{key: ebiten.KeyB, ui: uiFilter},

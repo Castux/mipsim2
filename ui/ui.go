@@ -19,8 +19,6 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/hajimehoshi/ebiten/v2/text/v2"
-	"golang.org/x/image/font/gofont/goregular"
 
 	"github.com/Castux/mipsim2/doc"
 	"github.com/Castux/mipsim2/editor"
@@ -62,7 +60,8 @@ type app struct {
 	ed     *editor.Editor
 	view   editor.View
 	canvas *canvas
-	face   *text.GoTextFace
+	text   *pixelText
+	fileX  int // where the file name goes in the top bar
 
 	scale       float64 // device scale factor
 	w, h        int
@@ -97,11 +96,11 @@ func newApp(opts Options) (*app, error) {
 		return nil, fmt.Errorf("canvas shader: %w", err)
 	}
 	c.filter = opts.Filter
-	src, err := text.NewGoTextFaceSource(bytes.NewReader(goregular.TTF))
+	txt, err := newPixelText()
 	if err != nil {
 		return nil, err
 	}
-	a := &app{opts: opts, ed: editor.New(d), view: editor.NewView(), canvas: c, face: &text.GoTextFace{Source: src}, tab: tabWatch}
+	a := &app{opts: opts, ed: editor.New(d), view: editor.NewView(), canvas: c, text: txt, tab: tabWatch}
 	if opts.Screenshot != "" {
 		a.shotPath, a.shotAt, a.shotQuit = opts.Screenshot, 5+opts.Frames, true
 		if opts.Frames > 0 {
@@ -131,10 +130,8 @@ func newApp(opts Options) (*app, error) {
 }
 
 func (a *app) statusHeight() int {
-	return int(float64(statusLines)*a.lineHeight()) + a.u(10)
+	return int(float64(statusLines)*a.lineHeight()) + a.u(16)
 }
-
-func (a *app) lineHeight() float64 { return 18 * a.scale }
 
 func (a *app) fit() {
 	a.view.Fit(a.ed.Netlist().Bounds().Inset(2), a.computeLayout().canvas)
@@ -484,8 +481,8 @@ func (a *app) drawStatus(screen *ebiten.Image, l layout, hover string) {
 		info = a.ed.Status + "   |   " + info
 	}
 	y := float64(l.bottom.Min.Y) + 5*a.scale
-	a.drawText(screen, hint, 8*a.scale, y, 14, chromeText)
-	a.drawText(screen, info, 8*a.scale, y+a.lineHeight(), 13, chromeDim)
+	a.drawText(screen, hint, 8*a.scale, y, 0, chromeText)
+	a.drawText(screen, info, 8*a.scale, y+a.lineHeight()+4*a.scale, 0, chromeDim)
 }
 
 func (a *app) Layout(w, h int) (int, int) {

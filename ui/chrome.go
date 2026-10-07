@@ -6,7 +6,6 @@ import (
 	"image/color"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"github.com/Castux/mipsim2/editor"
@@ -16,6 +15,7 @@ import (
 var (
 	chromeBg     = color.RGBA{240, 240, 240, 255}
 	chromeLine   = color.RGBA{200, 200, 200, 255}
+	chromeEdge   = color.RGBA{96, 96, 96, 255} // box and button borders
 	chromeText   = color.RGBA{32, 32, 32, 255}
 	chromeDim    = color.RGBA{112, 112, 112, 255}
 	chromeOff    = color.RGBA{176, 176, 176, 255}
@@ -36,7 +36,6 @@ type button struct {
 	b       binding
 	enabled bool
 	active  bool
-	icon    string
 	label   string
 	segment bool // part of the mode toggle
 }
@@ -54,10 +53,18 @@ func (a *app) computeLayout() layout {
 	var l layout
 	ed := a.ed
 	mode := ed.Mode()
-	topH, leftW, bottomH := a.u(40), a.u(150), a.statusHeight()
+	lh := int(a.lineHeight())
+	topH, bottomH := lh+a.u(20), a.statusHeight()
+	// The left column fits its longest label and key.
+	leftW := 0
+	for _, b := range keymap {
+		if b.place == toolCol || b.place == editCol || b.place == compCol || b.place == simCol {
+			leftW = max(leftW, int(a.textWidth(b.label+"  "+b.keyName, 0))+a.u(30))
+		}
+	}
 	rightW := 0
 	if a.panelVisible() {
-		rightW = a.u(300)
+		rightW = max(a.u(300), int(a.textWidth("MMMMMMMMMMMMMMMMMMMMMMMMMMMMMM", 0)))
 	}
 	l.top = image.Rect(0, 0, a.w, topH)
 	l.bottom = image.Rect(0, a.h-bottomH, a.w, a.h)
@@ -67,7 +74,7 @@ func (a *app) computeLayout() layout {
 
 	// Mode toggle: two segments at the top left.
 	pad := a.u(6)
-	segW := a.u(104)
+	segW := int(a.textWidth("Simulate  e", 0)) + a.u(24)
 	x := pad
 	for i, m := range []editor.Mode{editor.EditMode, editor.SimulateMode} {
 		r := image.Rect(x, pad, x+segW, topH-pad)
@@ -76,12 +83,14 @@ func (a *app) computeLayout() layout {
 		x += segW
 	}
 
+	a.fileX = x + a.u(14)
+
 	// File and history buttons at the top right.
-	bw := a.u(64)
 	x = a.w - pad
 	top := buttonsAt(topBar, mode)
 	for i := len(top) - 1; i >= 0; i-- {
 		b := top[i]
+		bw := int(a.textWidth(b.label+"  "+b.keyName, 0)) + a.u(20)
 		r := image.Rect(x-bw, pad, x, topH-pad)
 		l.buttons = append(l.buttons, a.makeButton(r, b))
 		x -= bw + a.u(2)
@@ -89,7 +98,7 @@ func (a *app) computeLayout() layout {
 
 	// Left column: tools and actions for the mode.
 	y := l.left.Min.Y + pad
-	rowH := a.u(30)
+	rowH := lh + a.u(10)
 	addCol := func(p place) {
 		for _, b := range buttonsAt(p, mode) {
 			r := image.Rect(l.left.Min.X+pad, y, l.left.Max.X-pad, y+rowH)
@@ -110,8 +119,8 @@ func (a *app) computeLayout() layout {
 	if rightW > 0 {
 		tx := l.right.Min.X + pad
 		for _, t := range a.panelTabs() {
-			w := a.u(140)
-			l.tabs = append(l.tabs, tab{rect: image.Rect(tx, l.right.Min.Y+pad, tx+w, l.right.Min.Y+pad+a.u(26)), id: t.id, text: t.text})
+			w := int(a.textWidth(t.text, 0)) + a.u(16)
+			l.tabs = append(l.tabs, tab{rect: image.Rect(tx, l.right.Min.Y+pad, tx+w, l.right.Min.Y+pad+lh+a.u(10)), id: t.id, text: t.text})
 			tx += w + a.u(4)
 		}
 	}
@@ -119,7 +128,7 @@ func (a *app) computeLayout() layout {
 }
 
 func (a *app) makeButton(r image.Rectangle, b binding) button {
-	bt := button{rect: r, b: b, enabled: true, icon: b.icon, label: b.label}
+	bt := button{rect: r, b: b, enabled: true, label: b.label}
 	if b.ui == uiNone {
 		bt.enabled = a.ed.Enabled(b.action)
 	}
@@ -132,7 +141,7 @@ func (a *app) makeButton(r image.Rectangle, b binding) button {
 		bt.active = a.ed.Tool() == editor.LabelTool
 	case editor.ActRunPause:
 		if a.ed.Running() {
-			bt.icon, bt.label, bt.active = "pause", "Pause", true
+			bt.label, bt.active = "Pause", true
 		}
 	}
 	if b.ui == uiSave {
@@ -201,22 +210,6 @@ func (a *app) trigger(b binding) {
 	}
 }
 
-func (a *app) drawText(dst *ebiten.Image, s string, x, y, size float64, clr color.Color) float64 {
-	a.face.Size = size * a.scale
-	op := &text.DrawOptions{}
-	op.GeoM.Translate(x, y)
-	op.ColorScale.ScaleWithColor(clr)
-	text.Draw(dst, s, a.face, op)
-	w, _ := text.Measure(s, a.face, 0)
-	return w
-}
-
-func (a *app) textWidth(s string, size float64) float64 {
-	a.face.Size = size * a.scale
-	w, _ := text.Measure(s, a.face, 0)
-	return w
-}
-
 func fillRect(dst *ebiten.Image, r image.Rectangle, clr color.Color) {
 	vector.FillRect(dst, float32(r.Min.X), float32(r.Min.Y), float32(r.Dx()), float32(r.Dy()), clr, false)
 }
@@ -252,9 +245,9 @@ func (a *app) drawChrome(screen *ebiten.Image, l layout) {
 		name = "untitled"
 	}
 	if a.ed.Modified() {
-		name += "  •"
+		name += "  *"
 	}
-	a.drawText(screen, name, float64(a.u(232)), float64(a.u(12)), 14, chromeText)
+	a.drawText(screen, name, float64(a.fileX), float64(l.top.Min.Y+l.top.Max.Y)/2-a.lineHeight()/2, 0, chromeText)
 
 	// Clock rate and tick count under the simulate column.
 	if a.ed.Mode() == editor.SimulateMode && a.ed.Runner() != nil {
@@ -265,10 +258,11 @@ func (a *app) drawChrome(screen *ebiten.Image, l layout) {
 			}
 		}
 		x := float64(l.left.Min.X + a.u(10))
-		a.drawText(screen, fmt.Sprintf("%g Hz", a.ed.Hz()), x, float64(y+a.u(8)), 13, chromeText)
-		a.drawText(screen, fmt.Sprintf("tick %d", a.ed.Runner().Ticks()), x, float64(y+a.u(26)), 13, chromeDim)
+		lh := a.lineHeight()
+		a.drawText(screen, fmt.Sprintf("%g Hz", a.ed.Hz()), x, float64(y+a.u(8)), 0, chromeText)
+		a.drawText(screen, fmt.Sprintf("tick %d", a.ed.Runner().Ticks()), x, float64(y+a.u(12))+lh, 0, chromeDim)
 		if !a.ed.Runner().HasClock() {
-			a.drawText(screen, "no clock net", x, float64(y+a.u(44)), 12, chromeDim)
+			a.drawText(screen, "no clock net", x, float64(y+a.u(16))+2*lh, 0, chromeDim)
 		}
 	}
 }
@@ -283,34 +277,39 @@ func (a *app) drawButton(dst *ebiten.Image, bt button, hover bool) {
 	case hover && bt.enabled:
 		bg = chromeHover
 	}
-	fillRect(dst, bt.rect, bg)
-	vector.StrokeRect(dst, float32(bt.rect.Min.X), float32(bt.rect.Min.Y), float32(bt.rect.Dx()), float32(bt.rect.Dy()), 1, chromeLine, false)
+	a.box(dst, bt.rect, bg)
 
 	fg, keyClr := chromeText, chromeDim
 	if !bt.enabled {
 		fg, keyClr = chromeOff, chromeOff
 	}
 	r := bt.rect
-	midY := float64(r.Min.Y+r.Max.Y) / 2
+	ty := float64(r.Min.Y+r.Max.Y)/2 - a.lineHeight()/2
 	key := bt.b.keyName
-
-	if bt.segment {
+	pad := float64(a.u(8))
+	if bt.segment || bt.b.place == topBar {
 		label := bt.label + "  " + key
-		w := a.textWidth(label, 14)
-		a.drawText(dst, label, float64(r.Min.X+r.Max.X)/2-w/2, midY-9*a.scale, 14, fg)
+		w := a.textWidth(label, 0)
+		x := float64(r.Min.X+r.Max.X)/2 - w/2
+		x += a.drawText(dst, bt.label+"  ", x, ty, 0, fg)
+		a.drawText(dst, key, x, ty, 0, keyClr)
 		return
 	}
-	s := float64(max(1, int(a.scale*1.5+0.5)))
-	x := float64(r.Min.X) + 6*a.scale
-	drawIcon(dst, bt.icon, x, midY-s*iconSize/2, s, fg)
-	if bt.b.place == topBar {
-		// Compact: icon and key only; the label is in the hover hint.
-		a.drawText(dst, key, x+s*iconSize+5*a.scale, midY-8*a.scale, 12, keyClr)
-		return
+	a.drawText(dst, bt.label, float64(r.Min.X)+pad, ty, 0, fg)
+	a.drawText(dst, key, float64(r.Max.X)-a.textWidth(key, 0)-pad, ty, 0, keyClr)
+}
+
+// box fills r and draws a single-pixel dark border (one pixel of the ui's
+// pixel size, so it scales with the device like the text).
+func (a *app) box(dst *ebiten.Image, r image.Rectangle, fill color.Color) {
+	fillRect(dst, r, fill)
+	w := a.textScale()
+	for _, e := range []image.Rectangle{
+		{r.Min, image.Pt(r.Max.X, r.Min.Y+w)}, {image.Pt(r.Min.X, r.Max.Y-w), r.Max},
+		{r.Min, image.Pt(r.Min.X+w, r.Max.Y)}, {image.Pt(r.Max.X-w, r.Min.Y), r.Max},
+	} {
+		fillRect(dst, e, chromeEdge)
 	}
-	a.drawText(dst, bt.label, x+s*iconSize+8*a.scale, midY-9*a.scale, 14, fg)
-	kw := a.textWidth(key, 12)
-	a.drawText(dst, key, float64(r.Max.X)-kw-6*a.scale, midY-8*a.scale, 12, keyClr)
 }
 
 // buttonHint names the button under the pointer, for the hint line.
@@ -319,7 +318,7 @@ func (a *app) buttonHint(l layout, p image.Point) string {
 		if p.In(bt.rect) && !bt.segment {
 			s := bt.label + " (" + bt.b.keyName + ")"
 			if !bt.enabled {
-				s += " — not available now"
+				s += " - not available now"
 			}
 			return s
 		}
