@@ -70,8 +70,8 @@ func (d *Document) flattenInto(f *Flat, def *Definition, toWorld Affine, path []
 // Location is where a world point resolves to for editing: the deepest
 // definition whose instance rectangle contains it.
 type Location struct {
-	Path  []int  // instance indices from the root down; empty for the root
-	Def   DefID  // the definition being edited
+	Path  []int // instance indices from the root down; empty for the root
+	Def   DefID // the definition being edited
 	Local image.Point
 	Map   Affine // local coordinates of Def -> world
 }

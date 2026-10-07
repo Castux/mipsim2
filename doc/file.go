@@ -85,7 +85,7 @@ func (d *Document) Save() ([]byte, error) {
 		b.WriteString(",\n")
 		writeList(&b, "labels", len(def.Labels), func(i int) string {
 			l := def.Labels[i]
-			return compact(fileLabel{X: l.X, Y: l.Y, Name: l.Name})
+			return compact(fileLabel(l))
 		})
 		b.WriteString(",\n")
 		writeList(&b, "instances", len(def.Instances), func(i int) string {
@@ -203,7 +203,7 @@ func Load(data []byte) (*Document, error) {
 			add(where, "%v", err)
 		}
 		for _, l := range fd.Labels {
-			def.Labels = append(def.Labels, Label{X: l.X, Y: l.Y, Name: l.Name})
+			def.Labels = append(def.Labels, Label(l))
 		}
 		for _, fi := range fd.Instances {
 			o, err := ParseOrient(fi.Orient)

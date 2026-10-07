@@ -34,11 +34,16 @@ var allowed = map[string][]string{
 	"editor":  {"bitmap", "doc", "netlist", "sim", "devices", "runner"},
 }
 
+// Core packages must not depend on these at any depth.
 var forbiddenPrefixes = []string{
 	"github.com/hajimehoshi/ebiten",
 	"github.com/ebitenui/",
-	"syscall/js",
 }
+
+// syscall/js is checked separately: on GOOS=js the standard library itself
+// (time, os, ...) imports it, so only non-standard packages importing it
+// directly count.
+const syscallJS = "syscall/js"
 
 func corePackages() []string {
 	var pkgs []string
@@ -65,7 +70,20 @@ func goList(t *testing.T, env []string, args ...string) []string {
 func TestCoreHasNoGraphicsDependencies(t *testing.T) {
 	// Check both the host platform and wasm, since syscall/js only exists there.
 	for _, env := range [][]string{nil, {"GOOS=js", "GOARCH=wasm"}} {
-		deps := goList(t, env, append([]string{"-deps"}, corePackages()...)...)
+		lines := goList(t, env, append([]string{"-deps", "-f", "{{.ImportPath}} {{.Standard}} {{join .Imports \" \"}}"}, corePackages()...)...)
+		var deps []string
+		for _, line := range lines {
+			fields := strings.Fields(line)
+			pkg, standard, imports := fields[0], fields[1] == "true", fields[2:]
+			deps = append(deps, pkg)
+			if !standard {
+				for _, imp := range imports {
+					if imp == syscallJS {
+						t.Errorf("%s imports syscall/js (env %v)", pkg, env)
+					}
+				}
+			}
+		}
 		for _, f := range forbiddenPrefixes {
 			for _, d := range deps {
 				if strings.HasPrefix(d, f) {
