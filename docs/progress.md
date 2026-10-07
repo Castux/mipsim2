@@ -113,7 +113,7 @@ Edits recompile on mouse-up, so this is tolerable for M5. It is tracked by `Test
 - Pixels of a malformed thick region get role `X`, still join nets as wire (so hover and highlighting stay sensible), and are never transistors.
 - The isolated-sources variant's border rules are specified precisely in SPEC (corners off; no two border pixels touching, even diagonally; rings inside thick wire are holes).
 
-**Owner decision pending: thin wires or isolated sources?** Compare the goldens of `thick_block`, `flush_wire`, `t_on_thick`, `ring_on_high` and `source_border`. Summary:
+**Decided by the owner: thin wires.** (Was: thin wires or isolated sources?) Compare the goldens of `thick_block`, `flush_wire`, `t_on_thick`, `ring_on_high` and `source_border`. Summary:
 
 - **Thin wires** rejects anything 2 pixels thick (`E_THICK`), which catches accidental blobs.
 - **Isolated sources** allows thick buses, but a wire drawn flush along a source silently turns the source into plain wire (no error), and a ring touching a high source becomes wire too.
@@ -255,3 +255,13 @@ The thin-wires variant stays the default until decided.
 **Not verified by the agent:** as for M5, interactive mouse and keyboard use (drag-selecting, moving, typing labels, prompts). The logic is covered by `editor` tests, and rendering was checked with screenshots of the diagnostics panel, markers and labels.
 
 **Not done / next:** M7 (component UI). The plan says to pause here for the owner.
+
+## After M6: owner feedback
+
+- Thin wires kept (SPEC and PLAN updated).
+- The canvas and chrome now use MiPSim v1's palette from its `style.css`:
+  - white background with a light grid;
+  - silver wires, red power, blue ground, purple transistor centres, half-transparent silver bridge gaps;
+  - in simulate mode: pink high, light blue low, brown unstable; a light green outline on conducting transistors; pinned wires outlined `#ff7d7d` (high) or `#6d6dff` (low).
+
+  Outlines follow the shape of the whole net, not each pixel (from 4× zoom), using a neighbour check in the shader. Pin state is now encoded in the state texture alongside the value.

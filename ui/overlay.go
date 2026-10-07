@@ -14,13 +14,13 @@ import (
 )
 
 var (
-	selColor   = color.RGBA{90, 200, 255, 255}
-	ghostColor = color.RGBA{230, 230, 255, 150}
-	rectColor  = color.RGBA{255, 210, 90, 255}
-	errColor   = color.RGBA{255, 70, 70, 255}
-	warnColor  = color.RGBA{255, 190, 60, 255}
-	labelBg    = color.RGBA{20, 20, 26, 200}
-	labelFg    = color.RGBA{220, 220, 235, 255}
+	selColor   = color.RGBA{169, 169, 169, 255} // v1 selectRect: darkgrey
+	ghostColor = color.RGBA{96, 96, 96, 140}
+	rectColor  = color.RGBA{128, 0, 128, 255}
+	errColor   = color.RGBA{220, 0, 0, 255}
+	warnColor  = color.RGBA{230, 140, 0, 255}
+	labelBg    = color.RGBA{255, 255, 255, 210}
+	labelFg    = color.RGBA{0, 0, 0, 255}
 )
 
 func screenRect(v *editor.View, r image.Rectangle) (x, y, w, h float32) {

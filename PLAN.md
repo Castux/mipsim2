@@ -249,7 +249,7 @@ Each has a default the agent implements until the owner decides.
 
 | Question | Decision |
 | --- | --- |
-| One-pixel-wide wires (`E_THICK`) or isolated sources with thick wires allowed? | Open: both implemented in M2, chosen by fixtures (SPEC: Tile semantics) |
+| One-pixel-wide wires (`E_THICK`) or isolated sources with thick wires allowed? | Decided: thin wires (`E_THICK`), after the M2 comparison |
 | Should floating nets keep their last value or go `Floating` like v1? | `Floating`, as v1 |
 | When does `Unstable` clear? | Decided: at the start of the next settle (differs from v1, which kept it until reset) |
 | Do instances need rotation and mirroring? | Decided: yes, all 8 orientations, in the data model from M1 |

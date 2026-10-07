@@ -37,7 +37,7 @@ type Options struct {
 	Frames     int      // with Screenshot: render this many extra frames without vsync and print the average frame time
 }
 
-var background = color.RGBA{24, 24, 28, 255}
+var background = color.RGBA{255, 255, 255, 255}
 
 const statusLines = 2
 
@@ -391,7 +391,7 @@ func (a *app) screenshot(screen *ebiten.Image) {
 func (a *app) drawStatus(screen *ebiten.Image, hover string) {
 	y0 := float64(a.h - a.statusHeight())
 	bar := screen.SubImage(image.Rect(0, int(y0), a.w, a.h)).(*ebiten.Image)
-	bar.Fill(color.RGBA{34, 34, 40, 255})
+	bar.Fill(color.RGBA{238, 238, 238, 255})
 
 	a.face.Size = 14 * a.scale
 	nl := a.ed.Netlist()
@@ -422,7 +422,7 @@ func (a *app) drawStatus(screen *ebiten.Image, hover string) {
 	for i, s := range []string{line1, line2} {
 		op := &text.DrawOptions{}
 		op.GeoM.Translate(8*a.scale, y0+4*a.scale+float64(i)*a.lineHeight())
-		op.ColorScale.ScaleWithColor(color.RGBA{210, 210, 220, 255})
+		op.ColorScale.ScaleWithColor(color.RGBA{20, 20, 20, 255})
 		text.Draw(screen, s, a.face, op)
 	}
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/Castux/mipsim2/editor"
 	"github.com/Castux/mipsim2/netlist"
+	"github.com/Castux/mipsim2/sim"
 )
 
 // The canvas is drawn by one shader pass. Image 0 holds every classified
@@ -28,17 +29,39 @@ var Hover float      // net ID + 1 under the pointer, 0 for none
 var Filter float     // zoomed out: 0 average, 1 contrast boost, 2 any-on
 var StateWidth float // width of the state texture
 
+// The palette is MiPSim v1's (style.css): white background, silver wires,
+// red power, blue ground, purple transistors; pink high, light blue low,
+// brown unstable; light green outline on conducting transistors; pinned
+// wires outlined #ff7d7d (high) or #6d6dff (low).
+
 func byteOf(x float) int {
 	return int(floor(x*255 + 0.5))
 }
 
 func background() vec3 {
-	return vec3(0.09, 0.09, 0.11)
+	return vec3(1, 1, 1)
+}
+
+// idAt returns a key identifying what pixel pos belongs to, for outlines:
+// the net ID + 1, or minus the role for pixels without a net.
+func idAt(pos vec2) int {
+	c := imageSrc0At(pos)
+	r := byteOf(c.r)
+	g := byteOf(c.g)
+	b := byteOf(c.b)
+	role := b / 32
+	net := r + g*256 + (b-role*32)*65536
+	if role == 4 || net == 0 {
+		return -role - 10
+	}
+	return net
 }
 
 // colorAt returns the colour of the circuit pixel containing pos (texture
-// coordinates including the image origin), and whether it is on.
-func colorAt(pos vec2) vec4 {
+// coordinates including the image origin), and whether it is on. With
+// borders set, outlines (pins, conducting, errors) are drawn as a band
+// inside the cell; f is the position within the cell.
+func colorAt(pos vec2, borders bool, f vec2) vec4 {
 	c := imageSrc0At(pos)
 	r := byteOf(c.r)
 	g := byteOf(c.g)
@@ -50,52 +73,76 @@ func colorAt(pos vec2) vec4 {
 	}
 
 	state := 0
+	pin := 0
 	if net > 0 {
 		w := int(StateWidth)
 		row := net / w
 		col := net - row*w
 		s := imageSrc1At(imageSrc0Origin() + vec2(float(col), float(row)) + 0.5)
-		state = byteOf(s.r)
+		v := byteOf(s.r)
+		pin = v / 4
+		state = v - pin*4
 	}
 
-	col := vec3(0.55, 0.6, 0.7) // wire, edit mode
+	silver := vec3(0.753, 0.753, 0.753)
+	col := silver
 	if role == 2 {
-		col = vec3(0.9, 0.5, 0.35) // high source
+		col = vec3(1, 0, 0) // power (high source)
 	} else if role == 3 {
-		col = vec3(0.35, 0.5, 0.9) // low source
+		col = vec3(0, 0, 1) // ground (low source)
 	} else if role == 4 {
-		col = vec3(0.85, 0.8, 0.4) // transistor centre
+		col = vec3(0.502, 0, 0.502) // transistor centre: purple
 	} else if role == 5 {
-		col = vec3(0.16, 0.16, 0.2) // bridge gap
-	} else if role == 6 {
-		col = vec3(1, 0.1, 0.1) // malformed thick region
+		col = vec3(0.88, 0.88, 0.88) // bridge gap: half-transparent silver
 	}
 
-	if Simulating > 0.5 && role != 5 && role != 6 {
-		if role == 4 {
-			col = vec3(0.25, 0.35, 0.3) // gate not high: open
-			if state == 1 {
-				col = vec3(0.4, 1, 0.5) // conducting
-			}
-		} else if state == 1 {
-			col = vec3(1, 0.85, 0.3) // high
+	if Simulating > 0.5 && role == 1 {
+		if state == 1 {
+			col = vec3(1, 0.753, 0.796) // pink
 		} else if state == 2 {
-			col = vec3(0.22, 0.28, 0.45) // low
+			col = vec3(0.678, 0.847, 0.902) // light blue
 		} else if state == 3 {
-			col = vec3(1, 0.2, 0.8) // unstable
-		} else {
-			col = vec3(0.45, 0.45, 0.5) // floating
-		}
-		// Keep sources recognisable: tint by kind.
-		if role == 2 {
-			col = mix(col, vec3(0.9, 0.5, 0.35), 0.3)
-		} else if role == 3 {
-			col = mix(col, vec3(0.35, 0.5, 0.9), 0.3)
+			col = vec3(0.647, 0.165, 0.165) // brown
 		}
 	}
 
-	if Hover > 0.5 && float(net) == Hover && role != 4 {
-		col = mix(col, vec3(1, 1, 1), 0.4)
+	if Hover > 0.5 && float(net) == Hover && role != 4 && role != 5 {
+		col = col * 0.8
+	}
+
+	// Outlines, as a band inside the cell when zoomed in enough.
+	band := vec3(-1)
+	if role == 6 {
+		band = vec3(1, 0, 0) // malformed thick region
+	} else if Simulating > 0.5 && role == 4 {
+		if state == 1 {
+			band = vec3(0.565, 0.933, 0.565) // conducting: light green
+		} else if state == 3 {
+			band = vec3(0.647, 0.165, 0.165)
+		}
+	} else if Simulating > 0.5 && pin == 1 {
+		band = vec3(1, 0.49, 0.49) // pinned high
+	} else if Simulating > 0.5 && pin == 2 {
+		band = vec3(0.427, 0.427, 1) // pinned low
+	}
+	if band.r >= 0 {
+		if !borders {
+			if role == 4 || role == 6 {
+				col = band // too small for a band: show the outline colour
+			}
+		} else {
+			// Outline the shape, not each pixel: only edges facing a pixel
+			// that is not part of the same net (or region).
+			w := max(0.18, 1.5/Scale)
+			key := idAt(pos)
+			if role == 4 {
+				key = -1 // a transistor centre is outlined on its own
+			}
+			if (f.x < w && idAt(pos-vec2(1, 0)) != key) || (f.x > 1-w && idAt(pos+vec2(1, 0)) != key) ||
+				(f.y < w && idAt(pos-vec2(0, 1)) != key) || (f.y > 1-w && idAt(pos+vec2(0, 1)) != key) {
+				col = band
+			}
+		}
 	}
 	return vec4(col, 1)
 }
@@ -103,17 +150,14 @@ func colorAt(pos vec2) vec4 {
 func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	bg := background()
 	if Scale >= 1 {
-		c := colorAt(floor(srcPos) + 0.5)
+		f := fract(srcPos - imageSrc0Origin())
+		c := colorAt(floor(srcPos)+0.5, Scale >= 4, f)
 		col := c.rgb
-		if Scale >= 8 {
-			// Faint grid on cell borders.
-			f := fract(srcPos - imageSrc0Origin())
+		if Scale >= 8 && c.a < 0.5 {
+			// Light grid on empty cells.
 			edge := 1 / Scale
 			if f.x < edge || f.y < edge {
-				col = col * 0.82
-				if c.a < 0.5 {
-					col = bg + vec3(0.03, 0.03, 0.04)
-				}
+				col = vec3(0.93, 0.93, 0.94)
 			}
 		}
 		return vec4(col, 1)
@@ -130,7 +174,7 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 		for j := 0; j < 4; j++ {
 			if float(i) < Samples && float(j) < Samples {
 				off := (vec2(float(i), float(j)) + 0.5) / Samples * foot - foot/2
-				c := colorAt(floor(srcPos + off) + 0.5)
+				c := colorAt(floor(srcPos + off) + 0.5, false, vec2(0.5))
 				if c.a > 0.5 {
 					sum += c.rgb
 					on += 1
@@ -237,7 +281,15 @@ func (c *canvas) buildStates(nets int) {
 func (c *canvas) updateStates(e *editor.Editor, nl *netlist.Netlist) {
 	for id := range c.nets {
 		i := 4 * (id + 1)
-		c.statePix[i] = byte(e.Value(netlist.NetID(id)))
+		n := netlist.NetID(id)
+		var pin byte
+		switch e.Pinned(n) {
+		case sim.High:
+			pin = 1
+		case sim.Low:
+			pin = 2
+		}
+		c.statePix[i] = byte(e.Value(n)) + 4*pin
 		c.statePix[i+3] = 255
 	}
 	c.states.WritePixels(c.statePix)
@@ -285,9 +337,9 @@ func (c *canvas) draw(dst *ebiten.Image, area image.Rectangle, v *editor.View, h
 
 // drawStroke shows pixels changed by a stroke that has not been compiled yet.
 func drawStroke(dst *ebiten.Image, v *editor.View, cells []image.Point, value bool) {
-	clr := color.RGBA{140, 150, 175, 255}
+	clr := color.RGBA{192, 192, 192, 255}
 	if !value {
-		clr = color.RGBA{23, 23, 28, 255}
+		clr = color.RGBA{255, 255, 255, 255}
 	}
 	s := float32(max(v.Scale, 1))
 	for _, p := range cells {

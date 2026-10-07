@@ -46,7 +46,7 @@ func (a *app) drawPanel(screen *ebiten.Image) {
 		return
 	}
 	panel := screen.SubImage(area).(*ebiten.Image)
-	panel.Fill(color.RGBA{30, 30, 36, 255})
+	panel.Fill(color.RGBA{248, 248, 248, 255})
 	diags := a.ed.Netlist().Diagnostics
 	a.panelScroll = max(0, min(a.panelScroll, len(diags)-1))
 
@@ -73,7 +73,7 @@ func (a *app) drawPanel(screen *ebiten.Image) {
 		text.Draw(panel, fmt.Sprintf("%s at %d,%d", d.Code, d.Pos.X, d.Pos.Y), a.face, head)
 		msg := &text.DrawOptions{}
 		msg.GeoM.Translate(x+8*a.scale, y+15*a.scale)
-		msg.ColorScale.ScaleWithColor(color.RGBA{170, 170, 185, 255})
+		msg.ColorScale.ScaleWithColor(color.RGBA{80, 80, 80, 255})
 		text.Draw(panel, truncate(d.Msg, 52), a.face, msg)
 		y += a.panelLine()
 	}

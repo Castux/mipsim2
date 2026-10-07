@@ -596,3 +596,11 @@ func (e *Editor) Hover() (image.Point, netlist.NetID, string) {
 	}
 	return p, n, b.String()
 }
+
+// Pinned returns High or Low if a net is pinned in simulate mode, else Floating.
+func (e *Editor) Pinned(n netlist.NetID) sim.Value {
+	if e.run == nil || n == netlist.NoNet {
+		return sim.Floating
+	}
+	return e.run.Sim().Pinned(n)
+}
