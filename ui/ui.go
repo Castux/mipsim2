@@ -24,6 +24,7 @@ import (
 	"github.com/Castux/mipsim2/editor"
 	"github.com/Castux/mipsim2/netlist"
 	"github.com/Castux/mipsim2/platform"
+	"github.com/Castux/mipsim2/ui/filebrowser"
 )
 
 // Options configures Run.
@@ -40,6 +41,7 @@ type Options struct {
 	Filter     int      // zoomed-out filter: 0 average, 1 contrast boost, 2 any-on
 	Frames     int      // with Screenshot: render this many extra frames without vsync and print the average frame time
 	Tool       string   // start with this tool selected: draw, select or label
+	Browse     string   // start with the file dialog open: "open" or "save"
 }
 
 var background = color.RGBA{255, 255, 255, 255} // v1's white canvas
@@ -69,6 +71,7 @@ type app struct {
 	frames      int
 	err         error
 	prompt      *prompt
+	fb          *filebrowser.Browser // the open/save dialog, when shown
 	tab         panelTab
 	panelScroll int
 	lastFrame   time.Time
@@ -114,6 +117,12 @@ func newApp(opts Options) (*app, error) {
 		a.ed.Do(editor.ActLabel)
 	}
 	a.ed.Status = ""
+	switch opts.Browse {
+	case "open":
+		a.openBrowser(filebrowser.Open)
+	case "save":
+		a.openBrowser(filebrowser.Save)
+	}
 	if opts.Simulate {
 		a.ed.Do(editor.ActToggleSimulate)
 		if r := a.ed.Runner(); r != nil {
@@ -162,6 +171,10 @@ func (a *app) Update() error {
 		}
 	}
 	l := a.computeLayout()
+	if a.fb != nil {
+		a.handleBrowser(l)
+		return nil
+	}
 	if !a.handleTyping() {
 		a.handleKeys()
 	}
@@ -259,24 +272,6 @@ func (a *app) runPrompt(p *prompt) {
 		return
 	}
 	switch p.kind {
-	case uiSaveAs:
-		a.save(value)
-	case uiOpen:
-		platform.ReadFile(value, func(data []byte, err error) {
-			if err != nil {
-				a.ed.Status = "open failed: " + err.Error()
-				return
-			}
-			d, err := doc.Load(data)
-			if err != nil {
-				a.ed.Status = "open failed: " + firstLine(err.Error())
-				return
-			}
-			a.ed.ReplaceDocument(d)
-			a.setPath(value)
-			a.fit()
-			a.ed.Status = "opened " + value
-		})
 	case uiSetWatch:
 		if r := a.ed.Runner(); r != nil {
 			if err := r.Set(p.target, value); err != nil {
@@ -402,6 +397,9 @@ func (a *app) Draw(screen *ebiten.Image) {
 	a.drawOverlay(canvasImg, a.ed.Overlay())
 	a.drawChrome(screen, l)
 	a.drawPanel(screen, l)
+	if a.fb != nil {
+		a.drawBrowser(screen, l)
+	}
 	a.drawStatus(screen, l, hoverText)
 	a.screenshot(screen)
 }
@@ -452,11 +450,10 @@ func (a *app) drawStatus(screen *ebiten.Image, l layout, hover string) {
 	if hint == "" {
 		hint = a.ed.Hint()
 	}
-	if p := a.prompt; p != nil && p.kind == uiSetWatch {
+	if a.fb != nil {
+		hint = browserHint()
+	} else if p := a.prompt; p != nil && p.kind == uiSetWatch {
 		hint = "set " + p.target + ": type a number (0x hex, 0b binary) · enter or click elsewhere applies · up/down steps · esc cancels"
-	} else if p != nil {
-		label := map[uiAction]string{uiOpen: "open: ", uiSaveAs: "save as: ", uiSetWatch: "set " + p.target + " = "}[p.kind]
-		hint = label + p.buffer + "_   (enter to confirm, esc to cancel)"
 	}
 
 	nl := a.ed.Netlist()

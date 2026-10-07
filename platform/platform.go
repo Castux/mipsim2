@@ -15,3 +15,20 @@ func WriteFile(name string, data []byte, done func(error)) {
 func ReadFile(name string, done func([]byte, error)) {
 	readFile(name, done)
 }
+
+// DirEntry is one item of a folder listing.
+type DirEntry struct {
+	Name string
+	Dir  bool
+}
+
+// ListDir lists a folder and calls done with its entries.
+func ListDir(dir string, done func([]DirEntry, error)) {
+	listDir(dir, done)
+}
+
+// Exists reports whether a file exists. It is false where it cannot be
+// known synchronously (the browser).
+func Exists(path string) bool {
+	return exists(path)
+}

@@ -340,3 +340,15 @@ Buses in the Watch tab are inline number fields, like v1's number inputs.
 ## Selecting nested components (owner request)
 
 A click with the select tool now picks the **innermost** instance under the pointer, in its parent's definition. Moving, rotating, deleting or exploding it therefore rearranges the component that contains it, everywhere that component is used. Clicking again inside the selection goes one level up, and wraps back to the innermost after the top level. Dragging a rectangle still selects in the definition where the drag starts. Tested on `hier.fix`: deleting `g1` inside `pair` removes it from both placed pairs.
+
+## File browser (owner request)
+
+Open (ctrl+o), Save As (ctrl+shift+s) and the first save of an untitled document open an in-app file dialog, drawn in the pixel style. The owner chose this over a native OS dialog for a consistent look and no new dependency.
+
+- **Listing:** folders first, then `.mip` files; hidden entries are skipped.
+- **Choosing:** click to select, click again or press enter to choose. Up/down and page up/down move the selection. Alt+up, or backspace on an empty name, goes to the parent folder.
+- **Typing:** typing edits the name field. A folder or absolute path, such as `D:\`, navigates there.
+- **Save:** adds `.mip` when no extension is given, and asks for a second confirm before replacing an existing file. **Open** refuses missing files.
+- Escape or a click outside the dialog cancels.
+- The logic is in `ui/filebrowser` (no graphics, unit-tested on a real temp folder). Listing and existence checks go through `platform.ListDir` and `platform.Exists`; the wasm build has stubs, and the web port will use the browser's own picker.
+- The top bar now shows only the file name; the window title keeps the full path.

@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"path/filepath"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"github.com/Castux/mipsim2/editor"
+	"github.com/Castux/mipsim2/ui/filebrowser"
 )
 
 // Chrome colours: a light theme matching MiPSim v1's white canvas.
@@ -192,14 +194,14 @@ func (a *app) trigger(b binding) {
 		a.ed.Do(b.action)
 	case uiSave:
 		if a.opts.Path == "" {
-			a.prompt = &prompt{kind: uiSaveAs, buffer: "circuit.mip"}
+			a.openBrowser(filebrowser.Save)
 		} else {
 			a.save(a.opts.Path)
 		}
 	case uiSaveAs:
-		a.prompt = &prompt{kind: uiSaveAs, buffer: a.opts.Path}
+		a.openBrowser(filebrowser.Save)
 	case uiOpen:
-		a.prompt = &prompt{kind: uiOpen, buffer: a.opts.Path}
+		a.openBrowser(filebrowser.Open)
 	case uiFit:
 		a.fit()
 	case uiFilter:
@@ -240,13 +242,21 @@ func (a *app) drawChrome(screen *ebiten.Image, l layout) {
 	}
 
 	// File name, with a dot when modified, after the mode toggle.
-	name := a.opts.Path
-	if name == "" {
+	// Just the file name; the window title has the full path.
+	name := filepath.Base(a.opts.Path)
+	if a.opts.Path == "" {
 		name = "untitled"
 	}
 	if a.ed.Modified() {
 		name += "  *"
 	}
+	right := a.w
+	for _, bt := range l.buttons {
+		if bt.b.place == topBar {
+			right = min(right, bt.rect.Min.X)
+		}
+	}
+	name = a.fitText(name, float64(right-a.fileX-a.u(10)))
 	a.drawText(screen, name, float64(a.fileX), float64(l.top.Min.Y+l.top.Max.Y)/2-a.lineHeight()/2, 0, chromeText)
 
 	// Clock rate and tick count under the simulate column.

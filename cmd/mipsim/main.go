@@ -28,9 +28,10 @@ func main() {
 	filter := flag.Int("filter", 1, "zoomed-out filter: 0 average, 1 contrast boost, 2 any-on")
 	frames := flag.Int("frames", 0, "with -screenshot: time this many frames without vsync first")
 	tool := flag.String("tool", "", "start with this tool: draw, select or label")
+	browse := flag.String("browse", "", "start with the file dialog open: open or save")
 	flag.Parse()
 
-	opts := ui.Options{Screenshot: *screenshot, Simulate: *simulate, Zoom: *zoom, Filter: *filter, Frames: *frames, Tool: *tool}
+	opts := ui.Options{Screenshot: *screenshot, Simulate: *simulate, Zoom: *zoom, Filter: *filter, Frames: *frames, Tool: *tool, Browse: *browse}
 	if *set != "" {
 		opts.Sets = strings.Split(*set, ",")
 	}
