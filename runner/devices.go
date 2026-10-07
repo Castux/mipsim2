@@ -33,6 +33,10 @@ func (b *deviceBus) Value(name string) devices.Level {
 }
 
 func (b *deviceBus) Pin(name string, l devices.Level) {
+	if l != devices.High && l != devices.Low {
+		b.Unpin(name) // only clean levels can be driven
+		return
+	}
 	id, ok := b.id(name)
 	if !ok {
 		return

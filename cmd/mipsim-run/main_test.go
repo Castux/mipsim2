@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Castux/mipsim2/doc"
 	"github.com/Castux/mipsim2/internal/fixture"
 )
 
@@ -81,6 +82,8 @@ func TestCLIErrors(t *testing.T) {
 		{[]string{adderFix, "--set", "a"}, "name=value"},
 		{[]string{adderFix, "--set", "a=99"}, "does not fit"},
 		{[]string{adderFix, "--ticks", "1"}, "needs a clock"},
+		{[]string{adderFix, "--ticks", "-3"}, "negative"},
+		{[]string{adderFix, "--dump", "nope"}, "no memory device"},
 	}
 	for _, c := range cases {
 		_, errOut, code := runCLI(t, c.args...)
@@ -116,7 +119,7 @@ func TestRAMFromCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &fx.Doc.Devices[0]
-	c.Raw = []byte(strings.Replace(string(c.Raw), `"width": 8`, `"width": 8, "init": "ram.bin"`, 1))
+	*c, _ = doc.NewDeviceConfig([]byte(strings.Replace(string(c.Raw), `"width":8`, `"width":8,"init":"ram.bin"`, 1)))
 	data, err := fx.Doc.Save()
 	if err != nil {
 		t.Fatal(err)

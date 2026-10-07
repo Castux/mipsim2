@@ -16,6 +16,10 @@
 // Output is one line per tick: "tick N: name=value ...". Nets print as 0, 1,
 // z (floating) or x (unstable); buses (name_0, name_1, ...) as numbers, or ?
 // if a bit is not a clean level.
+//
+// Exit status: 0 on success, 1 if the file, the circuit or the run fails
+// (compile errors, device errors such as a memory reading a floating bit),
+// 2 for bad usage.
 package main
 
 import (
@@ -66,7 +70,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	trace := fs.Bool("trace", false, "print every change of a named net")
 	isolated := fs.Bool("isolated", false, "compile with the isolated-sources rules")
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, "usage: mipsim-run FILE [--set a=1,...] [--ticks N] [--watch a,...] [--clock NAME] [--trace]")
+		fmt.Fprintln(stderr, "usage: mipsim-run FILE [--set a=1,...] [--ticks N] [--watch a,...] [--clock NAME] [--trace] [--dump MEM,...] [--isolated]")
 		fs.PrintDefaults()
 	}
 
@@ -84,6 +88,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(files) != 1 {
 		fs.Usage()
+		return 2
+	}
+	if *ticks < 0 {
+		fmt.Fprintln(stderr, "mipsim-run: --ticks must not be negative")
 		return 2
 	}
 
@@ -107,7 +115,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	dir := filepath.Dir(files[0])
 	devs, err := runner.DevicesFromDoc(d, func(name string) ([]byte, error) {
-		return os.ReadFile(filepath.Join(dir, name))
+		if !filepath.IsAbs(name) {
+			name = filepath.Join(dir, name) // relative to the document, as in the editor
+		}
+		return os.ReadFile(name)
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "mipsim-run:", err)
@@ -120,6 +131,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(watch) == 0 {
 		watch = r.Names()
+	}
+	for _, name := range dumps {
+		if findMemory(r, name) == nil {
+			fmt.Fprintf(stderr, "mipsim-run: no memory device named %q\n", name)
+			return 1
+		}
 	}
 	for _, name := range watch {
 		if r.Format(name) == "-" {
@@ -172,34 +189,32 @@ func run(args []string, stdout, stderr io.Writer) int {
 		print()
 	}
 	for _, name := range dumps {
-		if err := dump(stdout, r, name); err != nil {
-			fmt.Fprintln(stderr, "mipsim-run:", err)
-			return 1
-		}
+		dump(stdout, findMemory(r, name))
 	}
 	return 0
 }
 
-// dump prints a memory device's words in hex, 16 per line.
-func dump(w io.Writer, r *runner.Runner, name string) error {
+func findMemory(r *runner.Runner, name string) *devices.Memory {
 	for _, d := range r.Devices() {
-		m, ok := d.(*devices.Memory)
-		if !ok || m.Name() != name {
-			continue
+		if m, ok := d.(*devices.Memory); ok && m.Name() == name {
+			return m
 		}
-		digits := (m.Config().Width + 3) / 4
-		words := m.Words()
-		for i := 0; i < len(words); i += 16 {
-			var b strings.Builder
-			fmt.Fprintf(&b, "%s %04x:", name, i)
-			for j := i; j < min(i+16, len(words)); j++ {
-				fmt.Fprintf(&b, " %0*x", digits, words[j])
-			}
-			fmt.Fprintln(w, b.String())
-		}
-		return nil
 	}
-	return fmt.Errorf("no memory device named %q", name)
+	return nil
+}
+
+// dump prints a memory device's words in hex, 16 per line.
+func dump(w io.Writer, m *devices.Memory) {
+	digits := (m.Config().Width + 3) / 4
+	words := m.Words()
+	for i := 0; i < len(words); i += 16 {
+		var b strings.Builder
+		fmt.Fprintf(&b, "%s %04x:", m.Name(), i)
+		for j := i; j < min(i+16, len(words)); j++ {
+			fmt.Fprintf(&b, " %0*x", digits, words[j])
+		}
+		fmt.Fprintln(w, b.String())
+	}
 }
 
 func load(path string) (*doc.Document, error) {

@@ -1,6 +1,7 @@
 package doc
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"strings"
@@ -43,6 +44,20 @@ func ValidName(s string) bool {
 	return true
 }
 
+// Limits keep any document, however it was made, cheap enough to flatten,
+// compile and save: a few kilobytes of JSON must not describe billions of
+// pixels or instances.
+const (
+	MaxCoord             = 1 << 24 // |x| and |y| of any pixel, label or instance
+	MaxSize              = 1 << 16 // a definition's width and height
+	MaxExpandedInstances = 1 << 20 // instances in the flattened circuit
+	MaxExpandedPixels    = 1 << 28 // on pixels in the flattened circuit
+)
+
+func inRange(p image.Point) bool {
+	return p.X >= -MaxCoord && p.X <= MaxCoord && p.Y >= -MaxCoord && p.Y <= MaxCoord
+}
+
 // Validate checks every document invariant from the spec and returns nil or
 // a Problems error listing all of them.
 func (d *Document) Validate() error {
@@ -70,9 +85,15 @@ func (d *Document) Validate() error {
 		}
 		isRoot := id == d.Root
 
+		if b := def.Pixels.Bounds(); !b.Empty() && !(inRange(b.Min) && inRange(b.Max)) {
+			add(where, "pixels beyond the coordinate limit of %d (bounds %v)", MaxCoord, b)
+		}
 		if !isRoot {
 			if def.W <= 0 || def.H <= 0 {
 				add(where, "size %dx%d is not positive", def.W, def.H)
+			} else if def.W > MaxSize || def.H > MaxSize {
+				add(where, "size %dx%d is above the limit of %d", def.W, def.H, MaxSize)
+				continue // later checks build rectangles of this size
 			}
 			if b := def.Pixels.Bounds(); !b.Empty() && !b.In(def.Rect()) {
 				add(where, "pixels extend outside the %dx%d rectangle (bounds %v)", def.W, def.H, b)
@@ -84,6 +105,9 @@ func (d *Document) Validate() error {
 			lw := fmt.Sprintf("%s, label %q at %d,%d", where, l.Name, l.X, l.Y)
 			if !ValidName(l.Name) {
 				add(lw, "invalid name (use letters, digits and underscores)")
+			}
+			if !inRange(l.Pos()) {
+				add(lw, "beyond the coordinate limit of %d", MaxCoord)
 			}
 			if !isRoot && !l.Pos().In(def.Rect()) {
 				add(lw, "outside the %dx%d rectangle", def.W, def.H)
@@ -97,10 +121,7 @@ func (d *Document) Validate() error {
 		seenName := map[string]bool{}
 		seenID := map[InstID]bool{}
 		var placed []image.Rectangle
-		var effective []string
-		if def.Pixels != nil {
-			effective = d.InstanceNames(def)
-		}
+		effective := d.InstanceNames(def)
 		for i, inst := range def.Instances {
 			iw := fmt.Sprintf("%s, instance %q", where, effective[i])
 			if inst.ID == "" {
@@ -119,6 +140,11 @@ func (d *Document) Validate() error {
 			seenName[effective[i]] = true
 			if inst.Orient.Rot > 3 {
 				add(iw, "rotation %d out of range", inst.Orient.Rot)
+			}
+			if !inRange(image.Pt(inst.X, inst.Y)) {
+				add(iw, "position %d,%d beyond the coordinate limit of %d", inst.X, inst.Y, MaxCoord)
+				placed = append(placed, image.Rectangle{})
+				continue
 			}
 
 			child := d.Defs[inst.Def]
@@ -157,12 +183,64 @@ func (d *Document) Validate() error {
 			parts[i] = string(id)
 		}
 		add("document", "definitions contain themselves: %s", strings.Join(parts, " -> "))
+	} else if len(ps) == 0 {
+		insts, pixels := d.expandedSize()
+		if insts > MaxExpandedInstances {
+			add("document", "the flattened circuit has over %d instances", MaxExpandedInstances)
+		}
+		if pixels > MaxExpandedPixels {
+			add("document", "the flattened circuit has over %d pixels", MaxExpandedPixels)
+		}
+	}
+
+	seenDev := map[string]bool{}
+	for i, dc := range d.Devices {
+		where := fmt.Sprintf("device %d (%q)", i, dc.Name)
+		check, err := NewDeviceConfig(dc.Raw)
+		switch {
+		case err != nil:
+			add(where, "%v", err)
+		case check.Kind != dc.Kind || check.Name != dc.Name:
+			add(where, "kind and name %q %q do not match the configuration (%q %q)", dc.Kind, dc.Name, check.Kind, check.Name)
+		case !ValidName(dc.Name):
+			add(where, "invalid name (use letters, digits and underscores)")
+		case seenDev[dc.Name]:
+			add(where, "another device has the same name")
+		case !bytes.Equal(check.Raw, dc.Raw):
+			add(where, "configuration is not compact JSON (build it with NewDeviceConfig)")
+		}
+		seenDev[dc.Name] = true
 	}
 
 	if len(ps) == 0 {
 		return nil
 	}
 	return ps
+}
+
+// expandedSize counts the instances and on pixels of the flattened root,
+// saturating just above the limits so huge fan-outs cannot overflow. The
+// instance graph must be acyclic.
+func (d *Document) expandedSize() (insts, pixels int) {
+	type size struct{ insts, pixels int }
+	memo := map[DefID]size{}
+	var visit func(id DefID) size
+	visit = func(id DefID) size {
+		if s, ok := memo[id]; ok {
+			return s
+		}
+		def := d.Defs[id]
+		s := size{pixels: def.Pixels.Count()}
+		for _, inst := range def.Instances {
+			c := visit(inst.Def)
+			s.insts = min(s.insts+1+c.insts, MaxExpandedInstances+1)
+			s.pixels = min(s.pixels+c.pixels, MaxExpandedPixels+1)
+		}
+		memo[id] = s
+		return s
+	}
+	s := visit(d.Root)
+	return s.insts, s.pixels
 }
 
 // findCycle returns a cycle of definition IDs if the instance graph has one.

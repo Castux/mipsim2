@@ -68,7 +68,7 @@ func NewMemory(c MemoryConfig, read ReadFile) (*Memory, error) {
 		return nil, fmt.Errorf("%s: needs addr, data, select and write", where)
 	}
 	m := &Memory{cfg: c, words: make([]uint64, c.Words), Last: -1}
-	k := max(1, bits.Len(uint(c.Words-1)))
+	k := bits.Len(uint(c.Words - 1)) // a 1-word memory has no address bits
 	for i := range k {
 		m.addr = append(m.addr, fmt.Sprintf("%s_%d", c.Addr, i))
 	}

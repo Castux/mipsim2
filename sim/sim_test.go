@@ -135,3 +135,59 @@ func TestNewRejectsErrors(t *testing.T) {
 		t.Errorf("New on a netlist with errors: %v", err)
 	}
 }
+
+// TestChangeSteps checks that every change reports the step it belongs to,
+// including the release of unstable nets at the start of a settle.
+func TestChangeSteps(t *testing.T) {
+	s, net := load(t, "ring_osc.fix")
+	var changes []Change
+	s.OnChange = func(c Change) { changes = append(changes, c) }
+	s.Pin(net("n1"), Low)
+	if !s.Step() {
+		t.Fatal("nothing to step")
+	}
+	if len(changes) == 0 {
+		t.Fatal("no changes")
+	}
+	for _, c := range changes {
+		if c.Step != s.Steps() {
+			t.Errorf("change %+v reported in step %d", c, s.Steps())
+		}
+	}
+}
+
+// TestFlipThreshold checks the boundary: a transistor may switch threshold
+// times in one settle, and the next switch marks its nets unstable. A
+// negative threshold means the default, so pins stay clean.
+func TestFlipThreshold(t *testing.T) {
+	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "sim", "inverter.fix"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nl := netlist.CompileDoc(fx.Doc, netlist.Options{})
+	s, err := New(nl, Options{FlipThreshold: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, _ := nl.Lookup("in")
+	s.Pin(in, High)
+	s.Settle()
+	if s.Value(in) != High {
+		t.Errorf("negative threshold: pinned input is %v", s.Value(in))
+	}
+
+	for _, th := range []int{1, 5} {
+		ring, _ := load(t, "ring_osc.fix")
+		s, _ := New(ring.Netlist(), Options{FlipThreshold: th})
+		most := int32(0)
+		s.OnChange = func(Change) {
+			for _, f := range s.flips {
+				most = max(most, f)
+			}
+		}
+		s.Reset()
+		if countUnstable(s) == 0 || most != int32(th)+1 {
+			t.Errorf("threshold %d: unstable %d, most flips seen %d (want %d)", th, countUnstable(s), most, th+1)
+		}
+	}
+}

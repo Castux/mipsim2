@@ -217,3 +217,24 @@ func TestMemoryConfigAndInit(t *testing.T) {
 		t.Error("unknown kind accepted")
 	}
 }
+
+func TestOneWordMemoryHasNoAddress(t *testing.T) {
+	c := memConfig()
+	c.Words = 1
+	m, err := NewMemory(c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := newFakeBus("sel", "we", "d_0", "d_1", "d_2", "d_3", "d_4", "d_5", "d_6", "d_7")
+	if err := m.Attach(b); err != nil {
+		t.Fatalf("attach without address nets: %v", err)
+	}
+	b.drive["sel"], b.drive["we"] = High, Low
+	m.Words()[0] = 0x5a
+	if err := settle(t, m, b); err != nil || b.read("d", 8) != 0x5a {
+		t.Errorf("read: %v %#x", err, b.read("d", 8))
+	}
+	if _, err := Parse("memory", json.RawMessage(`{"kind": "rom"}`), nil); err == nil {
+		t.Error("a configuration of another kind parsed as a memory")
+	}
+}

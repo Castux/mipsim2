@@ -232,15 +232,12 @@ func Parse(src string) (*Fixture, error) {
 			})
 
 		case "device":
-			raw := json.RawMessage(strings.TrimSpace(strings.TrimPrefix(line, "# device")))
-			var head struct {
-				Kind string `json:"kind"`
-				Name string `json:"name"`
+			_, raw, _ := strings.Cut(line, "device")
+			dc, err := doc.NewDeviceConfig(json.RawMessage(raw))
+			if err != nil {
+				return nil, fail("device: %v", err)
 			}
-			if err := json.Unmarshal(raw, &head); err != nil || head.Kind == "" {
-				return nil, fail("want: device {\"kind\": ..., ...} (one JSON object)")
-			}
-			d.Devices = append(d.Devices, doc.DeviceConfig{Kind: head.Kind, Name: head.Name, Raw: raw})
+			d.Devices = append(d.Devices, dc)
 
 		default:
 			f.Directives = append(f.Directives, Directive{Line: lineNo, Word: word, Args: args, Block: cur.ID})

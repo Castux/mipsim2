@@ -4,6 +4,7 @@ import (
 	"image"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -252,5 +253,13 @@ func BenchmarkForEach1M(b *testing.B) {
 	for range b.N {
 		n := 0
 		bm.ForEach(func(int, int) { n++ })
+	}
+}
+
+func TestOrWithItself(t *testing.T) {
+	b := MustFromRows("#")
+	b.Or(b, 0, 1)
+	if got := b.EncodeRows(b.Bounds()); strings.Join(got, "/") != "#/#" {
+		t.Errorf("b | b shifted: %v", got)
 	}
 }

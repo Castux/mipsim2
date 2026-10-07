@@ -100,7 +100,11 @@ func (e *Editor) Devices() []DeviceInfo {
 				problems = append(problems, strings.TrimPrefix(err.Error(), prefix))
 			} else if m, ok := dev.(*devices.Memory); ok && len(problems) == 0 {
 				c := m.Config()
-				info.Summary = fmt.Sprintf("%s_0..%d, %s_0..%d, %s, %s", c.Addr, m.AddrBits()-1, c.Data, c.Width-1, c.Select, c.Write)
+				addr := "no address bits"
+				if m.AddrBits() > 0 {
+					addr = fmt.Sprintf("%s_0..%d", c.Addr, m.AddrBits()-1)
+				}
+				info.Summary = fmt.Sprintf("%s, %s_0..%d, %s, %s", addr, c.Data, c.Width-1, c.Select, c.Write)
 			}
 		}
 		info.Problem = strings.Join(problems, "; ")
@@ -119,7 +123,8 @@ func (e *Editor) AddMemory() {
 	}
 	c := devices.MemoryConfig{Kind: "memory", Name: name, Addr: "addr", Data: "data", Select: "sel", Write: "we", Words: 256, Width: 8}
 	raw, _ := json.Marshal(c)
-	e.setDevices("add memory "+name, append(cloneDevices(e.Doc.Devices), doc.DeviceConfig{Kind: "memory", Name: name, Raw: raw}))
+	dc, _ := doc.NewDeviceConfig(raw)
+	e.setDevices("add memory "+name, append(cloneDevices(e.Doc.Devices), dc))
 }
 
 // DeleteDevice removes the i-th device.
@@ -192,7 +197,7 @@ func (e *Editor) SetMemoryField(i int, field, value string) bool {
 	}
 	raw, _ := json.Marshal(c)
 	devs := cloneDevices(e.Doc.Devices)
-	devs[i] = doc.DeviceConfig{Kind: "memory", Name: c.Name, Raw: raw}
+	devs[i], _ = doc.NewDeviceConfig(raw)
 	e.setDevices(fmt.Sprintf("set %s %s", c.Name, field), devs)
 	return true
 }

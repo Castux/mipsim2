@@ -31,7 +31,7 @@ const DefaultFlipThreshold = 20
 
 // Options configures a simulator.
 type Options struct {
-	FlipThreshold int // 0 means DefaultFlipThreshold
+	FlipThreshold int // 0 or less means DefaultFlipThreshold
 }
 
 // Change is one net value change, reported to the OnChange hook.
@@ -77,7 +77,7 @@ func New(nl *netlist.Netlist, opts Options) (*Sim, error) {
 		return nil, ErrNetlistHasErrors
 	}
 	th := opts.FlipThreshold
-	if th == 0 {
+	if th <= 0 {
 		th = DefaultFlipThreshold
 	}
 	n := len(nl.Nets)
@@ -121,10 +121,8 @@ func (s *Sim) Value(net netlist.NetID) Value { return s.values[net] }
 // Pinned returns High or Low if the net is pinned, else Floating.
 func (s *Sim) Pinned(net netlist.NetID) Value { return s.pins[net] }
 
-// Conducting reports whether transistor t currently conducts.
-func (s *Sim) Conducting(t int) bool { return s.values[s.nl.Transistors[t].Gate] == High }
-
-// Steps returns the number of Step calls that did work since Reset.
+// Steps returns the number of Step calls that did work since Reset began,
+// including those of Reset's own initial settle.
 func (s *Sim) Steps() int { return s.steps }
 
 // Pending returns the number of queued nets.
@@ -226,7 +224,7 @@ func (s *Sim) beginSettle() {
 		if s.values[n] == Unstable {
 			s.values[n] = Floating
 			if s.OnChange != nil {
-				s.OnChange(Change{Step: s.steps, Net: n, Old: Unstable, New: Floating})
+				s.OnChange(Change{Step: s.steps + 1, Net: n, Old: Unstable, New: Floating}) // part of the step about to run
 			}
 			s.queue = append(s.queue, n)
 			// When n went Unstable its transistors stopped conducting without

@@ -60,11 +60,11 @@ func TestSaveFormatIsStable(t *testing.T) {
   "root": "top",
   "defs": {
     "top": {
-      "origin": [-10, -8],
+      "origin": [-16, -8],
       "rows": [
-        ".#",
-        "###",
-        ".#"
+        ".......#",
+        "......###",
+        ".......#"
       ],
       "labels": [
         {"x":-9,"y":-8,"name":"clock"}

@@ -54,6 +54,12 @@ type ReadFile func(name string) ([]byte, error)
 // Parse builds a device from a document's device configuration: its kind
 // and the whole JSON object.
 func Parse(kind string, raw json.RawMessage, read ReadFile) (Device, error) {
+	var head struct {
+		Kind string `json:"kind"`
+	}
+	if err := json.Unmarshal(raw, &head); err != nil || head.Kind != kind {
+		return nil, fmt.Errorf("configuration kind %q is not %q", head.Kind, kind)
+	}
 	switch kind {
 	case "memory":
 		return parseMemory(raw, read)

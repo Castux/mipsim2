@@ -3,8 +3,10 @@ package doc
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
+	"io"
 	"slices"
 	"strings"
 )
@@ -73,7 +75,11 @@ func (d *Document) Save() ([]byte, error) {
 		}
 		var rows []string
 		if id == d.Root {
+			// The origin's x snaps to a multiple of 16, so drawing a little left
+			// of the circuit does not rewrite every row in a diff. (A new row
+			// above only adds a line, so y is not snapped.)
 			r := def.Pixels.Bounds()
+			r.Min.X = floorTo(r.Min.X, 16)
 			fmt.Fprintf(&b, "      \"origin\": [%d, %d],\n", r.Min.X, r.Min.Y)
 			rows = def.Pixels.EncodeRows(r)
 		} else {
@@ -107,11 +113,7 @@ func (d *Document) Save() ([]byte, error) {
 	if len(d.Devices) > 0 {
 		b.WriteString(",\n")
 		writeList(&b, "devices", len(d.Devices), func(i int) string {
-			var c bytes.Buffer
-			if err := json.Compact(&c, d.Devices[i].Raw); err != nil {
-				return "{}"
-			}
-			return c.String()
+			return string(d.Devices[i].Raw) // Validate checked it is compact JSON
 		})
 	}
 	b.WriteString("\n}\n")
@@ -142,11 +144,15 @@ func writeList(b *bytes.Buffer, name string, n int, item func(int) string) {
 // Load decodes a .mip file and validates it. Errors name the definition and
 // item at fault; the loader never repairs a file.
 func Load(data []byte) (*Document, error) {
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")) // a BOM, as some Windows editors write
+	if err := checkJSON(data); err != nil {
+		return nil, fmt.Errorf("not a valid .mip file: %w", err)
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	var f fileDoc
 	if err := dec.Decode(&f); err != nil {
-		return nil, fmt.Errorf("not a valid .mip file: %w", err)
+		return nil, fmt.Errorf("not a valid .mip file: %w", locate(data, err))
 	}
 	if f.Format != FormatName {
 		return nil, fmt.Errorf("format is %q, want %q", f.Format, FormatName)
@@ -208,7 +214,7 @@ func Load(data []byte) (*Document, error) {
 		for _, fi := range fd.Instances {
 			o, err := ParseOrient(fi.Orient)
 			if err != nil {
-				add(fmt.Sprintf("%s, instance %q", where, fi.Name), "%v", err)
+				add(fmt.Sprintf("%s, instance %q", where, fi.ID), "%v", err)
 			}
 			def.Instances = append(def.Instances, Instance{
 				ID: InstID(fi.ID), Def: DefID(fi.Def), X: fi.X, Y: fi.Y, Orient: o, Name: fi.Name,
@@ -218,15 +224,12 @@ func Load(data []byte) (*Document, error) {
 	}
 
 	for i, raw := range f.Devices {
-		var head struct {
-			Kind string `json:"kind"`
-			Name string `json:"name"`
-		}
-		if err := json.Unmarshal(raw, &head); err != nil || head.Kind == "" {
-			add(fmt.Sprintf("device %d", i), "needs a \"kind\"")
+		dc, err := NewDeviceConfig(raw)
+		if err != nil {
+			add(fmt.Sprintf("device %d", i), "%v", err)
 			continue
 		}
-		d.Devices = append(d.Devices, DeviceConfig{Kind: head.Kind, Name: head.Name, Raw: raw})
+		d.Devices = append(d.Devices, dc)
 	}
 
 	if len(ps) > 0 {
@@ -240,3 +243,85 @@ func Load(data []byte) (*Document, error) {
 
 // LoadString is Load for literals in tests.
 func LoadString(s string) (*Document, error) { return Load([]byte(strings.TrimSpace(s))) }
+
+func floorTo(v, n int) int {
+	if v >= 0 {
+		return v / n * n
+	}
+	return -((-v + n - 1) / n * n)
+}
+
+// checkJSON rejects what encoding/json would quietly accept in a .mip file:
+// anything after the document, and duplicate keys in an object (the last
+// would silently win).
+func checkJSON(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	type frame struct {
+		object bool
+		keys   map[string]bool
+		key    bool // the next token in this object is a key
+	}
+	var stack []*frame
+	for depth := 0; ; {
+		tok, err := dec.Token()
+		if err != nil {
+			return locate(data, err)
+		}
+		if n := len(stack); n > 0 && stack[n-1].object {
+			f := stack[n-1]
+			if f.key {
+				if k, ok := tok.(string); ok {
+					if f.keys[k] {
+						return fmt.Errorf("%s: duplicate key %q", position(data, dec.InputOffset()), k)
+					}
+					f.keys[k] = true
+					f.key = false
+					continue
+				}
+			} else {
+				f.key = true // this token is the value
+			}
+		}
+		switch tok {
+		case json.Delim('{'):
+			stack = append(stack, &frame{object: true, keys: map[string]bool{}, key: true})
+			depth++
+		case json.Delim('['):
+			stack = append(stack, &frame{})
+			depth++
+		case json.Delim('}'), json.Delim(']'):
+			stack = stack[:len(stack)-1]
+			depth--
+		}
+		if depth == 0 {
+			if _, err := dec.Token(); err != io.EOF {
+				return fmt.Errorf("%s: unexpected data after the document", position(data, dec.InputOffset()))
+			}
+			return nil
+		}
+	}
+}
+
+// locate adds a line and column to JSON syntax and type errors.
+func locate(data []byte, err error) error {
+	var se *json.SyntaxError
+	var te *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &se):
+		return fmt.Errorf("%s: %w", position(data, se.Offset), err)
+	case errors.As(err, &te):
+		return fmt.Errorf("%s: %w", position(data, te.Offset), err)
+	case err == io.EOF || err == io.ErrUnexpectedEOF:
+		return errors.New("the file ends too early")
+	}
+	return err
+}
+
+func position(data []byte, offset int64) string {
+	offset = min(max(offset, 0), int64(len(data)))
+	before := data[:offset]
+	line := bytes.Count(before, []byte("\n")) + 1
+	col := int(offset) - bytes.LastIndexByte(before, '\n')
+	return fmt.Sprintf("line %d, column %d", line, col)
+}

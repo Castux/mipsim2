@@ -125,9 +125,17 @@ func TestDeviceErrors(t *testing.T) {
 
 	// A memory whose nets are missing is refused when attached.
 	_, err = ramRunner(t, func(d *doc.Document) {
-		d.Devices[0].Raw = json.RawMessage(strings.Replace(string(d.Devices[0].Raw), `"addr": "addr"`, `"addr": "nope"`, 1))
+		d.Devices[0], _ = doc.NewDeviceConfig(json.RawMessage(strings.Replace(string(d.Devices[0].Raw), `"addr":"addr"`, `"addr":"nope"`, 1)))
 	})
 	if err == nil || !strings.Contains(err.Error(), "nope_0") {
 		t.Errorf("missing nets: %v", err)
+	}
+}
+
+// TestBusBitNames checks that only canonical bit numbers make bus bits:
+// a_01 is a plain name, not a second bit 1.
+func TestBusBitNames(t *testing.T) {
+	if busBit.MatchString("a_01") || !busBit.MatchString("a_0") || !busBit.MatchString("a_10") {
+		t.Error("bus bit pattern")
 	}
 }

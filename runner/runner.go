@@ -45,7 +45,7 @@ type Runner struct {
 	buses    []*deviceBus
 }
 
-var busBit = regexp.MustCompile(`^(.+)_(\d+)$`)
+var busBit = regexp.MustCompile(`^(.+)_(0|[1-9]\d*)$`) // no leading zeros: a_01 is not bit 1
 
 // New compiles nothing: it takes a netlist without errors, starts the
 // simulator, and pins the clock low if the circuit has one.
@@ -156,10 +156,10 @@ func (r *Runner) Settle() error {
 		changed = changed[:0]
 		for i, d := range r.devs {
 			c, err := d.Service(r.buses[i])
-			if err == nil {
-				err = r.buses[i].err
-				r.buses[i].err = nil
+			if conflict := r.buses[i].err; err == nil {
+				err = conflict
 			}
+			r.buses[i].err = nil // never left for a later settle to report
 			if err != nil {
 				return fmt.Errorf("tick %d: %w", r.Ticks(), err)
 			}

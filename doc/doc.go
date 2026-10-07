@@ -4,7 +4,9 @@
 package doc
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"image"
 	"slices"
 
@@ -48,11 +50,36 @@ type Definition struct {
 }
 
 // DeviceConfig is one entry of the document's device list. The document only
-// carries it; the runner interprets Raw by Kind.
+// carries it; the runner interprets Raw by Kind. Kind and Name are copies of
+// Raw's "kind" and "name" fields: build configs with NewDeviceConfig, and
+// Validate checks they agree.
 type DeviceConfig struct {
 	Kind string
 	Name string
-	Raw  json.RawMessage // the whole JSON object, as in the file
+	Raw  json.RawMessage // the whole JSON object, compact
+}
+
+// NewDeviceConfig reads a device's JSON object. It needs a "kind" and a
+// "name" string; the other fields are the device's business.
+func NewDeviceConfig(raw json.RawMessage) (DeviceConfig, error) {
+	var head struct {
+		Kind *string `json:"kind"`
+		Name *string `json:"name"`
+	}
+	var c bytes.Buffer
+	if err := json.Compact(&c, raw); err != nil {
+		return DeviceConfig{}, fmt.Errorf("not a JSON object: %w", err)
+	}
+	if err := json.Unmarshal(c.Bytes(), &head); err != nil {
+		return DeviceConfig{}, fmt.Errorf("not a device object: %w", err)
+	}
+	switch {
+	case head.Kind == nil || *head.Kind == "":
+		return DeviceConfig{}, fmt.Errorf("needs a \"kind\"")
+	case head.Name == nil:
+		return DeviceConfig{}, fmt.Errorf("needs a \"name\"")
+	}
+	return DeviceConfig{Kind: *head.Kind, Name: *head.Name, Raw: c.Bytes()}, nil
 }
 
 // Document is a tree of definitions rooted at Root.
@@ -156,7 +183,12 @@ func (def *Definition) Equal(o *Definition) bool {
 
 func jsonEqual(a, b json.RawMessage) bool {
 	var x, y any
-	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+	decode := func(raw json.RawMessage, v *any) error {
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.UseNumber() // exact integers, not float64
+		return dec.Decode(v)
+	}
+	if decode(a, &x) != nil || decode(b, &y) != nil {
 		return string(a) == string(b)
 	}
 	xa, _ := json.Marshal(x)

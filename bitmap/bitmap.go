@@ -248,6 +248,9 @@ func (b *Bitmap) Equal(o *Bitmap) bool {
 
 // Or turns on every pixel of src, translated by (dx, dy).
 func (b *Bitmap) Or(src *Bitmap, dx, dy int) {
+	if src == b {
+		src = b.Clone() // ForEach forbids changing the bitmap it walks
+	}
 	src.ForEach(func(x, y int) { b.Set(x+dx, y+dy, true) })
 }
 
