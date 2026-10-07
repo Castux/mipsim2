@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +39,9 @@ func cloneDevices(ds []doc.DeviceConfig) []doc.DeviceConfig {
 
 // setDevices records a new device list as one undoable command.
 func (e *Editor) setDevices(name string, after []doc.DeviceConfig) {
+	if slices.EqualFunc(e.Doc.Devices, after, func(a, b doc.DeviceConfig) bool { return bytes.Equal(a.Raw, b.Raw) }) {
+		return // nothing changes: no undo step, not modified
+	}
 	c := &deviceEdit{name: name, before: cloneDevices(e.Doc.Devices), after: cloneDevices(after)}
 	c.Do(e.Doc)
 	e.undo = append(e.undo, c)

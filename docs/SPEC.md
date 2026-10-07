@@ -46,6 +46,7 @@ These keep the language unambiguous. Errors block simulation; warnings do not.
 | `E_GAP_AMBIGUOUS` | error | Bridge-like gap with on diagonals |
 | `E_ADJ_TRANSISTOR` | error | A transistor arm is itself a transistor centre |
 | `E_BRIDGE_ARM` | error | A bridge arm pixel is a transistor centre. Unreachable in practice: such an arm needs both of its side neighbours on, and those are the gap's diagonals, so the pattern is `E_GAP_AMBIGUOUS` first. Kept as a defensive check |
+| `E_TOO_LARGE` | error | The circuit's bounding box is above 2^28 pixels in area (the compiler works on a dense grid over it). Usually a stray pixel far from the rest |
 | `E_LABEL_OFF_NET` | error | A label sits on an off pixel or a transistor centre (for example after the pixel under it was erased) |
 | `E_DUPLICATE_NAME` | error | The same full name labels two different nets, so looking it up would be ambiguous. Two labels with one name on the same net are fine |
 | `W_CHANNEL_SHORT` | warning | A transistor's two channel arms are already the same net |

@@ -52,10 +52,22 @@ func CompileDoc(d *doc.Document, opts Options) *Netlist {
 	return Compile(d.Flatten(), opts)
 }
 
+// MaxArea bounds the bounding box of a compiled circuit, in pixels (about
+// 50 MB of compiler grids). 16384 x 16384 is far beyond a processor.
+const MaxArea = 1 << 28
+
 // Compile classifies the flat document's pixels and builds the netlist.
 func Compile(flat *doc.Flat, opts Options) *Netlist {
 	// A margin of 2 keeps every neighbour lookup inside the grid.
 	r := flat.Pixels.Bounds().Inset(-2)
+	if area := int64(r.Dx()) * int64(r.Dy()); area > MaxArea {
+		// The compiler works on a dense grid over the bounding box; two
+		// pixels far apart would need gigabytes. Refuse instead.
+		nl := Compile(&doc.Flat{Pixels: bitmap.New()}, opts)
+		nl.Diagnostics = append(nl.Diagnostics, Diagnostic{Code: "E_TOO_LARGE", Level: Error, Pos: r.Min,
+			Msg: fmt.Sprintf("the circuit spans %dx%d pixels, above the limit of %d pixels in area; move far-off pixels closer", r.Dx(), r.Dy(), MaxArea)})
+		return nl
+	}
 	c := &compiler{opts: opts, g: flat.Pixels.ToDense(r)}
 	c.n = c.g.Count()
 	c.xs = make([]int32, c.n)

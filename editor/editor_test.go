@@ -9,6 +9,7 @@ import (
 	"github.com/Castux/mipsim2/bitmap"
 	"github.com/Castux/mipsim2/doc"
 	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/netlist"
 	"github.com/Castux/mipsim2/sim"
 )
 
@@ -232,5 +233,80 @@ func TestReplaceDocumentChangesCompiles(t *testing.T) {
 	e.ReplaceDocument(fx.Doc)
 	if e.Compiles() == before {
 		t.Errorf("Compiles still %d after ReplaceDocument", before)
+	}
+}
+
+// TestKeysMidStrokeFinishTheStroke reproduces two review findings: pressing
+// e while drawing used to leave the simulation on a stale netlist (and
+// crash), and a press without a release (lost to a dialog) dropped the
+// first stroke from the history.
+func TestKeysMidStrokeFinishTheStroke(t *testing.T) {
+	e := New(doc.New())
+	drag(e, Mods{}, pt(0, 0), pt(4, 0))
+	e.PointerDown(pt(2, 0), Left, Mods{}) // erase through the wire...
+	e.Do(ActToggleSimulate)               // ...and simulate before releasing
+	e.PointerMove(pt(2, 3), Mods{})
+	if e.Mode() != SimulateMode || len(e.Runner().Netlist().Nets) != len(e.Netlist().Nets) {
+		t.Fatalf("runner and editor netlists differ")
+	}
+	for n := range e.Netlist().Nets {
+		e.Value(netlist.NetID(n)) // used to panic
+	}
+
+	e = New(doc.New())
+	e.PointerDown(pt(0, 0), Left, Mods{})
+	e.PointerMove(pt(3, 0), Mods{})
+	e.PointerDown(pt(0, 5), Left, Mods{}) // the release was never seen
+	e.PointerUp(pt(0, 5), Left)
+	e.Undo()
+	e.Undo()
+	if got := e.Doc.RootDef().Pixels.Count(); got != 0 {
+		t.Errorf("%d pixels left after undoing both strokes", got)
+	}
+}
+
+// TestModifiedFollowsHistory checks that undoing back to the saved state
+// is unmodified, and that no-op edits record nothing.
+func TestModifiedFollowsHistory(t *testing.T) {
+	e := New(doc.New())
+	drag(e, Mods{}, pt(0, 0), pt(3, 0))
+	e.MarkSaved()
+	drag(e, Mods{}, pt(0, 2), pt(3, 2))
+	if !e.Modified() {
+		t.Fatal("not modified after drawing")
+	}
+	e.Undo()
+	if e.Modified() {
+		t.Error("modified after undoing back to the saved state")
+	}
+	e.Redo()
+	mark := e.Mark()
+	drag(e, Mods{}, pt(0, 4), pt(3, 4)) // drawn while a save is in flight
+	e.MarkSavedAt(mark)
+	if !e.Modified() {
+		t.Error("an edit made during the save counts as saved")
+	}
+
+	e.AddMemory()
+	e.MarkSaved()
+	e.SetMemoryField(0, "words", "256")
+	if e.Modified() {
+		t.Error("setting a field to its value is a modification")
+	}
+}
+
+// TestButtonsCommitTyping checks that clicking a tool while typing a label
+// applies the label and switches tool, instead of being swallowed.
+func TestButtonsCommitTyping(t *testing.T) {
+	e := New(doc.New())
+	drag(e, Mods{}, pt(0, 0), pt(3, 0))
+	e.Do(ActLabel)
+	e.PointerDown(pt(0, 0), Left, Mods{})
+	for _, r := range "abc" {
+		e.TypeRune(r)
+	}
+	e.Do(ActPencil)
+	if e.Tool() != Pencil || len(e.Doc.RootDef().Labels) != 1 {
+		t.Errorf("tool %v, labels %v", e.Tool(), e.Doc.RootDef().Labels)
 	}
 }

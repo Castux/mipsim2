@@ -46,10 +46,19 @@ type Sim struct {
 	nl        *netlist.Netlist
 	threshold int32
 
-	values  []Value
-	pins    []Value // Floating means not pinned
+	values []Value
+	pins   []Value // Floating means not pinned
+	// Every transistor gated by a net flips together, so flip counts are
+	// kept per gate net (only for nets that gate something).
 	flips   []int32
-	flipped []int32 // transistors with a non-zero flip count
+	flipped []netlist.NetID
+
+	// Flat (CSR) copies of the netlist adjacency, for cache locality.
+	chStart []int32 // net -> range in ch
+	ch      []edge
+	gStart  []int32 // net -> range in gated
+	gated   []pair
+	src     []uint8 // srcLow|srcHigh from drive, pinLow|pinHigh from pins
 
 	queue []netlist.NetID
 	head  int
@@ -67,6 +76,16 @@ type Sim struct {
 	// OnChange, if set, is called for every net value change, in order.
 	OnChange func(Change)
 }
+
+type edge struct{ gate, other netlist.NetID }
+type pair struct{ a, b netlist.NetID }
+
+const (
+	srcLow uint8 = 1 << iota
+	srcHigh
+	pinLow
+	pinHigh
+)
 
 // ErrNetlistHasErrors is returned by New when the netlist has compile errors.
 var ErrNetlistHasErrors = errors.New("sim: netlist has compile errors")
@@ -86,8 +105,27 @@ func New(nl *netlist.Netlist, opts Options) (*Sim, error) {
 		threshold: int32(th),
 		values:    make([]Value, n),
 		pins:      make([]Value, n),
-		flips:     make([]int32, len(nl.Transistors)),
+		flips:     make([]int32, n),
 		mark:      make([]uint32, n),
+		chStart:   make([]int32, n+1),
+		gStart:    make([]int32, n+1),
+		src:       make([]uint8, n),
+	}
+	for id := range n {
+		for _, t := range nl.ChannelOf[id] {
+			tr := &nl.Transistors[t]
+			other := tr.A
+			if other == netlist.NetID(id) {
+				other = tr.B
+			}
+			s.ch = append(s.ch, edge{tr.Gate, other})
+		}
+		s.chStart[id+1] = int32(len(s.ch))
+		for _, t := range nl.GatedBy[id] {
+			tr := &nl.Transistors[t]
+			s.gated = append(s.gated, pair{tr.A, tr.B})
+		}
+		s.gStart[id+1] = int32(len(s.gated))
 	}
 	s.Reset()
 	return s, nil
@@ -102,6 +140,16 @@ func (s *Sim) Reset() {
 	clear(s.values)
 	clear(s.pins)
 	clear(s.flips)
+	for id, net := range s.nl.Nets {
+		switch net.Drive {
+		case netlist.DriveLow:
+			s.src[id] = srcLow
+		case netlist.DriveHigh:
+			s.src[id] = srcHigh
+		default:
+			s.src[id] = 0
+		}
+	}
 	s.flipped = s.flipped[:0]
 	s.queue, s.head = s.queue[:0], 0
 	s.unstable = s.unstable[:0]
@@ -141,12 +189,19 @@ func (s *Sim) Pin(net netlist.NetID, v Value) {
 		panic("sim: Pin value must be High or Low")
 	}
 	s.pins[net] = v
+	s.src[net] &^= pinLow | pinHigh
+	if v == Low {
+		s.src[net] |= pinLow
+	} else {
+		s.src[net] |= pinHigh
+	}
 	s.Update(net)
 }
 
 // Unpin releases a net and queues it.
 func (s *Sim) Unpin(net netlist.NetID) {
 	s.pins[net] = Floating
+	s.src[net] &^= pinLow | pinHigh
 	s.Update(net)
 }
 
@@ -191,17 +246,19 @@ func (s *Sim) Step() bool {
 		if wasOn == isOn {
 			continue
 		}
-		for _, t := range s.nl.GatedBy[n] {
-			if s.flips[t] == 0 {
-				s.flipped = append(s.flipped, t)
+		gs := s.gated[s.gStart[n]:s.gStart[n+1]]
+		if len(gs) > 0 {
+			if s.flips[n] == 0 {
+				s.flipped = append(s.flipped, n)
 			}
-			s.flips[t]++
-			tr := &s.nl.Transistors[t]
-			s.Update(tr.A)
+			s.flips[n]++
+		}
+		for _, p := range gs {
+			s.queue = append(s.queue, p.a)
 			if !isOn {
 				// Turned off: both sides need re-evaluating. Turned on: they
 				// are one group now, so one side is enough (v1's sd1/sd2 rule).
-				s.Update(tr.B)
+				s.queue = append(s.queue, p.b)
 			}
 		}
 	}
@@ -241,8 +298,8 @@ func (s *Sim) beginSettle() {
 
 func (s *Sim) endSettle() {
 	s.queue, s.head = s.queue[:0], 0
-	for _, t := range s.flipped {
-		s.flips[t] = 0
+	for _, n := range s.flipped {
+		s.flips[n] = 0
 	}
 	s.flipped = s.flipped[:0]
 	s.idle = true
@@ -262,15 +319,11 @@ func (s *Sim) flood(start netlist.NetID) []netlist.NetID {
 	s.mark[start] = s.gen
 	for i := 0; i < len(g); i++ {
 		n := g[i]
-		for _, t := range s.nl.ChannelOf[n] {
-			tr := &s.nl.Transistors[t]
-			if s.values[tr.Gate] != High {
+		for _, e := range s.ch[s.chStart[n]:s.chStart[n+1]] {
+			if s.values[e.gate] != High {
 				continue
 			}
-			other := tr.A
-			if other == n {
-				other = tr.B
-			}
+			other := e.other
 			if s.mark[other] != s.gen {
 				s.mark[other] = s.gen
 				g = append(g, other)
@@ -285,22 +338,18 @@ func (s *Sim) flood(start netlist.NetID) []netlist.NetID {
 // High if it has a high source or a net pinned high, else Floating; and
 // Unstable if any transistor gated by the group has flipped too often.
 func (s *Sim) groupValue(group []netlist.NetID) Value {
-	v := Floating
+	var drives uint8
 	for _, n := range group {
-		if s.nl.Nets[n].Drive == netlist.DriveLow || s.pins[n] == Low {
-			v = Low
-			break
-		}
-		if s.nl.Nets[n].Drive == netlist.DriveHigh || s.pins[n] == High {
-			v = High
+		drives |= s.src[n]
+		if s.flips[n] > s.threshold {
+			return Unstable
 		}
 	}
-	for _, n := range group {
-		for _, t := range s.nl.GatedBy[n] {
-			if s.flips[t] > s.threshold {
-				return Unstable
-			}
-		}
+	switch {
+	case drives&(srcLow|pinLow) != 0:
+		return Low
+	case drives&(srcHigh|pinHigh) != 0:
+		return High
 	}
-	return v
+	return Floating
 }

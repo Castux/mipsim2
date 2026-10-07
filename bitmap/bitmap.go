@@ -190,14 +190,24 @@ func (b *Bitmap) ForEach(fn func(x, y int)) {
 			j++
 		}
 		row := keys[i:j]
+		// Resolve the row's chunks once, not once per pixel row.
+		type ent struct {
+			c  *chunk
+			x0 int
+		}
+		var buf [32]ent
+		cs := buf[:0]
+		for _, k := range row {
+			cs = append(cs, ent{b.chunks[k], k.x << chunkShift})
+		}
+		y0 := keys[i].y << chunkShift
 		for ly := range chunkSize {
-			y := keys[i].y<<chunkShift + ly
-			for _, k := range row {
-				w := b.chunks[k][ly]
+			for _, e := range cs {
+				w := e.c[ly]
 				for w != 0 {
 					lx := bits.TrailingZeros64(w)
 					w &= w - 1
-					fn(k.x<<chunkShift+lx, y)
+					fn(e.x0+lx, y0+ly)
 				}
 			}
 		}

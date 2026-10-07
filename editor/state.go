@@ -50,12 +50,17 @@ func (e *Editor) doClock(a Action) {
 // circuit at a high rate does not freeze the editor.
 const maxHalfTicksPerAdvance = 64
 
+// advanceBudget bounds the time spent ticking in one frame, for circuits
+// where even a few half ticks take milliseconds.
+const advanceBudget = 8 * time.Millisecond
+
 // Advance runs the clock for dt of real time if it is running.
 func (e *Editor) Advance(dt time.Duration) {
 	if !e.running || e.run == nil {
 		return
 	}
 	e.due += dt.Seconds() * e.hz * 2
+	start := time.Now()
 	n := 0
 	for e.due >= 1 && n < maxHalfTicksPerAdvance {
 		if err := e.run.HalfTick(); err != nil {
@@ -65,8 +70,11 @@ func (e *Editor) Advance(dt time.Duration) {
 		}
 		e.due--
 		n++
+		if time.Since(start) > advanceBudget {
+			break // a large circuit: keep the frame rate, run slower
+		}
 	}
-	if n == maxHalfTicksPerAdvance {
+	if e.due >= 1 {
 		e.due = 0 // falling behind: drop the backlog
 	}
 }
@@ -78,10 +86,28 @@ func (e *Editor) Running() bool { return e.running }
 func (e *Editor) Hz() float64 { return e.hz }
 
 // Modified reports whether the document changed since it was last saved.
-func (e *Editor) Modified() bool { return e.version != e.savedVersion }
+func (e *Editor) Modified() bool { return e.top() != e.savedTop }
+
+func (e *Editor) top() Command {
+	if len(e.undo) == 0 {
+		return nil
+	}
+	return e.undo[len(e.undo)-1]
+}
 
 // MarkSaved records that the document as it is now has been saved.
-func (e *Editor) MarkSaved() { e.savedVersion = e.version }
+func (e *Editor) MarkSaved() { e.savedTop = e.top() }
+
+// SaveMark identifies the document's current state. A save that completes
+// later (on the web, writes are asynchronous) passes it to MarkSavedAt, so
+// edits made meanwhile still count as unsaved.
+type SaveMark struct{ top Command }
+
+// Mark returns the current state, for MarkSavedAt.
+func (e *Editor) Mark() SaveMark { return SaveMark{e.top()} }
+
+// MarkSavedAt records that the state m was saved.
+func (e *Editor) MarkSavedAt(m SaveMark) { e.savedTop = m.top }
 
 // Pasting reports whether a paste preview follows the pointer.
 func (e *Editor) Pasting() bool { return e.paste }
@@ -152,4 +178,19 @@ func (e *Editor) Settle() bool {
 		return false
 	}
 	return true
+}
+
+// SetName pins a labelled net or bus to a value, as the runner's Set reads
+// it ("high", "low", "float", or a number for a bus), and settles. Errors,
+// including device errors while settling, go to the status line and stop
+// the clock. It reports whether the value was applied cleanly.
+func (e *Editor) SetName(name, value string) bool {
+	if e.run == nil {
+		return false
+	}
+	if err := e.run.Set(name, value); err != nil {
+		e.Status = err.Error()
+		return false
+	}
+	return e.Settle()
 }

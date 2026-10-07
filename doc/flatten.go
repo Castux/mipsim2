@@ -85,8 +85,15 @@ func (d *Document) Locate(p image.Point) Location {
 	def := d.RootDef()
 	for {
 		found := false
+		var lastID DefID
+		var last *Definition
 		for i, inst := range def.Instances {
-			if !loc.Local.In(d.PlacedRect(inst)) {
+			// Consecutive instances usually share a definition: skip the map.
+			if last == nil || inst.Def != lastID {
+				lastID, last = inst.Def, d.Defs[inst.Def]
+			}
+			w, h := inst.Orient.Size(last.W, last.H)
+			if !loc.Local.In(image.Rect(inst.X, inst.Y, inst.X+w, inst.Y+h)) {
 				continue
 			}
 			place := d.Placement(inst)

@@ -386,26 +386,51 @@ type InstanceCue struct {
 // shared edit is visible.
 func (e *Editor) Instances() []InstanceCue {
 	flat := e.Flat()
+	c := &e.cueCache
+	if c.compiles == e.compiles && c.version == e.version && c.valid && c.hover == e.hover {
+		return c.cues
+	}
+	if c.compiles != e.compiles || c.version != e.version || !c.valid {
+		c.cues = c.cues[:0]
+		for _, fi := range flat.Instances {
+			c.cues = append(c.cues, InstanceCue{Rect: fi.Rect, Path: fi.Path, Def: fi.Def, Name: e.Doc.Defs[fi.Def].Name})
+		}
+		c.names = map[doc.DefID][]string{}
+	}
+	c.compiles, c.version, c.valid, c.hover = e.compiles, e.version, true, e.hover
 	loc := e.Doc.Locate(e.hover)
 	// The hovered instance's path, from the indices Locate walked through.
 	var names []string
 	def := e.Doc.RootDef()
 	for _, i := range loc.Path {
-		names = append(names, e.Doc.InstanceName(def, i))
+		ns, ok := c.names[def.ID]
+		if !ok {
+			ns = e.Doc.InstanceNames(def)
+			c.names[def.ID] = ns
+		}
+		names = append(names, ns[i])
 		def = e.Doc.Defs[def.Instances[i].Def]
 	}
 	hoverPath := strings.Join(names, ".")
-	var cues []InstanceCue
-	for _, fi := range flat.Instances {
-		c := InstanceCue{Rect: fi.Rect, Path: fi.Path, Def: fi.Def, Name: e.Doc.Defs[fi.Def].Name}
-		if loc.Def != e.Doc.Root && fi.Def == loc.Def {
-			if fi.Path == hoverPath {
-				c.Hovered = true
+	for k := range c.cues {
+		cue := &c.cues[k]
+		cue.Hovered, cue.Sibling = false, false
+		if loc.Def != e.Doc.Root && cue.Def == loc.Def {
+			if cue.Path == hoverPath {
+				cue.Hovered = true
 			} else {
-				c.Sibling = true
+				cue.Sibling = true
 			}
 		}
-		cues = append(cues, c)
 	}
-	return cues
+	return c.cues
+}
+
+// cueCache keeps Instances' result between frames.
+type cueCache struct {
+	compiles, version int
+	valid             bool
+	hover             image.Point
+	cues              []InstanceCue
+	names             map[doc.DefID][]string
 }

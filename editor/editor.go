@@ -106,6 +106,7 @@ type Editor struct {
 	compiles    int          // increments on every compile, so renderers can cache
 	devInfo     []DeviceInfo // Devices() cache, valid for devKey (version, compiles)
 	devKey      [2]int
+	cueCache    cueCache // Instances() cache
 
 	run *runner.Runner
 
@@ -124,7 +125,8 @@ type Editor struct {
 	hz      float64 // clock rate in full periods per second
 	due     float64 // half ticks owed by Advance
 
-	version, savedVersion int // document changes, and the version last saved
+	version  int     // counts document changes, for caches
+	savedTop Command // the top of the undo stack when last saved (nil: empty)
 
 	// Status is a one-line message for the status bar.
 	Status string
@@ -195,8 +197,11 @@ func (e *Editor) Stale() bool { return e.dirty }
 func (e *Editor) Runner() *runner.Runner { return e.run }
 
 // Netlist returns the compiled document, compiling it first if it changed.
+// During a stroke on a circuit too slow to compile live, it returns the last
+// compile until the stroke ends (renderers show the stroke from Stroke()),
+// so per-frame callers do not recompile on every frame.
 func (e *Editor) Netlist() *netlist.Netlist {
-	if e.dirty {
+	if e.dirty && (e.stroke == nil || e.lastCompile < cheapCompile || e.nl == nil) {
 		start := time.Now()
 		e.flat = e.Doc.Flatten()
 		e.nl = netlist.Compile(e.flat, netlist.Options{})
@@ -241,9 +246,13 @@ func (e *Editor) TypeRune(r rune) {
 // Do performs a keyboard action.
 func (e *Editor) Do(a Action) {
 	if e.typing != nil {
-		e.doTyping(a)
-		return
+		if a == ActEnter || a == ActEscape || a == ActBackspace {
+			e.doTyping(a)
+			return
+		}
+		e.commitTyping() // any other action (a button click) applies the text first
 	}
+	e.endGesture()
 	switch a {
 	case ActPencil:
 		e.setTool(Pencil)
@@ -333,6 +342,7 @@ func (e *Editor) setMode(m Mode) {
 	if m == e.mode {
 		return
 	}
+	e.endGesture()
 	if m == EditMode {
 		e.mode = EditMode
 		e.run = nil
@@ -394,6 +404,7 @@ func (e *Editor) PointerDown(p image.Point, b Button, m Mods) {
 	if e.typing != nil {
 		e.commitTyping()
 	}
+	e.endGesture() // a press without the previous release (lost to a dialog)
 	if e.mode == SimulateMode {
 		e.pinAt(p, b)
 		return
@@ -478,6 +489,16 @@ func (s *stroke) lockTo(p image.Point) image.Point {
 	return image.Pt(s.start.X, p.Y)
 }
 
+// endGesture finishes a stroke in progress, keeping what was drawn, and
+// drops a drag. Actions and mode changes call it first, so a key pressed
+// mid-stroke (say e, to simulate) never runs against a half-made edit.
+func (e *Editor) endGesture() {
+	e.drag = nil
+	if e.stroke != nil {
+		e.finishStroke()
+	}
+}
+
 // PointerUp finishes a stroke or a drag.
 func (e *Editor) PointerUp(p image.Point, b Button) {
 	if b != Left {
@@ -495,10 +516,14 @@ func (e *Editor) PointerUp(p image.Point, b Button) {
 		}
 		return
 	}
-	s := e.stroke
-	if s == nil {
-		return
+	if e.stroke != nil {
+		e.finishStroke()
 	}
+}
+
+// finishStroke records the stroke as one undoable edit and recompiles.
+func (e *Editor) finishStroke() {
+	s := e.stroke
 	e.stroke = nil
 	if len(s.edit.changes) > 0 {
 		e.undo = append(e.undo, s.edit)
@@ -516,6 +541,9 @@ func (e *Editor) paint(p image.Point) {
 		return
 	}
 	s.done[p] = true
+	if !doc.InRange(p) {
+		return // beyond the canvas limit; Validate would refuse the document
+	}
 	loc := e.Doc.Locate(p)
 	px := e.Doc.Defs[loc.Def].Pixels
 	old := px.Get(loc.Local.X, loc.Local.Y)
@@ -527,12 +555,10 @@ func (e *Editor) paint(p image.Point) {
 	s.edit.changes = append(s.edit.changes, pixelChange{def: loc.Def, p: loc.Local, old: old, new: s.value})
 }
 
-// afterPaint recompiles during a stroke only while compiling is cheap.
+// afterPaint recompiles during a stroke, if compiling is cheap (see Netlist).
 func (e *Editor) afterPaint() {
 	e.dirty = true
-	if e.lastCompile < cheapCompile {
-		e.Netlist()
-	}
+	e.Netlist()
 }
 
 func (e *Editor) reportDiagnostics() {

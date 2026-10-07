@@ -149,7 +149,7 @@ func newApp(opts Options) (*app, error) {
 					return nil, err
 				}
 			}
-			r.Settle()
+			a.ed.Settle()
 		}
 	}
 	return a, nil
@@ -192,6 +192,9 @@ func (a *app) Update() error {
 		}
 	}
 	l := a.computeLayout()
+	if a.guard != nil || a.fb != nil {
+		a.releaseButtons() // a dialog takes the mouse: end any stroke or drag
+	}
 	if a.guard != nil {
 		a.handleGuard(l)
 		return nil
@@ -304,12 +307,7 @@ func (a *app) runPrompt(p *prompt) {
 	case uiSetWord:
 		a.setWord(p.target, value)
 	case uiSetWatch:
-		if r := a.ed.Runner(); r != nil {
-			if err := r.Set(p.target, value); err != nil {
-				a.ed.Status = err.Error()
-				return
-			}
-			r.Settle()
+		if a.ed.SetName(p.target, value) {
 			a.ed.Status = p.target + " = " + value
 		}
 	}
@@ -326,7 +324,8 @@ func (a *app) setPath(path string) {
 
 func (a *app) save(path string) {
 	then := a.afterSave
-	a.afterSave = nil // a failed save drops the pending action
+	a.afterSave = nil   // a failed save drops the pending action
+	mark := a.ed.Mark() // edits made while the write is in flight stay unsaved
 	data, err := a.ed.Doc.Save()
 	if err != nil {
 		a.ed.Status = "save failed: " + firstLine(err.Error())
@@ -338,7 +337,7 @@ func (a *app) save(path string) {
 			return
 		}
 		a.setPath(path)
-		a.ed.MarkSaved()
+		a.ed.MarkSavedAt(mark)
 		a.ed.Status = "saved " + path
 		if then != nil {
 			then()
@@ -582,4 +581,16 @@ func (a *app) readRelative(name string) ([]byte, error) {
 	err := errors.New("file not available yet: " + path)
 	platform.ReadFile(path, func(b []byte, e error) { data, err = b, e })
 	return data, err
+}
+
+// releaseButtons sends the release of every held mouse button to the editor,
+// for when a dialog opens mid-gesture and would otherwise swallow it.
+func (a *app) releaseButtons() {
+	for i, held := range a.pressed {
+		if held {
+			a.pressed[i] = false
+			a.ed.PointerUp(a.lastWorld, editor.Button(i))
+		}
+	}
+	a.panning = false
 }

@@ -3,6 +3,7 @@ package netlist
 import (
 	"flag"
 	"fmt"
+	"github.com/Castux/mipsim2/bitmap"
 	"image"
 	"os"
 	"path/filepath"
@@ -215,5 +216,17 @@ func TestOrientationInvariance(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestFarApartPixelsAreRefused checks that a huge bounding box is an error,
+// not a multi-gigabyte allocation.
+func TestFarApartPixelsAreRefused(t *testing.T) {
+	px := bitmap.New()
+	px.Set(0, 0, true)
+	px.Set(1<<20, 1<<20, true)
+	nl := Compile(&doc.Flat{Pixels: px}, Options{})
+	if !nl.HasErrors() || nl.Diagnostics[len(nl.Diagnostics)-1].Code != "E_TOO_LARGE" {
+		t.Errorf("diagnostics %v", nl.Diagnostics)
 	}
 }

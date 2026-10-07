@@ -54,7 +54,8 @@ const (
 	MaxExpandedPixels    = 1 << 28 // on pixels in the flattened circuit
 )
 
-func inRange(p image.Point) bool {
+// InRange reports whether p is within the coordinate limit.
+func InRange(p image.Point) bool {
 	return p.X >= -MaxCoord && p.X <= MaxCoord && p.Y >= -MaxCoord && p.Y <= MaxCoord
 }
 
@@ -85,7 +86,7 @@ func (d *Document) Validate() error {
 		}
 		isRoot := id == d.Root
 
-		if b := def.Pixels.Bounds(); !b.Empty() && !(inRange(b.Min) && inRange(b.Max)) {
+		if b := def.Pixels.Bounds(); !b.Empty() && !(InRange(b.Min) && InRange(b.Max)) {
 			add(where, "pixels beyond the coordinate limit of %d (bounds %v)", MaxCoord, b)
 		}
 		if !isRoot {
@@ -106,7 +107,7 @@ func (d *Document) Validate() error {
 			if !ValidName(l.Name) {
 				add(lw, "invalid name (use letters, digits and underscores)")
 			}
-			if !inRange(l.Pos()) {
+			if !InRange(l.Pos()) {
 				add(lw, "beyond the coordinate limit of %d", MaxCoord)
 			}
 			if !isRoot && !l.Pos().In(def.Rect()) {
@@ -141,7 +142,7 @@ func (d *Document) Validate() error {
 			if inst.Orient.Rot > 3 {
 				add(iw, "rotation %d out of range", inst.Orient.Rot)
 			}
-			if !inRange(image.Pt(inst.X, inst.Y)) {
+			if !InRange(image.Pt(inst.X, inst.Y)) {
 				add(iw, "position %d,%d beyond the coordinate limit of %d", inst.X, inst.Y, MaxCoord)
 				placed = append(placed, image.Rectangle{})
 				continue

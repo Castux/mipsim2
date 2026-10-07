@@ -43,7 +43,7 @@ func (a *app) panelTabs() []tabInfo {
 		}
 	} else {
 		ts = append(ts, tabInfo{tabComponents, fmt.Sprintf("Components (%d)", len(a.ed.Definitions()))})
-		ts = append(ts, tabInfo{tabDevices, fmt.Sprintf("Devices (%d)", len(a.ed.Devices()))})
+		ts = append(ts, tabInfo{tabDevices, fmt.Sprintf("Devices (%d)", len(a.ed.Doc.Devices))})
 	}
 	if n := len(a.ed.Netlist().Diagnostics); n > 0 {
 		ts = append(ts, tabInfo{tabDiagnostics, fmt.Sprintf("Diagnostics (%d)", n)})
@@ -127,13 +127,11 @@ func (a *app) panelClick(l layout, p image.Point, mb ebiten.MouseButton) {
 		if _, isNet := r.Netlist().Lookup(name); isNet {
 			// Same buttons as on the canvas.
 			v := map[ebiten.MouseButton]string{ebiten.MouseButtonLeft: "high", ebiten.MouseButtonRight: "low", ebiten.MouseButtonMiddle: "float"}[mb]
-			r.Set(name, v)
-			r.Settle()
+			a.ed.SetName(name, v)
 			return
 		}
 		if mb == ebiten.MouseButtonMiddle {
-			r.Set(name, "float")
-			r.Settle()
+			a.ed.SetName(name, "float")
 			return
 		}
 		a.editWatch(name)
@@ -339,9 +337,7 @@ func (a *app) stepWatch(delta int) {
 	}
 	n = (n + uint64(delta)) & mask
 	p.buffer, p.fresh = strconv.FormatUint(n, 10), true
-	if err := r.Set(p.target, p.buffer); err == nil {
-		r.Settle()
-	}
+	a.ed.SetName(p.target, p.buffer)
 }
 
 // drawWatchField draws a bus value as an editable box from x0 to x1.
