@@ -69,7 +69,6 @@ func TestInvariantsReject(t *testing.T) {
 		{"duplicate instance name", func(d *Document) { d.RootDef().Instances[1].Name = "g1" }, "duplicate name"},
 		{"duplicate instance ID", func(d *Document) { d.RootDef().Instances[1].ID = "i1" }, "duplicate ID"},
 		{"dotted instance name", func(d *Document) { d.RootDef().Instances[1].Name = "g.2" }, "invalid name"},
-		{"empty instance name", func(d *Document) { d.RootDef().Instances[1].Name = "" }, "invalid name"},
 		{"dotted label", func(d *Document) { d.RootDef().Labels[0].Name = "a.b" }, "invalid name"},
 		{"two labels on one pixel", func(d *Document) {
 			d.RootDef().Labels = append(d.RootDef().Labels, Label{X: 0, Y: 0, Name: "other"})

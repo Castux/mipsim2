@@ -77,12 +77,13 @@ func (e *Editor) clickSelect(p image.Point) {
 	for _, i := range path[:depth-1] {
 		inst := def.Instances[i]
 		toW = e.Doc.Placement(inst).Then(toW)
-		names = append(names, inst.Name)
+		names = append(names, e.Doc.InstanceName(def, i))
 		def = e.Doc.Defs[inst.Def]
 	}
 	inst := def.Instances[path[depth-1]]
+	name := e.Doc.InstanceName(def, path[depth-1])
 	e.sel = &selection{path: slices.Clone(path[:depth-1]), def: def.ID, toW: toW, rect: e.Doc.PlacedRect(inst)}
-	names = append(names, inst.Name)
+	names = append(names, name)
 	where := ""
 	if depth > 1 {
 		where = fmt.Sprintf(" inside %s (moving it edits %s everywhere)", e.Doc.Defs[def.ID].Name, e.Doc.Defs[def.ID].Name)

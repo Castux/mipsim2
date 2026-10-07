@@ -147,7 +147,7 @@ type Instance struct {
     Def  DefID
     X, Y   int    // top-left of the placed (oriented) rectangle, in the parent's coordinates
     Orient Orient // one of the 8 rotations and mirrorings of the square
-    Name   string // used for hierarchical labels; auto-generated on creation and saved
+    Name   string // optional: empty means named after its component (see "Instance names")
 }
 
 type Orient struct {
@@ -171,7 +171,7 @@ type Document struct {
 - A parent has no pixels or labels inside a child instance's rectangle. Instance rectangles are opaque.
 - Every child instance lies fully inside its parent definition's rectangle (the root is unbounded).
 - The root definition is never instanced.
-- Instance names are unique among siblings. Instance and label names use only ASCII letters, digits and underscores (dots are reserved for hierarchical names).
+- Effective instance names (see "Instance names") are unique among siblings. Explicit instance names and label names use only ASCII letters, digits and underscores (dots are reserved for hierarchical names).
 - Instance IDs are non-empty and unique among siblings.
 - At most one label per pixel within a definition.
 
@@ -189,6 +189,8 @@ Definitions with no instances stay in the document and the palette until the use
 - *Explode*: replace one instance with a copy of its content in the parent, with its orientation applied; the definition is unaffected.
 - *Resize definition*: drag an instance's edge; applies to all instances; rejected if it causes overlaps or cuts off content. The dragged edge is mapped through the instance's orientation to an edge of the definition's local frame. Growing or shrinking the local right or bottom edge only changes `W`/`H`. Moving the local left or top edge shifts the definition's content by the delta, and every instance's `X`/`Y` is adjusted (through its own orientation) so its content stays fixed in the world, all in one undoable command.
 - *Rename* instance or definition.
+
+**Instance names.** An instance name is optional, and usually left empty. An unnamed instance is named after its component: the component's display name, with characters other than letters, digits and underscores turned into underscores. A lone unnamed instance of a component among its siblings takes that name exactly (`fa`). Several unnamed instances of one component are numbered from 0 in placement order (`fa0` ... `fa7`, matching bus bit numbers), with an underscore before the number when the base name ends in a digit (`part1_0`). Explicit names always win, and automatic numbers skip names taken by an explicit sibling. Automatic names can change when siblings are added or removed, and hierarchical net names with them; give an instance an explicit name to pin its nets' names. Make component and placing from the palette create unnamed instances; renaming one to the empty name returns it to its automatic name. In `.mip` files the `name` field is omitted for unnamed instances, and in fixtures `place DEF - X,Y` places one.
 
 **Labels in components.** A label inside a definition repeats in every instance, so net names are hierarchical: the instance path joined with dots, then the label, e.g. `alu.add3.sum_2`. Root labels have no prefix. The `name_N` number convention applies to the full name, so `alu.result_0` to `alu.result_7` read as the number `alu.result`. A net touched by several labels keeps all of them as aliases.
 

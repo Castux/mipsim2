@@ -12,7 +12,7 @@
 //	# label NAME X,Y            label in the current block (local coordinates)
 //	# input NAME X,Y            a label that tests pin
 //	# output NAME X,Y           a label that tests check
-//	# place DEF NAME X,Y [ORIENT]  place an instance in the current block
+//	# place DEF NAME X,Y [ORIENT]  place an instance in the current block ("-" for NAME: unnamed, named after DEF)
 //	# line X,Y X,Y              turn on a horizontal or vertical segment (inclusive)
 //	# px X,Y                    turn on one pixel
 //
@@ -226,7 +226,7 @@ func Parse(src string) (*Fixture, error) {
 				X:      x,
 				Y:      y,
 				Orient: o,
-				Name:   args[1],
+				Name:   placeName(args[1]),
 			})
 
 		default:
@@ -244,4 +244,13 @@ func Parse(src string) (*Fixture, error) {
 		return nil, err
 	}
 	return f, nil
+}
+
+// placeName turns the NAME of a place directive into an instance name: "-"
+// leaves the instance unnamed, so it is named after its component.
+func placeName(s string) string {
+	if s == "-" {
+		return ""
+	}
+	return s
 }

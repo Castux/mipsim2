@@ -53,10 +53,11 @@ func (d *Document) flattenInto(f *Flat, def *Definition, toWorld Affine, path []
 	for _, l := range def.Labels {
 		f.Labels = append(f.Labels, FlatLabel{Pos: toWorld.Apply(l.Pos()), Name: prefix + l.Name, Scope: scope})
 	}
-	for _, inst := range def.Instances {
+	names := d.InstanceNames(def)
+	for i, inst := range def.Instances {
 		child := d.Defs[inst.Def]
 		m := d.Placement(inst).Then(toWorld)
-		childPath := append(path[:len(path):len(path)], inst.Name)
+		childPath := append(path[:len(path):len(path)], names[i])
 		f.Instances = append(f.Instances, FlatInstance{
 			Path: strings.Join(childPath, "."),
 			Def:  inst.Def,

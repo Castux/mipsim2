@@ -97,20 +97,26 @@ func (d *Document) Validate() error {
 		seenName := map[string]bool{}
 		seenID := map[InstID]bool{}
 		var placed []image.Rectangle
+		var effective []string
+		if def.Pixels != nil {
+			effective = d.InstanceNames(def)
+		}
 		for i, inst := range def.Instances {
-			iw := fmt.Sprintf("%s, instance %q", where, inst.Name)
+			iw := fmt.Sprintf("%s, instance %q", where, effective[i])
 			if inst.ID == "" {
 				add(iw, "empty ID")
 			} else if seenID[inst.ID] {
 				add(iw, "duplicate ID %q", inst.ID)
 			}
 			seenID[inst.ID] = true
-			if !ValidName(inst.Name) {
+			// Names are optional (empty: named after the component), but an
+			// explicit one must be valid, and effective names unique.
+			if inst.Name != "" && !ValidName(inst.Name) {
 				add(iw, "invalid name (use letters, digits and underscores)")
-			} else if seenName[inst.Name] {
+			} else if seenName[effective[i]] {
 				add(iw, "duplicate name among siblings")
 			}
-			seenName[inst.Name] = true
+			seenName[effective[i]] = true
 			if inst.Orient.Rot > 3 {
 				add(iw, "rotation %d out of range", inst.Orient.Rot)
 			}
@@ -131,7 +137,7 @@ func (d *Document) Validate() error {
 			}
 			for j := range i {
 				if placed[j].Overlaps(r) {
-					add(iw, "overlaps sibling instance %q", def.Instances[j].Name)
+					add(iw, "overlaps sibling instance %q", effective[j])
 				}
 			}
 			if def.Pixels.AnyIn(r) {

@@ -77,7 +77,6 @@ func (e *Editor) makeComponent() {
 	}
 	s := e.sel
 	id := e.freeDefID()
-	var instName string
 	ok := e.change("make component", []doc.DefID{s.def, id}, func() error {
 		parent := e.Doc.Defs[s.def]
 		c := extract(e.Doc, parent, s.rect)
@@ -85,9 +84,8 @@ func (e *Editor) makeComponent() {
 		insert(e.Doc, def, c, image.Point{})
 		e.Doc.Defs[id] = def
 		clearRect(e.Doc, parent, s.rect, true)
-		instName = freeName(parent, string(id))
 		parent.Instances = append(parent.Instances, doc.Instance{
-			ID: freeID(parent), Def: id, X: s.rect.Min.X, Y: s.rect.Min.Y, Name: instName,
+			ID: freeID(parent), Def: id, X: s.rect.Min.X, Y: s.rect.Min.Y, // unnamed: named after the component
 		})
 		return nil
 	})
@@ -166,7 +164,12 @@ func (e *Editor) startRenameInstance() {
 		return
 	}
 	e.typing = &typing{kind: typeInstName, def: e.sel.def, inst: inst.ID, buffer: inst.Name, old: inst.Name}
-	e.Status = "instance name: " + inst.Name + "_"
+	auto := e.Doc.InstanceName(e.Doc.Defs[e.sel.def], slices.IndexFunc(e.Doc.Defs[e.sel.def].Instances, func(i doc.Instance) bool { return i.ID == inst.ID }))
+	if inst.Name == "" {
+		e.Status = "instance name: _   (empty keeps the automatic name " + auto + ")"
+	} else {
+		e.Status = "instance name: " + inst.Name + "_   (empty: named after its component)"
+	}
 }
 
 // StartRenameDefinition asks for a new display name for a definition.
@@ -191,8 +194,8 @@ func (e *Editor) renameDefinition(id doc.DefID, name string) {
 }
 
 func (e *Editor) renameInstance(parent doc.DefID, inst doc.InstID, name string) {
-	if !doc.ValidName(name) {
-		e.Status = fmt.Sprintf("invalid instance name %q: use letters, digits and underscores", name)
+	if name != "" && !doc.ValidName(name) {
+		e.Status = fmt.Sprintf("invalid instance name %q: use letters, digits and underscores (empty: named after its component)", name)
 		return
 	}
 	s := e.sel
@@ -216,7 +219,7 @@ func (e *Editor) PlaceDefinition(id doc.DefID) {
 	}
 	e.setMode(EditMode)
 	e.clip = &clip{w: d.W, h: d.H, pixels: bitmap.New(),
-		insts: []doc.Instance{{Def: id, Name: string(id)}}}
+		insts: []doc.Instance{{Def: id}}} // unnamed: named after the component
 	e.paste = true
 	e.Status = "place " + d.Name + ": click to place, m/r to mirror/rotate, esc to cancel"
 }
@@ -318,7 +321,7 @@ func (e *Editor) resizeSelected(r image.Rectangle) {
 		}
 		for _, c := range d.Instances {
 			if !e.Doc.PlacedRect(c).In(lr) {
-				return fmt.Errorf("it would cut off component %s", c.Name)
+				return fmt.Errorf("it would cut off a %s component", e.Doc.Defs[c.Def].Name)
 			}
 		}
 		shift := image.Pt(-lr.Min.X, -lr.Min.Y)
@@ -388,9 +391,8 @@ func (e *Editor) Instances() []InstanceCue {
 	var names []string
 	def := e.Doc.RootDef()
 	for _, i := range loc.Path {
-		inst := def.Instances[i]
-		names = append(names, inst.Name)
-		def = e.Doc.Defs[inst.Def]
+		names = append(names, e.Doc.InstanceName(def, i))
+		def = e.Doc.Defs[def.Instances[i].Def]
 	}
 	hoverPath := strings.Join(names, ".")
 	var cues []InstanceCue

@@ -45,7 +45,7 @@ type fileInst struct {
 	X      int    `json:"x"`
 	Y      int    `json:"y"`
 	Orient string `json:"orient,omitempty"`
-	Name   string `json:"name"`
+	Name   string `json:"name,omitempty"`
 }
 
 // Save encodes the document as a .mip file. The output is deterministic and

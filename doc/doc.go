@@ -32,7 +32,7 @@ type Instance struct {
 	Def    DefID
 	X, Y   int    // top-left of the placed (oriented) rectangle, in the parent's coordinates
 	Orient Orient // applied to the definition's rectangle before placing
-	Name   string // used for hierarchical net names
+	Name   string // optional; empty means named after its component (see InstanceNames)
 }
 
 // Definition is a reusable rectangle of pixels, labels and child instances.

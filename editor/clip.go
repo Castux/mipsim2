@@ -80,7 +80,9 @@ func insert(d *doc.Document, def *doc.Definition, c *clip, p image.Point) {
 		inst.X += p.X
 		inst.Y += p.Y
 		inst.ID = freeID(def)
-		inst.Name = freeName(def, inst.Name)
+		if inst.Name != "" { // unnamed instances stay unnamed: they are numbered automatically
+			inst.Name = freeName(def, inst.Name)
+		}
 		def.Instances = append(def.Instances, inst)
 	}
 }

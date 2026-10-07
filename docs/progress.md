@@ -352,3 +352,11 @@ Open (ctrl+o), Save As (ctrl+shift+s) and the first save of an untitled document
 - Escape or a click outside the dialog cancels.
 - The logic is in `ui/filebrowser` (no graphics, unit-tested on a real temp folder). Listing and existence checks go through `platform.ListDir` and `platform.Exists`; the wasm build has stubs, and the web port will use the browser's own picker.
 - The top bar now shows only the file name; the window title keeps the full path.
+
+## Optional instance names (owner request)
+
+Instance names are now optional and empty by default: an unnamed instance is named after its component. A lone one takes the component's name (`fa`); several among siblings are numbered from 0 in placement order (`fa0` ... `fa7`, like bus bits), with `_` before the number when the base ends in a digit. Explicit names win, and automatic numbers skip them. The rule is implemented once in `doc.InstanceNames` and used for validation (effective names must be unique), flattening (hierarchical net names), selection messages and hover cues.
+
+- Make component and the palette create unnamed instances. Renaming to an empty name returns to the automatic name. Paste keeps unnamed instances unnamed.
+- Files omit `name` for unnamed instances; fixtures use `place DEF - X,Y`.
+- Trade-off, noted in SPEC: automatic numbers shift when siblings are added or removed, so give an instance an explicit name to keep its nets' names stable.

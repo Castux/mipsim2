@@ -45,7 +45,10 @@ func TestMakeComponentAndExplode(t *testing.T) {
 	if !e.Doc.Flatten().Pixels.Equal(flatBefore) {
 		t.Error("making a component changed the circuit")
 	}
-	if _, ok := e.Netlist().Lookup(inst.Name + ".a"); !ok {
+	if inst.Name != "" {
+		t.Errorf("new instance named %q; it should be unnamed (named after its component)", inst.Name)
+	}
+	if _, ok := e.Netlist().Lookup("corner.a"); !ok {
 		t.Errorf("label not renamed hierarchically; names %v", e.Netlist().Nets[0].Names)
 	}
 
