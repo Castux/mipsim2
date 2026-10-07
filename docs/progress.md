@@ -155,4 +155,27 @@ The thin-wires variant stays the default until decided.
 - The D latch has complementary enable inputs instead of an internal inverter. The latch behaviour is the same, and the fixture stays small.
 - Behaviour `expect` lines apply pins in the order written, then settle once. Tests avoid changing an enable and data in the same line, because the result then depends on queue order, as it would in hardware.
 
-**Not done / next:** M4 (runner and CLI).
+## M4 Runner and CLI
+
+**Works:**
+
+- `runner.Runner` wraps the simulator by name:
+  - `Set` pins a net (high, low or float) or a bus (a number, or float);
+  - `Value`, `Number` and `Format` read them;
+  - `Names` lists every net and bus name, sorted;
+  - a clock net (default `clock`) is pinned low at start; `HalfTick` toggles it and settles, and `Tick(n)` runs n full periods.
+
+  Buses come from the `name_N` convention on full hierarchical names, built in net order with no map iteration.
+- `mipsim-run FILE [--set a=5,b=high] [--ticks N] [--watch a,sum] [--clock NAME] [--trace] [--isolated]` takes `.mip` or `.fix` files. Flags may come before or after the file. It prints one `tick N: name=value ...` line per tick; nets print as 0, 1, z or x and buses as numbers, or `?` if a bit is not clean. Compile diagnostics go to stderr, and errors exit with status 1.
+- `testdata/runner/adder4.fix`: a 4-bit ripple-carry adder, built hierarchically.
+  - Each XOR is 4 NANDs; each full adder is 2 XORs and 3 NANDs, with two bridges; the adder is 4 full adders stacked, with the carry routed between them.
+  - 88 transistors, no diagnostics.
+  - All 512 inputs pass both through the Go API and through the CLI, on a `.mip` file saved from the fixture. This is the M4 completion check.
+
+**Decisions:**
+
+- A bus with a missing bit (`x_0`, `x_2` but no `x_1`) can be listed but not read or set; that is an error naming the bit.
+- If a name is both a net and a bus base (`a` and `a_0`), the plain net wins in `Value`, `Set` and `Format`.
+- `Runner.Settle` is plain simulator settling for now; device servicing joins it in M8.
+
+**Not done / next:** M5 (minimal editor).
