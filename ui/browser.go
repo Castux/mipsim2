@@ -39,6 +39,13 @@ func (a *app) openBrowser(mode filebrowser.Mode) {
 	a.fb = filebrowser.New(mode, start, lister, platform.Exists)
 }
 
+// cancelBrowser closes the dialog, dropping any action waiting on a save.
+func (a *app) cancelBrowser() {
+	a.fb = nil
+	a.afterSave = nil
+	a.ed.Status = "cancelled"
+}
+
 // finishBrowser acts on the chosen path.
 func (a *app) finishBrowser(path string) {
 	mode := a.fb.Mode
@@ -112,8 +119,7 @@ func (a *app) handleBrowser(l layout) {
 	alt := ebiten.IsKeyPressed(ebiten.KeyAlt)
 	switch {
 	case pressed(ebiten.KeyEscape):
-		a.fb = nil
-		a.ed.Status = "cancelled"
+		a.cancelBrowser()
 		return
 	case pressed(ebiten.KeyEnter) || pressed(ebiten.KeyNumpadEnter):
 		if path, done := b.Confirm(); done {
@@ -159,22 +165,20 @@ func (a *app) handleBrowser(l layout) {
 	case p.In(bl.up):
 		b.Parent()
 	case p.In(bl.cancel):
-		a.fb = nil
-		a.ed.Status = "cancelled"
+		a.cancelBrowser()
 	case p.In(bl.ok):
 		if path, done := b.Confirm(); done {
 			a.finishBrowser(path)
 		}
 	case !p.In(bl.box):
-		a.fb = nil // a click outside the dialog cancels it
-		a.ed.Status = "cancelled"
+		a.cancelBrowser() // a click outside the dialog cancels it
 	}
 }
 
 func (a *app) drawBrowser(screen *ebiten.Image, l layout) {
 	b := a.fb
 	bl := a.browserLayout(l)
-	fillRect(screen, l.canvas, color.RGBA{255, 255, 255, 170}) // dim the canvas
+	fillRect(screen, l.canvas, color.NRGBA{255, 255, 255, 170}) // dim the canvas (RGBA is premultiplied)
 	a.box(screen, bl.box, chromeBg)
 	lh := a.lineHeight()
 	pad := float64(a.u(10))

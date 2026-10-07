@@ -76,6 +76,8 @@ type app struct {
 	err         error
 	prompt      *prompt
 	fb          *filebrowser.Browser // the open/save dialog, when shown
+	guard       *guard               // the unsaved-changes question, when shown
+	afterSave   func()               // runs once the pending save succeeds (the guard's action)
 	tab         panelTab
 	panelScroll int
 	lastFrame   time.Time
@@ -185,6 +187,10 @@ func (a *app) Update() error {
 		}
 	}
 	l := a.computeLayout()
+	if a.guard != nil {
+		a.handleGuard(l)
+		return nil
+	}
 	if a.fb != nil {
 		a.handleBrowser(l)
 		return nil
@@ -302,10 +308,16 @@ func (a *app) runPrompt(p *prompt) {
 
 func (a *app) setPath(path string) {
 	a.opts.Path = path
+	if path == "" {
+		ebiten.SetWindowTitle("MiPSim")
+		return
+	}
 	ebiten.SetWindowTitle("MiPSim — " + path)
 }
 
 func (a *app) save(path string) {
+	then := a.afterSave
+	a.afterSave = nil // a failed save drops the pending action
 	data, err := a.ed.Doc.Save()
 	if err != nil {
 		a.ed.Status = "save failed: " + firstLine(err.Error())
@@ -319,6 +331,9 @@ func (a *app) save(path string) {
 		a.setPath(path)
 		a.ed.MarkSaved()
 		a.ed.Status = "saved " + path
+		if then != nil {
+			then()
+		}
 	})
 }
 
@@ -416,6 +431,9 @@ func (a *app) Draw(screen *ebiten.Image) {
 	if a.fb != nil {
 		a.drawBrowser(screen, l)
 	}
+	if a.guard != nil {
+		a.drawGuard(screen, l)
+	}
 	a.drawStatus(screen, l, hoverText)
 	a.screenshot(screen)
 }
@@ -466,7 +484,9 @@ func (a *app) drawStatus(screen *ebiten.Image, l layout, hover string) {
 	if hint == "" {
 		hint = a.ed.Hint()
 	}
-	if a.fb != nil {
+	if a.guard != nil {
+		hint = guardHint()
+	} else if a.fb != nil {
 		hint = browserHint()
 	} else if p := a.prompt; p != nil && p.kind == uiSetWord {
 		hint = "set " + p.target + ": type a value (hex; or 0x, 0b, 0d) · enter or click elsewhere applies · esc cancels"

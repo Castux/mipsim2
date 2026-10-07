@@ -13,6 +13,7 @@ const (
 	uiSave
 	uiSaveAs
 	uiOpen
+	uiNew
 	uiFit
 	uiFilter
 	uiScreenshot
@@ -83,6 +84,7 @@ var keymap = []binding{
 	{key: ebiten.KeyZ, ctrl: true, shift: true, action: editor.ActRedo},
 	{key: ebiten.KeyZ, keyName: "^Z", ctrl: true, action: editor.ActUndo, place: topBar, label: "Undo"},
 	{key: ebiten.KeyY, keyName: "^Y", ctrl: true, action: editor.ActRedo, place: topBar, label: "Redo"},
+	{key: ebiten.KeyN, keyName: "^N", ctrl: true, ui: uiNew, place: topBar, label: "New"},
 	{key: ebiten.KeyO, keyName: "^O", ctrl: true, ui: uiOpen, place: topBar, label: "Open"},
 	{key: ebiten.KeyS, ctrl: true, shift: true, ui: uiSaveAs},
 	{key: ebiten.KeyS, keyName: "^S", ctrl: true, ui: uiSave, place: topBar, label: "Save"},

@@ -146,7 +146,7 @@ func (a *app) makeButton(r image.Rectangle, b binding) button {
 			bt.label, bt.active = "Pause", true
 		}
 	}
-	if b.ui == uiSave {
+	if b.ui == uiSave || b.ui == uiNew || b.ui == uiOpen {
 		bt.enabled = true
 	}
 	return bt
@@ -201,7 +201,9 @@ func (a *app) trigger(b binding) {
 	case uiSaveAs:
 		a.openBrowser(filebrowser.Save)
 	case uiOpen:
-		a.openBrowser(filebrowser.Open)
+		a.guarded("opening another file", func() { a.openBrowser(filebrowser.Open) })
+	case uiNew:
+		a.guarded("starting a new document", a.newDocument)
 	case uiFit:
 		a.fit()
 	case uiFilter:
