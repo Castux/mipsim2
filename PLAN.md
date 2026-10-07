@@ -13,7 +13,7 @@ What v2 changes:
 - **Tiles:** one pixel type. Function comes from local pixel patterns, not tile kinds.
 - **Reuse:** a rectangular region can be made a component and placed many times. All placements are live views of one shared definition, always drawn fully expanded.
 - **Memory:** RAM and ROM become simulator devices attached to named buses, replacing hand-built RAM and ad hoc host scripts.
-- **Runtime:** Go, native window on desktop, same code compiled to WebAssembly for the browser, plus a headless mode with no graphics dependency.
+- **Runtime:** Go, native window on desktop, plus a headless mode with no graphics dependency. The same code is later compiled to WebAssembly for the browser (M10); desktop comes first.
 
 What stays: the n-MOS switch-level model, low-wins-over-high, labels and the `name_N` number convention, breadth-first propagation with oscillation detection, and forcing (pinning) wires from the UI or host code.
 
@@ -23,7 +23,7 @@ Goals, in priority order:
 
 1. A deterministic headless simulator library and CLI that can run a processor-scale circuit (bf-proc size or larger) with attached memory, driven by a clock.
 2. A pattern compiler that turns a one-bit bitmap into a netlist and reports every ambiguous or malformed pattern as a located diagnostic, never silently guessing.
-3. An editor on desktop and web from one codebase: draw, select, copy, cut, paste, move, undo, label, make and place components, simulate and force wires.
+3. An editor on desktop, ported to the web later from the same codebase: draw, select, copy, cut, paste, move, undo, label, make and place components, simulate and force wires.
 4. Live component definitions: editing any instance edits all of them immediately.
 
 Non-goals for v2.0:
@@ -277,7 +277,7 @@ Use Go (latest stable release, pinned in `go.mod`) with [Ebitengine](https://ebi
 
 **Rendering approach.** Draw the canvas with one shader pass instead of per-pixel draw calls. Upload the visible region as two textures: pixel role (wire, source, transistor, bridge, off) and net ID packed into RGBA. Upload net states as a small lookup texture each frame. The shader colours each pixel from its role and its net's state. Only the state texture changes during simulation, so frame cost stays flat as circuits grow. The state texture is 2D (a processor can have well over 100k nets, more than one texture row allows), indexed by net ID split into row and column.
 
-This depends on Kage reading a second source image of a different size at arbitrary texel coordinates, which Ebitengine has restricted in some versions. M0 includes a spike with a pass/fail result: a shader that colours a 4096×4096 role/ID texture from a 512×512 state texture on desktop and in the browser. If it fails, the fallback is to pack the state into the same image as an atlas region, or to repaint changed nets on the CPU into a cached canvas image.
+This depends on Kage reading a second source image of a different size at arbitrary texel coordinates, which Ebitengine has restricted in some versions. M0 includes a spike with a pass/fail result: a shader that colours a 4096×4096 role/ID texture from a 512×512 state texture, run on desktop with the default backend and with OpenGL forced (the closest to WebGL, so the web port is unlikely to hit surprises). If it fails, the fallback is to pack the state into the same image as an atlas region, or to repaint changed nets on the CPU into a cached canvas image.
 
 **Zoomed-out rendering (to investigate in M5).** Below 1:1, each screen pixel covers many circuit pixels. Showing a screen pixel as on when any circuit pixel under it is on turns dense logic into solid blocks, so render with area filtering (antialiasing) instead. Each circuit pixel is coloured first, from its role and net state, and the colours are then averaged over the screen pixel's footprint. Averaging must happen after colouring, because net IDs and roles cannot be interpolated. A one-pixel wire at 1/4 scale then shows as a faint line of its state colour, instead of vanishing or filling the block. With filtering, zoom-out no longer needs integer steps, and zoom can be continuous below 1:1. Candidates for the M5 spike:
 
@@ -287,7 +287,16 @@ This depends on Kage reading a second source image of a different size at arbitr
 
 The spike renders the synthetic processor-scale benchmark circuit at 1/2, 1/4, 1/8 and 1/16 with each candidate and with the any-on rule, records frame time and screenshots in `docs/progress.md`, and the owner picks.
 
-**Platform layer.** File open and save go through an interface with two build-tagged implementations: native (path from the command line, save in place, in-app Save As prompt) and `js` (file input element for load, Blob download for save, via `syscall/js`).
+**Platform layer.** File open and save go through an interface with two build-tagged implementations: native (path from the command line, save in place, in-app Save As prompt) and `js` (file input element for load, Blob download for save, via `syscall/js`). Only the native one is written before M10, but the interface is asynchronous (callbacks or results delivered on a later frame), because browser file access cannot block.
+
+**Web later, desktop first.** Nothing web-specific is implemented before M10, but design decisions keep the port cheap:
+
+- no cgo, `os/exec` or direct filesystem access outside `platform`;
+- nothing that blocks the game loop;
+- no reliance on OS threads;
+- shaders limited to what WebGL supports.
+
+CI compiles everything for `GOOS=js GOARCH=wasm` as a check (build only, not deployed or tested), so an accidental incompatibility shows up when it is introduced.
 
 **Setup:**
 
@@ -302,7 +311,7 @@ go run ./cmd/mipsim examples/inverter.mip
 # headless
 go run ./cmd/mipsim-run examples/bf.mip --ticks 2000 --watch pc,op
 
-# web
+# web (M10)
 GOOS=js GOARCH=wasm go build -o web/mipsim.wasm ./cmd/mipsim
 cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/   # path differs on older Go: misc/wasm
 
@@ -310,7 +319,7 @@ cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/   # path differs on older Go: m
 go vet ./... && staticcheck ./... && go test ./...
 ```
 
-**CI** (GitHub Actions): install Ebitengine's Linux build dependencies first (cgo plus the X11, Xrandr, Xcursor, Xinerama, Xi, Xxf86vm and GL dev packages listed in its install docs) and `staticcheck` (`go install honnef.co/go/tools/cmd/staticcheck@latest`); otherwise `go vet ./...` fails on the `ui` package. Then vet, staticcheck, tests with `-race`, a WASM build, and a dependency check that fails if `bitmap`, `doc`, `netlist`, `sim`, `devices` or `runner` import Ebitengine (a test running `go list -deps` on those packages is enough). Publish the WASM build to GitHub Pages on the main branch, as v1 does.
+**CI** (GitHub Actions): install Ebitengine's Linux build dependencies first (cgo plus the X11, Xrandr, Xcursor, Xinerama, Xi, Xxf86vm and GL dev packages listed in its install docs) and `staticcheck` (`go install honnef.co/go/tools/cmd/staticcheck@latest`); otherwise `go vet ./...` fails on the `ui` package. Then vet, staticcheck, tests with `-race`, a compile-only WASM build, and a dependency check that fails if `bitmap`, `doc`, `netlist`, `sim`, `devices` or `runner` import Ebitengine (a test running `go list -deps` on those packages is enough). From M10, publish the WASM build to GitHub Pages on the main branch, as v1 does.
 
 ## Architecture and repo layout
 
@@ -417,8 +426,8 @@ Keys are a starting proposal close to v1's (`x`, `c`, `v`, `m`, `r`, `e`); they 
 
 Build the headless core first and the editor second: M1 to M4 produce a working simulator with no graphics, which de-risks the hardest spec questions before any UI work. Each milestone ends with a short demo note in `docs/progress.md` and green CI.
 
-1. **M0 Setup.** Module, CI, package skeleton, dependency check, Ebitengine window that opens on desktop and in a browser, ebitenui spike, Kage lookup-texture spike (section 7).
-   - Done when: `go test ./...` passes in CI, the WASM page shows a blank canvas on GitHub Pages, and both spikes have a recorded pass/fail in `docs/progress.md`.
+1. **M0 Setup.** Module, CI, package skeleton, dependency check, Ebitengine window that opens on desktop, ebitenui spike, Kage lookup-texture spike (section 7).
+   - Done when: `go test ./...` and the compile-only WASM build pass in CI, the desktop window opens, and both spikes have a recorded pass/fail in `docs/progress.md`.
 2. **M1 Bitmap and document.** Chunked bitmap, full document model including definitions, instances and orientations, all invariants, flatten, `.mip` load and save, ASCII fixture parser (fixtures can declare definitions and place instances).
    - Done when: round-trip tests pass for empty, small and 1-million-pixel documents, every invariant has a rejecting test, and the flatten/re-split property test passes.
 3. **M2 Pattern compiler.** Recognition, nets, transistors, bridges, all lint rules, hierarchical label naming, patterns spanning instance boundaries.
@@ -427,9 +436,9 @@ Build the headless core first and the editor second: M1 to M4 produce a working 
    - Done when: inverter, NAND, NOR, XOR, bridge crossing, SR latch, D latch and a ring oscillator (must go `Unstable`) behave correctly; two runs give identical traces.
 5. **M4 Runner and CLI.** Clock driving, named nets, numbers, `mipsim-run` with `--ticks`, `--watch`, `--set`, `--trace`.
    - Done when: a 4-bit adder fixture is tested over all 512 inputs from Go and from the CLI.
-6. **M5 Minimal editor.** Shader canvas, pan, zoom, zoomed-out rendering spike (section 7), pencil with alt line lock, simulate mode with pinning and net hover, desktop and web.
-   - Done when: the owner can draw an inverter in the browser and toggle it.
-7. **M6 Editing conveniences.** Select, move, copy, cut, paste, delete, mirror and rotate (including instances in the selection and the paste preview), labels, undo and redo, diagnostics panel, file open and save on both platforms.
+6. **M5 Minimal editor.** Shader canvas, pan, zoom, zoomed-out rendering spike (section 7), pencil with alt line lock, simulate mode with pinning and net hover, on desktop.
+   - Done when: the owner can draw an inverter in the desktop editor and toggle it.
+7. **M6 Editing conveniences.** Select, move, copy, cut, paste, delete, mirror and rotate (including instances in the selection and the paste preview), labels, undo and redo, diagnostics panel, native file open and save.
 8. **M7 Component UI.** The data model already exists from M1/M2. This adds deep hit-testing, the make component, place, explode, resize and rename commands with undo, instance outlines and cues, and the palette. Editor commands from M5/M6 resolve edits to (definition, local coordinate) from the start, so they work inside instances without changes.
    - Done when: an 8-bit adder built from 8 instances of one full adder works, and editing one instance changes all 8 on screen and in simulation.
 9. **M8 Memory devices.** Device interface, memory device, settle loop, document config, hex panel.
@@ -437,7 +446,9 @@ Build the headless core first and the editor second: M1 to M4 produce a working 
 10. **M9 Real workload.** The owner builds a full 8-bit processor by hand in the editor. The agent's part: a library of unit-tested building blocks as fixtures (gates, latches, flip-flops, adders, incrementer, decoders, multiplexers, registers, counters), a test harness for the processor, and profiling.
     - This milestone depends on the owner finishing the processor; the agent's part is done when the building-block library and harness are tested and the synthetic benchmarks meet budget.
     - Done when: the owner's processor runs a test program headless with memory attached; compile under 50 ms and at least 1,000 clock ticks per second headless on a laptop, or a profiling report explains the gap.
-11. **M10 Polish.** Slow-motion stepping view, watch panel numbers, example gallery, README and user guide.
+11. **M10 Web port.** `js` platform layer (file input, Blob download, memory init upload), `web/` page and build script, browser-specific input fixes (alt and other keys the browser intercepts), WebGL check of the shaders, GitHub Pages deployment.
+    - Done when: the owner can open, edit, simulate and save a document with memory attached in the browser, from the published Pages site.
+12. **M11 Polish.** Slow-motion stepping view, watch panel numbers, example gallery, README and user guide, on desktop and web.
 
 ## Testing
 
@@ -481,9 +492,10 @@ Test layers:
 2. In M0, move sections 3 to 6 and the file format section into `docs/SPEC.md` and replace them here with a link. From then on `SPEC.md` is the only copy of the spec; any behaviour change updates it and adds a fixture in the same commit.
 3. Core packages (`bitmap`, `doc`, `netlist`, `sim`, `devices`, `runner`, `editor`) never import graphics or `syscall/js`.
 4. No map iteration in `bitmap`, `doc` (flatten), `netlist`, `sim` or `runner`. Use slices and stable ordering.
-5. One milestone per branch, small commits, CI green before merging. Update `docs/progress.md` with what works, what does not, and decisions made.
+5. One milestone per branch, small commits, pushed after each significant piece of work, CI green before merging to `master`. Update `docs/progress.md` with what works, what does not, and decisions made.
 6. When the spec is ambiguous, choose the simplest behaviour that is testable, record it under "Decisions" in `docs/progress.md`, and flag it for the owner. Do not guess on the open questions below; implement the stated default.
 7. Prefer standard library over dependencies. Allowed by default: Ebitengine, ebitenui (pending the M0 spike), a font package. Anything else gets a one-line justification in `docs/progress.md`.
+8. Desktop first: do not implement web-specific code before M10, but follow the "web later" constraints in section 7 so the port stays cheap.
 
 ## Open questions for the owner
 
