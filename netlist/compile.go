@@ -10,9 +10,6 @@ import (
 	"github.com/Castux/mipsim2/doc"
 )
 
-// Orthogonal directions in a fixed order: north, east, south, west.
-var dirs = [4]image.Point{{0, -1}, {1, 0}, {0, 1}, {-1, 0}}
-
 // compiler holds per-pixel working data, indexed by the grid's raster index.
 type compiler struct {
 	opts  Options
@@ -123,7 +120,7 @@ func (c *compiler) south(i int) int {
 	return int(c.southOf[i])
 }
 
-// neighbours returns the orthogonal neighbours in dirs order: N, E, S, W.
+// neighbours returns the orthogonal neighbours in the order N, E, S, W.
 func (c *compiler) neighbours(i int) [4]int {
 	return [4]int{c.north(i), c.east(i), c.south(i), c.west(i)}
 }
@@ -138,8 +135,7 @@ func (c *compiler) findThickRegions() {
 	for i := range parent {
 		parent[i] = -1
 	}
-	var find func(i int32) int32
-	find = func(i int32) int32 {
+	find := func(i int32) int32 {
 		for parent[i] != i {
 			parent[i] = parent[parent[i]]
 			i = parent[i]
