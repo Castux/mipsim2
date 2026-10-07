@@ -158,6 +158,20 @@ func (n *Netlist) NetAt(x, y int) NetID {
 	return NoNet
 }
 
+// Bounds returns a rectangle containing every classified pixel (on pixels
+// and bridge gaps).
+func (n *Netlist) Bounds() image.Rectangle {
+	return n.grid.Rect
+}
+
+// ForEachPixel calls fn for every on pixel and every bridge gap, in raster
+// order for the on pixels, then the gaps. net is NoNet for transistor
+// centres and gaps.
+func (n *Netlist) ForEachPixel(fn func(x, y int, role Role, net NetID)) {
+	n.grid.ForEach(func(i, x, y int) { fn(x, y, n.roles[i], n.pixNet[i]) })
+	n.bridges.ForEach(func(x, y int) { fn(x, y, RoleBridge, NoNet) })
+}
+
 // RoleMap renders the roles inside r as one string per row, using
 // Role.Letter. This is the format of classification goldens.
 func (n *Netlist) RoleMap(r image.Rectangle) []string {

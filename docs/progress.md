@@ -178,4 +178,45 @@ The thin-wires variant stays the default until decided.
 - If a name is both a net and a bus base (`a` and `a_0`), the plain net wins in `Value`, `Set` and `Format`.
 - `Runner.Settle` is plain simulator settling for now; device servicing joins it in M8.
 
-**Not done / next:** M5 (minimal editor).
+## M5 Minimal editor
+
+**Works:**
+
+- `editor` (no graphics), tested with synthetic events:
+  - Edit and simulate modes.
+  - Pencil: a click toggles a pixel; a drag paints the value of the first pixel. Drags are rasterised 4-connected, so fast diagonal drags never leave diagonal-only joints. Holding alt locks the stroke to the dominant axis once the cursor is 2 pixels from the start.
+  - Each stroke is one undoable command recording the definitions it touched; undo and redo are already wired in. Edits inside an instance change its definition.
+  - Strokes recompile live while compiling takes under 8 ms, and on release otherwise; the renderer overlays the uncompiled stroke meanwhile.
+  - Simulate mode refuses circuits with errors and names the first one. In simulate mode, left click pins high, right pins low and middle releases. Hover shows position, role, net, names, value and pin. Choosing a tool returns to edit mode.
+  - Pan and zoom maths (`View`): integer zoom levels from 1× to 64× and filtered levels from 1/2 to 1/32. Zoom keeps the point under the cursor fixed.
+- `ui`:
+  - One Kage shader pass draws the whole canvas from a role/net texture plus a per-net state texture, using the M0 recipe.
+  - Transistor centres light up when conducting; sources keep a tint of their kind in simulate mode; the hovered net is highlighted; a grid shows at 8× and above.
+  - The status bar shows mode, tool, zoom, net, transistor and diagnostic counts, hover details and a key help line.
+  - All keys live in one keymap table (`ui/keymap.go`).
+- `mipsim [file.mip|file.fix]` opens a file and fits it to the window; ctrl+s saves `.mip` files in place. Flags for scripted checks and demos: `-simulate`, `-set`, `-zoom`, `-filter`, `-screenshot`, `-frames`. Screenshots in `docs/m5/` are rendered this way (`inv_edit.png`, `inv_sim.png`, `xor_sim.png`).
+- File writes go through `platform.WriteFile`, which is asynchronous (callback). It has a native implementation and a wasm stub, so `ui` has no direct filesystem access.
+- `go run ./internal/tools/synth` writes the synthetic inverter-chain circuit as a `.mip` file.
+
+**Zoomed-out rendering spike:**
+
+- Method: supersampling in the shader. Up to 4×4 samples per screen pixel are coloured, then combined with one of three filters, switchable with `b`:
+  - plain average;
+  - contrast boost (square root of coverage);
+  - any-on.
+- Measured on the 830k-pixel synthetic circuit in simulate mode, vsync off, 120 frames, including the per-frame state upload for 46k nets: **0.6–0.8 ms per frame** at 1/2, 1/4, 1/8 and 1/16 with every filter. The "colour then mip" candidate is not needed for speed.
+- Screenshots are in `docs/m5/zoom025_filter{0,1,2}.png` and `zoom00625_filter{0,1,2}.png`:
+  - Average reads as a dim, even texture.
+  - Contrast boost keeps the high/low pattern of the chains visible.
+  - Any-on saturates into solid blocks, as the plan predicted.
+- **Default: contrast boost. Owner to pick.**
+
+**Not verified by the agent:** interactive use. No one was at the keyboard, so mouse drawing, alt-drag, panning, wheel zoom and clicking pins were tested through the editor's unit tests and screenshots, not by hand. **The M5 completion check, "the owner can draw an inverter in the desktop editor and toggle it", needs the owner:** `go run ./cmd/mipsim test.mip`, draw, press `e`, click.
+
+**Known limits:**
+
+- Circuits wider or taller than 8192 pixels are not drawn; the texture would need tiling.
+- Opening files still uses `os` in `cmd/mipsim`; M6 moves it into `platform` with an in-app Save As prompt.
+- The status bar text is not yet an ebitenui panel; panels arrive with the diagnostics list in M6.
+
+**Not done / next:** M6 (editing conveniences).
