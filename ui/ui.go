@@ -52,7 +52,8 @@ var background = color.RGBA{255, 255, 255, 255} // v1's white canvas
 
 const statusLines = 2
 
-// prompt is an in-app text field: a file path, or a value for a watched bus.
+// prompt is an in-app text field for a value typed into the panel: a watched
+// bus, a memory word, or a device field.
 type prompt struct {
 	kind   uiAction
 	target string // the bus, for uiSetWatch

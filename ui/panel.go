@@ -15,9 +15,10 @@ import (
 	"github.com/Castux/mipsim2/sim"
 )
 
-// The right panel has tabs: Watch (simulate mode) lists every labelled net
-// and bus with its value; Diagnostics lists compile errors and warnings.
-// Later milestones add Components (M7) and Memory (M8).
+// The right panel has tabs. Edit mode: Components (the palette) and Devices
+// (memory configuration). Simulate mode: Watch (every labelled net and bus
+// with its value) and Memory (contents of memory devices). Both: Diagnostics
+// (compile errors and warnings), when there are any.
 
 type panelTab int
 

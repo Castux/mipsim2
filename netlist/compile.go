@@ -143,23 +143,11 @@ func (c *compiler) diag(code string, level Level, p image.Point, format string, 
 
 // Step 1: union overlapping 2×2 blocks into thick regions.
 func (c *compiler) findThickRegions() {
-	parent := make([]int32, c.n) // union-find over block top-left pixels; -1 if not a block
+	parent := make(unionFind, c.n) // over block top-left pixels; -1 if not a block
 	for i := range parent {
 		parent[i] = -1
 	}
-	find := func(i int32) int32 {
-		for parent[i] != i {
-			parent[i] = parent[parent[i]]
-			i = parent[i]
-		}
-		return i
-	}
-	union := func(a, b int32) {
-		ra, rb := find(a), find(b)
-		if ra != rb {
-			parent[max(ra, rb)] = min(ra, rb)
-		}
-	}
+	find, union := parent.find, parent.union
 
 	var blocks []int32
 	for i := range c.n {
@@ -446,23 +434,9 @@ func (c *compiler) findBridges() []bridgePx {
 
 // build unions pixels into nets, names them and runs the remaining lint rules.
 func (c *compiler) build(flat *doc.Flat, ts []transistorPx, bs []bridgePx) *Netlist {
-	parent := make([]int32, c.n)
-	for i := range parent {
-		parent[i] = int32(i)
-	}
-	find := func(i int32) int32 {
-		for parent[i] != i {
-			parent[i] = parent[parent[i]]
-			i = parent[i]
-		}
-		return i
-	}
-	union := func(a, b int) {
-		ra, rb := find(int32(a)), find(int32(b))
-		if ra != rb {
-			parent[max(ra, rb)] = min(ra, rb)
-		}
-	}
+	parent := newUnionFind(c.n)
+	find := parent.find
+	union := func(a, b int) { parent.union(int32(a), int32(b)) }
 	for i := range c.n {
 		if c.centre[i] {
 			continue
@@ -660,5 +634,32 @@ func (c *compiler) diagonalLint(nl *Netlist) {
 					"pixel touches pixel %d,%d of another net only diagonally; diagonals never connect", x+dx, y+1)
 			}
 		}
+	}
+}
+
+// unionFind is a disjoint-set forest over pixel indices. The root of a set
+// is its smallest member, so roots come out in raster order.
+type unionFind []int32
+
+func newUnionFind(n int) unionFind {
+	u := make(unionFind, n)
+	for i := range u {
+		u[i] = int32(i)
+	}
+	return u
+}
+
+func (u unionFind) find(i int32) int32 {
+	for u[i] != i {
+		u[i] = u[u[i]] // path halving
+		i = u[i]
+	}
+	return i
+}
+
+func (u unionFind) union(a, b int32) {
+	ra, rb := u.find(a), u.find(b)
+	if ra != rb {
+		u[max(ra, rb)] = min(ra, rb)
 	}
 }

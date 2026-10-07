@@ -18,6 +18,7 @@ import (
 	_ "github.com/Castux/mipsim2/netlist"
 	_ "github.com/Castux/mipsim2/runner"
 	_ "github.com/Castux/mipsim2/sim"
+	_ "github.com/Castux/mipsim2/ui/filebrowser"
 )
 
 const module = "github.com/Castux/mipsim2/"
@@ -32,13 +33,20 @@ var allowed = map[string][]string{
 	"devices": {},
 	"runner":  {"bitmap", "doc", "netlist", "sim", "devices"},
 	"editor":  {"bitmap", "doc", "netlist", "sim", "devices", "runner"},
+	// The file dialog's logic, kept headless so it is unit-tested.
+	"ui/filebrowser": {},
 }
 
 // Core packages must not depend on these at any depth.
 var forbiddenPrefixes = []string{
 	"github.com/hajimehoshi/ebiten",
 	"github.com/ebitenui/",
+	"github.com/ebitengine/",
 }
+
+// Core packages reach files only through callbacks (the platform layer on
+// desktop and web), never directly.
+var forbiddenStd = []string{"os"}
 
 // syscall/js is checked separately: on GOOS=js the standard library itself
 // (time, os, ...) imports it, so only non-standard packages importing it
@@ -47,7 +55,7 @@ const syscallJS = "syscall/js"
 
 func corePackages() []string {
 	var pkgs []string
-	for _, p := range []string{"bitmap", "doc", "netlist", "sim", "devices", "runner", "editor"} {
+	for _, p := range []string{"bitmap", "doc", "netlist", "sim", "devices", "runner", "editor", "ui/filebrowser"} {
 		pkgs = append(pkgs, module+p)
 	}
 	return pkgs
@@ -105,12 +113,29 @@ func TestCoreImportsPointDownward(t *testing.T) {
 			ok[a] = true
 		}
 		for _, imp := range fields[1:] {
+			for _, f := range forbiddenStd {
+				if imp == f {
+					t.Errorf("%s imports %s; core packages take file access as callbacks", pkg, imp)
+				}
+			}
 			if !strings.HasPrefix(imp, module) {
 				continue
 			}
 			dep := strings.TrimPrefix(imp, module)
 			if !ok[dep] {
 				t.Errorf("%s imports %s, which the dependency rules do not allow", pkg, dep)
+			}
+		}
+	}
+}
+
+// TestCLIIsHeadless checks that the headless runner builds without graphics,
+// so it runs on servers and in CI without a display.
+func TestCLIIsHeadless(t *testing.T) {
+	for _, d := range goList(t, nil, "-deps", module+"cmd/mipsim-run") {
+		for _, f := range forbiddenPrefixes {
+			if strings.HasPrefix(d, f) {
+				t.Errorf("cmd/mipsim-run depends on %s", d)
 			}
 		}
 	}
