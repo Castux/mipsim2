@@ -345,7 +345,7 @@ A click with the select tool now picks the **innermost** instance under the poin
 
 Open (ctrl+o), Save As (ctrl+shift+s) and the first save of an untitled document open an in-app file dialog, drawn in the pixel style. The owner chose this over a native OS dialog for a consistent look and no new dependency.
 
-- **Listing:** folders first, then `.mip` files; hidden entries are skipped.
+- **Listing:** folders first, then `.mip` files (and `.fix` fixtures in Open, which load like documents; saving one writes a `.mip` next to it); hidden entries are skipped.
 - **Choosing:** click to select, click again or press enter to choose. Up/down and page up/down move the selection. Alt+up, or backspace on an empty name, goes to the parent folder.
 - **Typing:** typing edits the name field. A folder or absolute path, such as `D:\`, navigates there.
 - **Save:** adds `.mip` when no extension is given, and asks for a second confirm before replacing an existing file. **Open** refuses missing files.

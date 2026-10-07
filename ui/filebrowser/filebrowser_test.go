@@ -25,7 +25,7 @@ func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 func setup(t *testing.T) string {
 	root := t.TempDir()
-	for _, p := range []string{"b.mip", "A.mip", "notes.txt", ".hidden.mip", "sub/c.mip", "Zed/x.mip"} {
+	for _, p := range []string{"b.mip", "A.mip", "notes.txt", "t.fix", ".hidden.mip", "sub/c.mip", "Zed/x.mip"} {
 		full := filepath.Join(root, p)
 		os.MkdirAll(filepath.Dir(full), 0o755)
 		os.WriteFile(full, []byte("{}"), 0o644)
@@ -48,7 +48,7 @@ func names(b *Browser) string {
 func TestListingAndNavigation(t *testing.T) {
 	root := setup(t)
 	b := New(Open, filepath.Join(root, "b.mip"), realLister, exists)
-	if got, want := names(b), "../ sub/ Zed/ A.mip b.mip"; got != want {
+	if got, want := names(b), "../ sub/ Zed/ A.mip b.mip t.fix"; got != want {
 		t.Fatalf("entries %q, want %q", got, want)
 	}
 	if b.Selected != 4 {
@@ -72,7 +72,7 @@ func TestListingAndNavigation(t *testing.T) {
 func TestOpenChoosesExistingFile(t *testing.T) {
 	root := setup(t)
 	b := New(Open, root+string(filepath.Separator), realLister, exists)
-	b.Move(10) // last entry: b.mip
+	b.Move(5) // from no selection to the fifth entry: b.mip
 	if b.Name != "b.mip" {
 		t.Fatalf("name %q", b.Name)
 	}
@@ -102,5 +102,13 @@ func TestSaveAddsExtensionAndConfirmsOverwrite(t *testing.T) {
 	}
 	if path, done := b.Confirm(); !done || path != filepath.Join(root, "A.mip") {
 		t.Errorf("second confirm: %q %v", path, done)
+	}
+}
+
+func TestSaveListsOnlyDocuments(t *testing.T) {
+	root := setup(t)
+	b := New(Save, filepath.Join(root, "x.mip"), realLister, exists)
+	if got, want := names(b), "../ sub/ Zed/ A.mip b.mip"; got != want {
+		t.Errorf("save entries %q, want %q", got, want)
 	}
 }

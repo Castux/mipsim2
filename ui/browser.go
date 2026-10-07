@@ -4,11 +4,13 @@ import (
 	"image"
 	"image/color"
 	"path/filepath"
+	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
 	"github.com/Castux/mipsim2/doc"
+	"github.com/Castux/mipsim2/internal/fixture"
 	"github.com/Castux/mipsim2/platform"
 	"github.com/Castux/mipsim2/ui/filebrowser"
 )
@@ -50,15 +52,18 @@ func (a *app) finishBrowser(path string) {
 			a.ed.Status = "open failed: " + err.Error()
 			return
 		}
-		d, err := doc.Load(data)
+		d, savePath, err := loadDocument(path, data)
 		if err != nil {
 			a.ed.Status = "open failed: " + firstLine(err.Error())
 			return
 		}
 		a.ed.ReplaceDocument(d)
-		a.setPath(path)
+		a.setPath(savePath)
 		a.fit()
 		a.ed.Status = "opened " + path
+		if savePath != path {
+			a.ed.Status += " (a fixture: saving writes " + filepath.Base(savePath) + ")"
+		}
 	})
 }
 
@@ -232,4 +237,18 @@ func (a *app) drawBrowser(screen *ebiten.Image, l layout) {
 // browserHint explains the dialog's keys on the hint line.
 func browserHint() string {
 	return "click, then click again or enter: choose · type a name or folder · alt+up: parent · esc: cancel"
+}
+
+// loadDocument decodes a .mip document, or a .fix test fixture. A fixture is
+// saved as a .mip file next to it, so the save path is returned too.
+func loadDocument(path string, data []byte) (*doc.Document, string, error) {
+	if strings.EqualFold(filepath.Ext(path), filebrowser.FixtureExt) {
+		fx, err := fixture.Parse(string(data))
+		if err != nil {
+			return nil, "", err
+		}
+		return fx.Doc, strings.TrimSuffix(path, filepath.Ext(path)) + filebrowser.Ext, nil
+	}
+	d, err := doc.Load(data)
+	return d, path, err
 }

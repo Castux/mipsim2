@@ -30,8 +30,12 @@ type Entry struct {
 // Lister lists a folder and calls done with its entries.
 type Lister func(dir string, done func([]Entry, error))
 
-// Ext is the extension of files the dialog shows and saves.
+// Ext is the extension of files the dialog saves.
 const Ext = ".mip"
+
+// FixtureExt is the extension of test fixtures, which Open also lists: they
+// load like documents.
+const FixtureExt = ".fix"
 
 // Browser is the dialog's state.
 type Browser struct {
@@ -84,7 +88,7 @@ func (b *Browser) chdir(dir string) {
 			case strings.HasPrefix(e.Name, "."):
 			case e.Dir:
 				dirs = append(dirs, e)
-			case strings.EqualFold(filepath.Ext(e.Name), Ext):
+			case b.shows(e.Name):
 				files = append(files, e)
 			}
 		}
@@ -228,4 +232,11 @@ func (b *Browser) choose(path string) (string, bool) {
 		return "", false
 	}
 	return path, true
+}
+
+// shows reports whether a file is listed: .mip files, and in Open mode also
+// .fix fixtures.
+func (b *Browser) shows(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	return ext == Ext || b.Mode == Open && ext == FixtureExt
 }
