@@ -42,6 +42,7 @@ type Options struct {
 	Frames     int      // with Screenshot: render this many extra frames without vsync and print the average frame time
 	Tool       string   // start with this tool selected: draw, select or label
 	Browse     string   // start with the file dialog open: "open" or "save"
+	Click      []int    // for screenshots: click once at this world pixel (x, y) with the start tool
 }
 
 var background = color.RGBA{255, 255, 255, 255} // v1's white canvas
@@ -117,6 +118,12 @@ func newApp(opts Options) (*app, error) {
 		a.ed.Do(editor.ActLabel)
 	}
 	a.ed.Status = ""
+	if len(opts.Click) == 2 {
+		p := image.Pt(opts.Click[0], opts.Click[1])
+		a.ed.PointerDown(p, editor.Left, editor.Mods{})
+		a.ed.PointerUp(p, editor.Left)
+		a.ed.PointerMove(p, editor.Mods{})
+	}
 	switch opts.Browse {
 	case "open":
 		a.openBrowser(filebrowser.Open)

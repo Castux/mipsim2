@@ -29,9 +29,10 @@ func main() {
 	frames := flag.Int("frames", 0, "with -screenshot: time this many frames without vsync first")
 	tool := flag.String("tool", "", "start with this tool: draw, select or label")
 	browse := flag.String("browse", "", "start with the file dialog open: open or save")
+	click := flag.String("click", "", "for screenshots: click once at world pixel X,Y with the start tool")
 	flag.Parse()
 
-	opts := ui.Options{Screenshot: *screenshot, Simulate: *simulate, Zoom: *zoom, Filter: *filter, Frames: *frames, Tool: *tool, Browse: *browse}
+	opts := ui.Options{Screenshot: *screenshot, Simulate: *simulate, Zoom: *zoom, Filter: *filter, Frames: *frames, Tool: *tool, Browse: *browse, Click: parseClick(*click)}
 	if *set != "" {
 		opts.Sets = strings.Split(*set, ",")
 	}
@@ -72,4 +73,13 @@ func open(path string) (*doc.Document, string, error) {
 		return nil, "", fmt.Errorf("%s: %w", path, err)
 	}
 	return d, path, nil
+}
+
+// parseClick parses "X,Y" for the -click flag.
+func parseClick(s string) []int {
+	var x, y int
+	if _, err := fmt.Sscanf(s, "%d,%d", &x, &y); err != nil {
+		return nil
+	}
+	return []int{x, y}
 }

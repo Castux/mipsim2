@@ -117,9 +117,10 @@ func (a *app) drawDiagnosticMarkers(dst *ebiten.Image, nl *netlist.Netlist) {
 }
 
 var (
-	instColor  = color.RGBA{208, 161, 208, 255} // v1's drain-source purple
-	cueColor   = color.RGBA{128, 0, 128, 255}   // v1's transistor purple
-	maxOutline = 3000                           // skip plain outlines beyond this many
+	instColor   = color.RGBA{208, 161, 208, 255} // v1's drain-source purple
+	cueColor    = color.RGBA{128, 0, 128, 255}   // v1's transistor purple
+	handleColor = color.RGBA{255, 140, 0, 255}   // resize handles: orange, used nowhere else
+	maxOutline  = 3000                           // skip plain outlines beyond this many
 )
 
 // drawInstances outlines component instances. The instance under the
@@ -157,6 +158,6 @@ func (a *app) drawHandles(dst *ebiten.Image, hs []image.Point) {
 	for _, h := range hs {
 		x, y := a.view.ToScreen(h)
 		cx, cy := x+a.view.Scale/2, y+a.view.Scale/2
-		vector.FillRect(dst, float32(cx-s/2), float32(cy-s/2), float32(s), float32(s), cueColor, false)
+		vector.FillRect(dst, float32(cx-s/2), float32(cy-s/2), float32(s), float32(s), handleColor, false)
 	}
 }
