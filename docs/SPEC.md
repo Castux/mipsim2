@@ -45,8 +45,9 @@ These keep the language unambiguous. Errors block simulation; warnings do not.
 | `E_RING_OVERLAP` | error | Rings overlapping each other or a high source |
 | `E_GAP_AMBIGUOUS` | error | Bridge-like gap with on diagonals |
 | `E_ADJ_TRANSISTOR` | error | A transistor arm is itself a transistor centre |
-| `E_BRIDGE_ARM` | error | A bridge arm pixel is a transistor centre |
+| `E_BRIDGE_ARM` | error | A bridge arm pixel is a transistor centre. Unreachable in practice: such an arm needs both of its side neighbours on, and those are the gap's diagonals, so the pattern is `E_GAP_AMBIGUOUS` first. Kept as a defensive check |
 | `E_LABEL_OFF_NET` | error | A label sits on an off pixel or a transistor centre (for example after the pixel under it was erased) |
+| `E_DUPLICATE_NAME` | error | The same full name labels two different nets, so looking it up would be ambiguous. Two labels with one name on the same net are fine |
 | `W_CHANNEL_SHORT` | warning | A transistor's two channel arms are already the same net |
 | `W_GATE_ON_CHANNEL` | warning | Gate net equals a channel net |
 | `W_FLOATING_GATE` | warning | Gate net has no source, no label and no transistor channel feeding it |
@@ -59,7 +60,15 @@ These keep the language unambiguous. Errors block simulation; warnings do not.
 - **Thin wires (default):** `E_THICK` as above. Every wire is one pixel wide; simple and unambiguous.
 - **Isolated sources:** a source must have an empty one-pixel border, except for single-pixel wire attachments that are not adjacent to each other. Thick regions elsewhere are then legal wire, allowing wide buses for visual effect or more elegant components. In this variant, a pixel is only a transistor if neither it nor its three arms belong to a 2×2 block, and a thick region that matches a source shape but lacks the border is error `E_SOURCE_BORDER`.
 
-The fixture set must include cases that the two variants classify differently (a 3×4 block, a wire flush along a source, a T on the edge of a thick wire), so the comparison is concrete.
+As implemented in M2, the isolated-sources variant also follows these rules:
+
+- The border is the 16 cells around the 3×3. The 4 corner cells must be off. The 12 side cells may hold attachments, but no two on border cells may touch, even diagonally (two attachments on either side of a corner would both touch the corner pixel).
+- Because two side-by-side attachments form a 2×2 block with the source, they make the whole region bigger than 3×3. It is then classified as thick wire, not as a source with an error. This is the variant's main hazard: a wire drawn flush along a source silently turns the source into wire.
+- A ring is only a low source if none of its pixels is in a 2×2 block; inside thick wire, a one-pixel hole is just a hole.
+
+The fixture set must include cases that the two variants classify differently (a 3×4 block, a wire flush along a source, a T on the edge of a thick wire), so the comparison is concrete. These are `thick_block`, `flush_wire`, `t_on_thick`, `ring_on_high` and `source_border` in `testdata/netlist`, each with goldens for both variants.
+
+Classification goldens print each pixel's role as one letter: `H` high source, `L` low source, `T` transistor centre, `B` bridge gap, `w` wire, `X` pixel of a malformed thick region (`E_THICK`), `.` off.
 
 ## Simulation model (spec)
 

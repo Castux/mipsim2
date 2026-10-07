@@ -1,0 +1,8 @@
+# source_border.fix: two attachments touching diagonally at a source corner
+# diag none
+# diag-isolated E_SOURCE_BORDER
+# label vdd 2,3
+###.
+###.
+####
+..#.

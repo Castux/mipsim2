@@ -75,4 +75,49 @@ Decision: use ebitenui for panels. It adds `golang.org/x/image` (for the Go font
 
 **Mistake:** commit `M1: document model...` was pushed with gofmt, staticcheck and archtest failures, because the command did not stop on errors. It was fixed in the next commit, and `scripts/check.sh` now gates commits.
 
-**Not done / next:** M2 (pattern compiler).
+## M2 Pattern compiler
+
+**Works:**
+
+- `netlist.Compile` implements both candidate rule sets behind `Options.Variant` (thin wires by default, isolated sources), in the spec's order: thick regions, rings, transistors, bridges, wires. It then builds nets with union-find, numbers nets and transistors canonically in raster order, applies hierarchical labels, and runs every lint rule in the spec table plus `E_DUPLICATE_NAME` and `E_SOURCE_BORDER`.
+- Per-pixel data is indexed by raster rank among the on pixels (`bitmap.Dense.Index`), so memory scales with the number of on pixels, not the bounding box. Horizontal neighbours are `i±1`; vertical ones are looked up once per pixel.
+- `RoleAt`, `NetAt` and `RoleMap` support rendering, hit-testing and goldens.
+- 24 fixtures in `testdata/netlist`, each with a golden for both variants (role map, counts, diagnostics). Goldens are regenerated with `go test ./netlist -update` and were reviewed by hand. Covered:
+  - every pattern;
+  - every reachable lint code, each with a triggering fixture and near-misses (clean fixtures declare `# diag none`);
+  - the variant differences;
+  - the plan's inverter;
+  - `hier.fix`: nested instances (a pair of inverters, placed twice, once rotated) with the expected hierarchical names, and a high source split across an instance edge.
+- Orientation invariance: every fixture, in both variants, is wrapped in an instance in all 8 orientations. Roles move with the pixels, and net, transistor and diagnostic counts are unchanged.
+- `internal/synth.InverterChains` generates processor-scale synthetic circuits: chains of inverter instances, labelled `in_r`/`out_r`.
+
+**Performance** (152×152 inverter chains: 830k pixels, 46k nets, 23k transistors, this laptop):
+
+| Stage | Time |
+| --- | --- |
+| Flatten | 45 ms |
+| Compile | 67 ms (90 ms before precomputing vertical neighbours) |
+
+Together this is about 110 ms, roughly twice the 50 ms budget. The profile is now spread evenly across the stages. Next steps, in order:
+
+1. Flatten straight into the compiler's dense grid, skipping the chunked bitmap.
+2. The plan's "compile each definition once and stamp" approach, if still needed.
+
+Edits recompile on mouse-up, so this is tolerable for M5. It is tracked by `TestCompileBudget` and `BenchmarkCompile1M`.
+
+**Decisions:**
+
+- `E_BRIDGE_ARM` cannot trigger: a bridge arm that is a transistor centre needs its two side neighbours on, and those are the gap's diagonals, which makes the pattern `E_GAP_AMBIGUOUS`. The check is kept, and SPEC notes it.
+- New error `E_DUPLICATE_NAME`: one full name on two different nets. In v1 the last label silently won; here name lookups must be unambiguous. **Flag for the owner:** is an error right, or should same-named labels connect their nets implicitly?
+- Transistor channel ends are ordered west then east, or north then south, so `A`/`B` are deterministic.
+- Pixels of a malformed thick region get role `X`, still join nets as wire (so hover and highlighting stay sensible), and are never transistors.
+- The isolated-sources variant's border rules are specified precisely in SPEC (corners off; no two border pixels touching, even diagonally; rings inside thick wire are holes).
+
+**Owner decision pending: thin wires or isolated sources?** Compare the goldens of `thick_block`, `flush_wire`, `t_on_thick`, `ring_on_high` and `source_border`. Summary:
+
+- **Thin wires** rejects anything 2 pixels thick (`E_THICK`), which catches accidental blobs.
+- **Isolated sources** allows thick buses, but a wire drawn flush along a source silently turns the source into plain wire (no error), and a ring touching a high source becomes wire too.
+
+The thin-wires variant stays the default until decided.
+
+**Not done / next:** M3 (simulator).

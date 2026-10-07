@@ -1,0 +1,17 @@
+== thin-wires
+.....
+.XXX.
+.XXX.
+.XXX.
+.XXX.
+.....
+nets 1, transistors 0
+0,0: error E_THICK: thick region 3x4 is not a 3×3 high source; wires must be one pixel wide
+== isolated-sources
+.....
+.www.
+.www.
+.www.
+.www.
+.....
+nets 1, transistors 0

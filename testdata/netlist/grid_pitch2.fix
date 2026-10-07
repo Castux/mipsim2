@@ -1,0 +1,5 @@
+# grid_pitch2.fix: a wire grid with pitch 2 makes overlapping rings
+# diag E_RING_OVERLAP
+#####
+#.#.#
+#####

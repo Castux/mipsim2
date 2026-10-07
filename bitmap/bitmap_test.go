@@ -194,6 +194,42 @@ func TestDenseMatchesBitmap(t *testing.T) {
 	}
 }
 
+func TestDenseIndex(t *testing.T) {
+	rng := rand.New(rand.NewPCG(4, 4))
+	b, _ := randomBitmap(rng, 3000, 120)
+	r := b.Bounds()
+	d := b.ToDense(r)
+	if d.Count() != b.Count() {
+		t.Fatalf("Count = %d, want %d", d.Count(), b.Count())
+	}
+	next := 0
+	b.ForEach(func(x, y int) {
+		if got := d.Index(x, y); got != next {
+			t.Fatalf("Index(%d,%d) = %d, want %d", x, y, got, next)
+		}
+		next++
+	})
+	if d.Index(r.Min.X-1, r.Min.Y) != -1 {
+		t.Error("index outside the rectangle is not -1")
+	}
+	for range 1000 {
+		x, y := r.Min.X+rng.IntN(r.Dx()), r.Min.Y+rng.IntN(r.Dy())
+		if !b.Get(x, y) && d.Index(x, y) != -1 {
+			t.Fatalf("off pixel (%d,%d) has an index", x, y)
+		}
+	}
+	want := 0
+	d.ForEach(func(i, x, y int) {
+		if i != want || d.Index(x, y) != i {
+			t.Fatalf("Dense.ForEach gave index %d at (%d,%d), want %d", i, x, y, want)
+		}
+		want++
+	})
+	if want != d.Count() {
+		t.Fatalf("Dense.ForEach visited %d pixels, want %d", want, d.Count())
+	}
+}
+
 func BenchmarkSetRaster1M(b *testing.B) {
 	for range b.N {
 		bm := New()

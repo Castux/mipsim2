@@ -1,0 +1,6 @@
+# wire_loop.fix: any 3x3 loop of wire is a low source
+# diag none
+# label gnd 3,1
+###.
+#.##
+###.

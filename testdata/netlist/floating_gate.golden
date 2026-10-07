@@ -1,0 +1,14 @@
+== thin-wires
+.....
+..w..
+.wTw.
+.....
+nets 3, transistors 1
+1,1: warning W_FLOATING_GATE: gate net has no source, no label and no transistor driving it
+== isolated-sources
+.....
+..w..
+.wTw.
+.....
+nets 3, transistors 1
+1,1: warning W_FLOATING_GATE: gate net has no source, no label and no transistor driving it

@@ -1,0 +1,5 @@
+# gap_ambiguous.fix: a bridge-like gap with an on diagonal
+# diag E_GAP_AMBIGUOUS W_DIAGONAL_TOUCH
+.##
+#.#
+.#.

@@ -1,0 +1,7 @@
+# junction.fix: a 4-way cross is a plain junction, not a transistor
+# diag none
+# nets 1
+# transistors 0
+.#.
+###
+.#.

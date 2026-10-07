@@ -1,0 +1,8 @@
+# sources.fix: a high source and a low source, each with a labelled wire
+# diag none
+# nets 2
+# label vdd 3,0
+# label gnd 7,1
+####...###
+###....#.##
+###....###

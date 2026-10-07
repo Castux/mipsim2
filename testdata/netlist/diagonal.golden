@@ -1,0 +1,14 @@
+== thin-wires
+....
+.w..
+..w.
+....
+nets 2, transistors 0
+0,0: warning W_DIAGONAL_TOUCH: pixel touches pixel 1,1 of another net only diagonally; diagonals never connect
+== isolated-sources
+....
+.w..
+..w.
+....
+nets 2, transistors 0
+0,0: warning W_DIAGONAL_TOUCH: pixel touches pixel 1,1 of another net only diagonally; diagonals never connect

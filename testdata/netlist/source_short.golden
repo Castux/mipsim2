@@ -1,0 +1,16 @@
+== thin-wires
+.........
+.HHH.LLL.
+.HHHwL.L.
+.HHH.LLL.
+.........
+nets 1, transistors 0
+0,0: warning W_SOURCE_SHORT: net contains both a high and a low source; it is always low
+== isolated-sources
+.........
+.HHH.LLL.
+.HHHwL.L.
+.HHH.LLL.
+.........
+nets 1, transistors 0
+0,0: warning W_SOURCE_SHORT: net contains both a high and a low source; it is always low

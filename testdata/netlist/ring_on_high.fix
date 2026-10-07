@@ -1,0 +1,5 @@
+# ring_on_high.fix: a ring sharing pixels with a high source
+# diag E_RING_OVERLAP W_SOURCE_SHORT
+#####
+###.#
+#####

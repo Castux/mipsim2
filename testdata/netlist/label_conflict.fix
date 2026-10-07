@@ -1,0 +1,5 @@
+# label_conflict.fix: one net with two names from the same scope
+# diag W_LABEL_CONFLICT
+# label a 0,0
+# label b 2,0
+###

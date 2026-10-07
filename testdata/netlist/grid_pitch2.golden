@@ -1,0 +1,16 @@
+== thin-wires
+.......
+.LLLLL.
+.L.L.L.
+.LLLLL.
+.......
+nets 1, transistors 0
+3,1: error E_RING_OVERLAP: low source ring overlaps another ring or a high source
+== isolated-sources
+.......
+.LLLLL.
+.L.L.L.
+.LLLLL.
+.......
+nets 1, transistors 0
+3,1: error E_RING_OVERLAP: low source ring overlaps another ring or a high source
