@@ -2,18 +2,24 @@ package fonts
 
 import "testing"
 
-func TestPixelify(t *testing.T) {
-	b, err := Pixelify()
-	if err != nil {
-		t.Fatal(err)
+func TestRaylib(t *testing.T) {
+	if len(Raylib.Glyphs) != 224 {
+		t.Errorf("%d glyphs, want 224", len(Raylib.Glyphs))
 	}
-	for _, r := range "AZaz09·×_?" {
-		rows, ok := b.Glyphs[r]
-		if !ok || len(rows) != b.Height {
-			t.Errorf("glyph %q missing or wrong height", r)
+	for r, rows := range Raylib.Glyphs {
+		if len(rows) != Raylib.Height {
+			t.Errorf("glyph %q has %d rows", r, len(rows))
+		}
+		for _, row := range rows {
+			if len(row) != len(rows[0]) {
+				t.Errorf("glyph %q is ragged", r)
+			}
 		}
 	}
-	if b.Height < 10 || b.Height > 20 {
-		t.Errorf("height %d", b.Height)
+	want := []string{"......", "######", "#....#", "#....#", "######", "#....#", "#....#", "#....#", "......", "......"}
+	for i, row := range Raylib.Glyphs['A'] {
+		if row != want[i] {
+			t.Fatalf("A row %d = %q, want %q", i, row, want[i])
+		}
 	}
 }

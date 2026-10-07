@@ -17,11 +17,7 @@ type pixelText struct {
 }
 
 func newPixelText() (*pixelText, error) {
-	f, err := fonts.Pixelify()
-	if err != nil {
-		return nil, err
-	}
-	return &pixelText{font: f, glyphs: map[rune]*ebiten.Image{}}, nil
+	return &pixelText{font: &fonts.Raylib, glyphs: map[rune]*ebiten.Image{}}, nil
 }
 
 func (t *pixelText) glyph(r rune) (*ebiten.Image, int) {
@@ -53,7 +49,7 @@ func (t *pixelText) glyph(r rune) (*ebiten.Image, int) {
 }
 
 // textTarget is the design height of a line of text, in logical pixels.
-const textTarget = 18
+const textTarget = 20 // raylib's 10-pixel glyphs at 2×
 
 // textScale is the integer scale for the current device scale factor.
 func (a *app) textScale() int {

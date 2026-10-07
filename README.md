@@ -53,4 +53,4 @@ In the editor every action is a button showing its key, and the bottom line expl
 
 ## License
 
-[MIT](LICENSE). The ui font is Pixelify Sans by The Pixelify Sans Project Authors, under the SIL Open Font License 1.1 (`ui/fonts/pixelifysans/OFL.txt`).
+[MIT](LICENSE). The ui font is raylib's default font, Copyright (c) Ramon Santamaria, under the zlib licence (notice in `ui/fonts/raylib.go`).

@@ -330,9 +330,9 @@ Buses in the Watch tab are inline number fields, like v1's number inputs.
 
 ## Pixel font and outlines (owner choice)
 
-- All ui text uses one pixel font at one size: buttons, panel, status lines and canvas labels. The font is **Pixelify Sans** (SIL Open Font License 1.1, Copyright 2021 The Pixelify Sans Project Authors; licence in `ui/fonts/pixelifysans/OFL.txt`).
-- At startup it is rasterised once at 11 px to one-bit glyphs, which are drawn at a whole-number scale for the screen's DPI, so text is pixel-exact.
+- All ui text uses one pixel font at one size: buttons, panel, status lines and canvas labels. The font is **raylib's default font** (zlib licence, Copyright Ramon Santamaria), decoded from raylib's `rtext.c` by `internal/tools/raylibfont` into glyph rows in `ui/fonts/raylib.go`. It is drawn at 2× (times the screen's scale factor), so text is pixel-exact.
+- Pixelify Sans was chosen first, then dropped. It is a TTF drawn on a loose grid (about 91 units per pixel, with per-glyph offsets), and rasterising it never lined up exactly with the pixel grid: `v` and parentheses came out uneven. A true bitmap font avoids the problem by construction.
 - Icons were removed; buttons are text with their key.
 - Every box, button and tab has a single-pixel dark border (one ui pixel, so it scales with the text).
-- Candidates compared and dropped: raylib's default font, VT323, Silkscreen, Tiny5.
+- Also compared and dropped: VT323, Silkscreen, Tiny5.
 - Layout sizes (bars, rows, columns, tabs) are derived from the font's line height and measured text, not fixed pixel values.
