@@ -132,7 +132,7 @@ func (e *Editor) Hint() string {
 	case e.tool == Select && e.Enabled(ActRename):
 		return "drag a square handle to resize the component (all its instances) · drag the selection to move it · esc clear · " + view
 	case e.tool == Select:
-		return "drag select an area · click select a component · drag the selection to move it · esc clear · " + view
+		return "drag select an area · click select the innermost component, click again for the one around it · drag the selection to move it · esc clear · " + view
 	case e.tool == LabelTool:
 		return "click a pixel to name its wire · click a label to rename it · " + view
 	}

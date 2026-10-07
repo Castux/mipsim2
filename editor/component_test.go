@@ -266,3 +266,45 @@ func TestAdder8SharedEdit(t *testing.T) {
 		t.Errorf("after undo, sum = %s", got)
 	}
 }
+
+// TestClickSelectsDeepestInstance: a click selects the most nested
+// instance, so it can be moved or deleted inside its parent component (which
+// changes that component everywhere); clicking again goes one level up.
+func TestClickSelectsDeepestInstance(t *testing.T) {
+	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "netlist", "hier.fix"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := New(fx.Doc)
+	e.Do(ActSelect)
+	inner := image.Rect(0, 0, 9, 11) // p1.g1: inverter g1 inside pair p1 at (0,0)
+	outer := image.Rect(0, 0, 21, 11)
+
+	drag(e, Mods{}, pt(2, 8))
+	if e.Selected() != inner || e.sel.def != "pair" {
+		t.Fatalf("first click selected %v in %s, want %v in pair (%q)", e.Selected(), e.sel.def, inner, e.Status)
+	}
+	drag(e, Mods{}, pt(2, 8))
+	if e.Selected() != outer || e.sel.def != e.Doc.Root {
+		t.Fatalf("second click selected %v in %s, want %v at the top level", e.Selected(), e.sel.def, outer)
+	}
+	drag(e, Mods{}, pt(2, 8))
+	if e.Selected() != inner {
+		t.Fatalf("third click selected %v, want to wrap back to %v", e.Selected(), inner)
+	}
+
+	// Deleting the inner instance edits pair, so both p1 and p2 lose it.
+	pixels := e.Doc.Flatten().Pixels.Count()
+	invPixels := e.Doc.Defs["inv"].Pixels.Count()
+	e.Do(ActDelete)
+	if got := len(e.Doc.Defs["pair"].Instances); got != 1 {
+		t.Fatalf("pair has %d instances after deleting g1", got)
+	}
+	if got := e.Doc.Flatten().Pixels.Count(); got != pixels-2*invPixels {
+		t.Errorf("flattened pixels %d, want %d (g1 gone from both pairs)", got, pixels-2*invPixels)
+	}
+	e.Do(ActUndo)
+	if got := e.Doc.Flatten().Pixels.Count(); got != pixels {
+		t.Errorf("undo left %d pixels, want %d", got, pixels)
+	}
+}

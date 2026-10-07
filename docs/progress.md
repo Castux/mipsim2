@@ -336,3 +336,7 @@ Buses in the Watch tab are inline number fields, like v1's number inputs.
 - Every box, button and tab has a single-pixel dark border (one ui pixel, so it scales with the text).
 - Also compared and dropped: VT323, Silkscreen, Tiny5.
 - Layout sizes (bars, rows, columns, tabs) are derived from the font's line height and measured text, not fixed pixel values.
+
+## Selecting nested components (owner request)
+
+A click with the select tool now picks the **innermost** instance under the pointer, in its parent's definition. Moving, rotating, deleting or exploding it therefore rearranges the component that contains it, everywhere that component is used. Clicking again inside the selection goes one level up, and wraps back to the innermost after the top level. Dragging a rectangle still selects in the definition where the drag starts. Tested on `hier.fix`: deleting `g1` inside `pair` removes it from both placed pairs.

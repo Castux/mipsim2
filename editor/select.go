@@ -3,6 +3,7 @@ package editor
 import (
 	"fmt"
 	"image"
+	"slices"
 	"strings"
 
 	"github.com/Castux/mipsim2/doc"
@@ -28,16 +29,7 @@ func (e *Editor) Selected() image.Rectangle { return e.selWorld() }
 // A click without a drag selects the top-level instance under it, if any.
 func (e *Editor) selectArea(a, b image.Point) {
 	if a == b {
-		root := e.Doc.RootDef()
-		for _, inst := range root.Instances {
-			if r := e.Doc.PlacedRect(inst); a.In(r) {
-				e.sel = &selection{def: e.Doc.Root, toW: doc.IdentityAffine, rect: r}
-				e.Status = fmt.Sprintf("selected instance %s (%s)", inst.Name, inst.Def)
-				return
-			}
-		}
-		e.sel = nil
-		e.Status = ""
+		e.clickSelect(a)
 		return
 	}
 	loc := e.Doc.Locate(a)
@@ -57,6 +49,45 @@ func (e *Editor) selectArea(a, b image.Point) {
 		where = "definition " + string(loc.Def)
 	}
 	e.Status = fmt.Sprintf("selected %dx%d in %s", local.Dx(), local.Dy(), where)
+}
+
+// clickSelect selects the deepest instance under p, in its parent's
+// definition, so moving it rearranges the component that contains it.
+// Clicking again inside the selected instance selects its parent instance,
+// one level up, wrapping back to the deepest after the top level.
+func (e *Editor) clickSelect(p image.Point) {
+	path := e.Doc.Locate(p).Path
+	if len(path) == 0 {
+		e.sel = nil
+		e.Status = ""
+		return
+	}
+	depth := len(path) // 1-based depth of the instance to select
+	if e.sel != nil && p.In(e.selWorld()) {
+		if _, ok := e.selectedInstance(); ok && slices.Equal(e.sel.path, path[:len(e.sel.path)]) {
+			if d := len(e.sel.path) + 1; d > 1 {
+				depth = d - 1
+			}
+		}
+	}
+
+	// Walk down to the parent of the instance at that depth.
+	def, toW := e.Doc.RootDef(), doc.IdentityAffine
+	var names []string
+	for _, i := range path[:depth-1] {
+		inst := def.Instances[i]
+		toW = e.Doc.Placement(inst).Then(toW)
+		names = append(names, inst.Name)
+		def = e.Doc.Defs[inst.Def]
+	}
+	inst := def.Instances[path[depth-1]]
+	e.sel = &selection{path: slices.Clone(path[:depth-1]), def: def.ID, toW: toW, rect: e.Doc.PlacedRect(inst)}
+	names = append(names, inst.Name)
+	where := ""
+	if depth > 1 {
+		where = fmt.Sprintf(" inside %s (moving it edits %s everywhere)", e.Doc.Defs[def.ID].Name, e.Doc.Defs[def.ID].Name)
+	}
+	e.Status = fmt.Sprintf("selected %s (%s)%s; click again for the outer component", strings.Join(names, "."), e.Doc.Defs[inst.Def].Name, where)
 }
 
 // selectionClip extracts the selected content.
