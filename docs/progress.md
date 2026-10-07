@@ -379,4 +379,4 @@ Done criterion met: `testdata/runner/ram.fix` (a 256-byte RAM on 8-bit address a
 - **Guard:** New and Open first check for unsaved changes and ask "Save before ...?" in a small modal: Save (enter or s), Discard (d), Cancel (esc or a click outside). Save goes through the file dialog when the document is untitled, and the pending action runs only after the save succeeds. A failed or cancelled save drops it.
 - Fixed while there: the file dialog's backdrop was meant to dim the canvas but hid it, because `color.RGBA` is premultiplied (now `NRGBA`).
 - Fixed just before: opening a file could show only labels and boxes. The canvas caches its pixel texture by the editor's compile count, which `ReplaceDocument` restarted.
-- Not yet guarded: closing the window.
+- Closing the window goes through the same guard ("Save before quitting?"). The web port will need `beforeunload` instead.

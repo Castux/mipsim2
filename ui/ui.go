@@ -166,6 +166,10 @@ func (a *app) Update() error {
 	if a.err != nil {
 		return a.err
 	}
+	// Closing the window goes through the unsaved-changes guard.
+	if ebiten.IsWindowBeingClosed() && a.guard == nil {
+		a.guarded("quitting", func() { a.err = ebiten.Termination })
+	}
 	now := time.Now()
 	if !a.lastFrame.IsZero() {
 		a.ed.Advance(now.Sub(a.lastFrame))
@@ -541,6 +545,7 @@ func Run(opts Options) error {
 	ebiten.SetWindowSize(1280, 800)
 	ebiten.SetWindowTitle(opts.Title)
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+	ebiten.SetWindowClosingHandled(true) // Update asks before losing changes
 	err = ebiten.RunGame(a)
 	if err == ebiten.Termination {
 		return nil
