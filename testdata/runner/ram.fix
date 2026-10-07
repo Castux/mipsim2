@@ -1,0 +1,85 @@
+# ram.fix: a 256-byte RAM on an 8-bit address bus and an 8-bit data bus.
+# The data bus also feeds eight inverters, so the circuit sees what the
+# memory drives: q_N is the inverse of data_N.
+# device {"kind": "memory", "name": "ram", "addr": "addr", "data": "data", "select": "sel", "write": "we", "words": 256, "width": 8}
+# input data_0 0,6
+# output q_0 14,4
+# input addr_0 20,0
+# input data_1 0,18
+# output q_1 14,16
+# input addr_1 20,2
+# input data_2 0,30
+# output q_2 14,28
+# input addr_2 20,4
+# input data_3 0,42
+# output q_3 14,40
+# input addr_3 20,6
+# input data_4 0,54
+# output q_4 14,52
+# input addr_4 20,8
+# input data_5 0,66
+# output q_5 14,64
+# input addr_5 20,10
+# input data_6 0,78
+# output q_6 14,76
+# input addr_6 20,12
+# input data_7 0,90
+# output q_7 14,88
+# input addr_7 20,14
+# input sel 20,18
+# input we 20,20
+# def inv 9x11
+###......
+###......
+###......
+.#.......
+#########
+.#.......
+##.......
+.#.......
+###......
+#.#......
+###......
+# root
+# place inv - 4,0
+# line 0,6 3,6
+# px 13,4
+# line 14,4 15,4
+# line 20,0 22,0
+# place inv - 4,12
+# line 0,18 3,18
+# px 13,16
+# line 14,16 15,16
+# line 20,2 22,2
+# place inv - 4,24
+# line 0,30 3,30
+# px 13,28
+# line 14,28 15,28
+# line 20,4 22,4
+# place inv - 4,36
+# line 0,42 3,42
+# px 13,40
+# line 14,40 15,40
+# line 20,6 22,6
+# place inv - 4,48
+# line 0,54 3,54
+# px 13,52
+# line 14,52 15,52
+# line 20,8 22,8
+# place inv - 4,60
+# line 0,66 3,66
+# px 13,64
+# line 14,64 15,64
+# line 20,10 22,10
+# place inv - 4,72
+# line 0,78 3,78
+# px 13,76
+# line 14,76 15,76
+# line 20,12 22,12
+# place inv - 4,84
+# line 0,90 3,90
+# px 13,88
+# line 14,88 15,88
+# line 20,14 22,14
+# line 20,18 22,18
+# line 20,20 22,20

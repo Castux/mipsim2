@@ -10,10 +10,12 @@ package ui
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -43,6 +45,7 @@ type Options struct {
 	Tool       string   // start with this tool selected: draw, select or label
 	Browse     string   // start with the file dialog open: "open" or "save"
 	Click      []int    // for screenshots: click once at this world pixel (x, y) with the start tool
+	Tab        string   // panel tab to show first: watch, memory, components or diagnostics
 }
 
 var background = color.RGBA{255, 255, 255, 255} // v1's white canvas
@@ -105,6 +108,10 @@ func newApp(opts Options) (*app, error) {
 		return nil, err
 	}
 	a := &app{opts: opts, ed: editor.New(d), view: editor.NewView(), canvas: c, text: txt, tab: tabWatch}
+	a.ed.ReadFile = a.readRelative
+	if t, ok := map[string]panelTab{"watch": tabWatch, "memory": tabMemory, "components": tabComponents, "diagnostics": tabDiagnostics}[opts.Tab]; ok {
+		a.tab = t
+	}
 	if opts.Screenshot != "" {
 		a.shotPath, a.shotAt, a.shotQuit = opts.Screenshot, 5+opts.Frames, true
 		if opts.Frames > 0 {
@@ -270,7 +277,7 @@ func (a *app) handleKeys() {
 }
 
 func (a *app) runPrompt(p *prompt) {
-	if p.kind == uiSetWatch && !p.edited {
+	if (p.kind == uiSetWatch || p.kind == uiSetWord) && !p.edited {
 		return // the field was opened and left without typing
 	}
 	value := strings.TrimSpace(p.buffer)
@@ -279,6 +286,8 @@ func (a *app) runPrompt(p *prompt) {
 		return
 	}
 	switch p.kind {
+	case uiSetWord:
+		a.setWord(p.target, value)
 	case uiSetWatch:
 		if r := a.ed.Runner(); r != nil {
 			if err := r.Set(p.target, value); err != nil {
@@ -325,8 +334,8 @@ func (a *app) handlePointer(l layout) {
 	cur := image.Pt(cx, cy)
 	inCanvas := cur.In(l.canvas)
 
-	// Clicking anywhere applies a watch value being edited.
-	if p := a.prompt; p != nil && p.kind == uiSetWatch {
+	// Clicking anywhere applies a watch value or memory word being edited.
+	if p := a.prompt; p != nil && (p.kind == uiSetWatch || p.kind == uiSetWord) {
 		for _, b := range mouseButtons {
 			if inpututil.IsMouseButtonJustPressed(b) {
 				a.prompt = nil
@@ -459,6 +468,8 @@ func (a *app) drawStatus(screen *ebiten.Image, l layout, hover string) {
 	}
 	if a.fb != nil {
 		hint = browserHint()
+	} else if p := a.prompt; p != nil && p.kind == uiSetWord {
+		hint = "set " + p.target + ": type a value (hex; or 0x, 0b, 0d) · enter or click elsewhere applies · esc cancels"
 	} else if p := a.prompt; p != nil && p.kind == uiSetWatch {
 		hint = "set " + p.target + ": type a number (0x hex, 0b binary) · enter or click elsewhere applies · up/down steps · esc cancels"
 	}
@@ -525,4 +536,18 @@ func encodePNG(img *ebiten.Image) ([]byte, error) {
 		return nil, err
 	}
 	return b.Bytes(), nil
+}
+
+// readRelative reads a file named by the document (a memory's init data),
+// relative to the document's folder, through the platform layer. Native file
+// access answers at once; the web port will need to preload these files.
+func (a *app) readRelative(name string) ([]byte, error) {
+	path := name
+	if !filepath.IsAbs(name) {
+		path = filepath.Join(filepath.Dir(a.opts.Path), name)
+	}
+	var data []byte
+	err := errors.New("file not available yet: " + path)
+	platform.ReadFile(path, func(b []byte, e error) { data, err = b, e })
+	return data, err
 }

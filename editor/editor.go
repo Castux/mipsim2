@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Castux/mipsim2/devices"
 	"github.com/Castux/mipsim2/doc"
 	"github.com/Castux/mipsim2/netlist"
 	"github.com/Castux/mipsim2/runner"
@@ -125,6 +126,11 @@ type Editor struct {
 
 	// Status is a one-line message for the status bar.
 	Status string
+
+	// ReadFile loads files the document's devices refer to (memory init
+	// data), relative to the document. Set by the ui; nil means none can be
+	// read.
+	ReadFile devices.ReadFile
 }
 
 type stroke struct {
@@ -358,7 +364,11 @@ func firstError(nl *netlist.Netlist) netlist.Diagnostic {
 }
 
 func (e *Editor) startSim() {
-	r, err := runner.New(e.Netlist(), runner.Options{})
+	devs, err := runner.DevicesFromDoc(e.Doc, e.ReadFile)
+	var r *runner.Runner
+	if err == nil {
+		r, err = runner.New(e.Netlist(), runner.Options{Devices: devs})
+	}
 	if err != nil {
 		e.Status = err.Error()
 		e.mode = EditMode
@@ -583,7 +593,7 @@ func (e *Editor) changed(what string) {
 // ReplaceDocument swaps in a new document (after opening a file), clearing
 // history and selection.
 func (e *Editor) ReplaceDocument(d *doc.Document) {
-	*e = Editor{Doc: d, dirty: true, tool: e.tool, hz: e.hz}
+	*e = Editor{Doc: d, dirty: true, tool: e.tool, hz: e.hz, ReadFile: e.ReadFile}
 	e.Netlist()
 }
 
@@ -592,16 +602,15 @@ func (e *Editor) pinAt(p image.Point, b Button) {
 	if n == netlist.NoNet {
 		return
 	}
-	s := e.run.Sim()
 	switch b {
 	case Left:
-		s.Pin(n, sim.High)
+		e.run.PinNet(n, sim.High)
 	case Right:
-		s.Pin(n, sim.Low)
+		e.run.PinNet(n, sim.Low)
 	case Middle:
-		s.Unpin(n)
+		e.run.PinNet(n, sim.Floating)
 	}
-	e.run.Settle()
+	e.Settle()
 }
 
 // Hover describes the pixel under the pointer for the status bar.

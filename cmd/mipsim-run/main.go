@@ -10,6 +10,7 @@
 //	--watch a,sum      names to print (default: every name)
 //	--clock NAME       the clock net (default "clock")
 //	--trace            also print every change of a named net
+//	--dump ram         print a memory device's contents (hex) after the run
 //	--isolated         compile with the isolated-sources rules
 //
 // Output is one line per tick: "tick N: name=value ...". Nets print as 0, 1,
@@ -25,6 +26,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Castux/mipsim2/devices"
 	"github.com/Castux/mipsim2/doc"
 	"github.com/Castux/mipsim2/internal/fixture"
 	"github.com/Castux/mipsim2/netlist"
@@ -57,6 +59,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var sets, watch listFlag
 	fs.Var(&sets, "set", "pin nets or buses before running: name=value,...")
 	fs.Var(&watch, "watch", "names to print: name,...")
+	var dumps listFlag
+	fs.Var(&dumps, "dump", "print a memory device's contents after the run: name,...")
 	ticks := fs.Int("ticks", 0, "clock periods to run")
 	clock := fs.String("clock", runner.DefaultClock, "name of the clock net")
 	trace := fs.Bool("trace", false, "print every change of a named net")
@@ -101,7 +105,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	r, err := runner.New(nl, runner.Options{Clock: *clock})
+	dir := filepath.Dir(files[0])
+	devs, err := runner.DevicesFromDoc(d, func(name string) ([]byte, error) {
+		return os.ReadFile(filepath.Join(dir, name))
+	})
+	if err != nil {
+		fmt.Fprintln(stderr, "mipsim-run:", err)
+		return 1
+	}
+	r, err := runner.New(nl, runner.Options{Clock: *clock, Devices: devs})
 	if err != nil {
 		fmt.Fprintln(stderr, "mipsim-run:", err)
 		return 1
@@ -134,7 +146,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	r.Settle()
+	if err := r.Settle(); err != nil {
+		fmt.Fprintln(stderr, "mipsim-run:", err)
+		return 1
+	}
 
 	print := func() {
 		var b strings.Builder
@@ -156,7 +171,35 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		print()
 	}
+	for _, name := range dumps {
+		if err := dump(stdout, r, name); err != nil {
+			fmt.Fprintln(stderr, "mipsim-run:", err)
+			return 1
+		}
+	}
 	return 0
+}
+
+// dump prints a memory device's words in hex, 16 per line.
+func dump(w io.Writer, r *runner.Runner, name string) error {
+	for _, d := range r.Devices() {
+		m, ok := d.(*devices.Memory)
+		if !ok || m.Name() != name {
+			continue
+		}
+		digits := (m.Config().Width + 3) / 4
+		words := m.Words()
+		for i := 0; i < len(words); i += 16 {
+			var b strings.Builder
+			fmt.Fprintf(&b, "%s %04x:", name, i)
+			for j := i; j < min(i+16, len(words)); j++ {
+				fmt.Fprintf(&b, " %0*x", digits, words[j])
+			}
+			fmt.Fprintln(w, b.String())
+		}
+		return nil
+	}
+	return fmt.Errorf("no memory device named %q", name)
 }
 
 func load(path string) (*doc.Document, error) {

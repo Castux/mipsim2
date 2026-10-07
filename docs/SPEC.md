@@ -201,13 +201,27 @@ Definitions with no instances stay in the document and the palette until the use
 Devices are Go objects that read and pin labelled nets between settles, generalising `BFHost.handleIO` from v1. The circuit exposes buses as `name_N` labels; the document lists which device attaches to which names.
 
 ```go
+type Bus interface { // the nets a device sees, by label name
+    Has(name string) bool
+    Value(name string) Level   // Floating, High, Low or Unstable
+    Pin(name string, l Level)  // the device's own pin layer
+    Unpin(name string)
+    Pinned(name string) Level
+}
+
 type Device interface {
     Name() string
+    Kind() string
+    Attach(bus Bus) error // check the nets exist; called once by runner.New
     // Called after the circuit settles. Reads nets, pins or unpins nets.
     // Returns true if it changed any pin, so the runner settles again.
-    Service(io BusIO) (changed bool)
+    Service(bus Bus) (changed bool, err error)
 }
 ```
+
+The package `devices` imports no other module package; the runner adapts its nets to `Bus`. Device configurations are parsed by `devices.Parse(kind, raw, readFile)`, where `readFile` loads init files relative to the document (the web port must preload them, since it is synchronous).
+
+**Pin layers.** The runner keeps one pin layer for the user (clicks, `--set`, the clock) and one per device. A net's effective pin combines the layers with low winning, like conducting paths. Two devices pinning the same net at once is a runtime error naming both. Releasing a pin in one layer leaves the others in force.
 
 **Memory device**, the one shipped in v2.0, configured per document:
 
@@ -226,13 +240,17 @@ type Device interface {
 }
 ```
 
+`words` is 1 to 2^24, `width` 1 to 64. `init` is optional: a binary file read little-endian, ceil(width/8) bytes per word, from address 0; a shorter file leaves the rest zero. Unknown fields are rejected.
+
 Semantics, matching v1's BF host: if `select` is not high, the device unpins `data`. If `select` is high and `write` is low, it pins `data` to the word at `addr`. If both are high, it writes in two phases: if it is still pinning `data`, it unpins and returns `changed=true` without storing, so the runner settles with the circuit alone driving the bus; on the next service it reads `data` and stores it. Writes are level-sensitive, taken at each settle point. Several devices may share a bus; two devices driving the same bus at once is a runtime error reported by the runner.
 
 On load, the runner checks that the nets `addr_0` to `addr_{k-1}` exist with k = ceil(log2(words)), that `data_0` to `data_{width-1}` exist, and that `select` and `write` exist (all names with their configured prefixes). A missing net rejects the configuration with an error naming it.
 
-A memory device only reads bits it needs: `addr` while `select` is high, and `data` on the store phase of a write. If any bit it needs is `Floating` or `Unstable`, the runner stops with an error naming the device, the net and the tick; the editor pauses and shows it in the status bar. This is stricter than v1, which read anything not high as 0. A `Floating` or `Unstable` `select` or `write` is the same error.
+A memory device only reads bits it needs: `addr` while `select` is high, and `data` on the store phase of a write. If any bit it needs is `Floating` or `Unstable`, the runner stops with an error naming the device, the net and the tick; the editor pauses and shows it in the status bar. This is stricter than v1, which read anything not high as 0. An `Unstable` `select` is the same error, and so is a `Floating` or `Unstable` `write` while selected. A `Floating` `select` counts as not selected, so a memory whose select line is not yet driven sits idle (owner-approved relaxation of the M0 rule). An address at or beyond `words` is an error, and so is a write to a `readonly` memory.
 
-**Settle loop** in the runner: settle; service every device in declaration order; if any reported a change, settle again; give up after 16 rounds with an error naming the devices involved.
+**Settle loop** in the runner: settle; service every device in declaration order; if any reported a change, settle again; give up after 16 rounds with an error naming the devices involved. `runner.New` attaches devices but does not service them; the first `Settle()` does.
+
+Tools: `mipsim-run --dump NAME` prints a memory's words in hex after the run, 16 per line (`ram 0010: 00 ab ...`). Fixtures attach devices with `# device {JSON}`. In the editor, the panel's Memory tab (simulate mode, when the document has memories) shows each memory as a hex grid, 8 words per row, with the last access highlighted (light blue read, pink write). While the clock is paused, clicking a word edits it (hex, or `0x`, `0b`, `0d` prefixed); the circuit settles at once.
 
 Later device kinds (not v2.0):
 

@@ -30,9 +30,10 @@ func main() {
 	tool := flag.String("tool", "", "start with this tool: draw, select or label")
 	browse := flag.String("browse", "", "start with the file dialog open: open or save")
 	click := flag.String("click", "", "for screenshots: click once at world pixel X,Y with the start tool")
+	tab := flag.String("tab", "", "panel tab to show first: watch, memory, components or diagnostics")
 	flag.Parse()
 
-	opts := ui.Options{Screenshot: *screenshot, Simulate: *simulate, Zoom: *zoom, Filter: *filter, Frames: *frames, Tool: *tool, Browse: *browse, Click: parseClick(*click)}
+	opts := ui.Options{Screenshot: *screenshot, Simulate: *simulate, Zoom: *zoom, Filter: *filter, Frames: *frames, Tool: *tool, Browse: *browse, Click: parseClick(*click), Tab: *tab}
 	if *set != "" {
 		opts.Sets = strings.Split(*set, ",")
 	}

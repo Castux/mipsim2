@@ -60,7 +60,7 @@ func (e *Editor) Advance(dt time.Duration) {
 	for e.due >= 1 && n < maxHalfTicksPerAdvance {
 		if err := e.run.HalfTick(); err != nil {
 			e.running = false
-			e.Status = err.Error()
+			e.Status = "stopped: " + err.Error()
 			return
 		}
 		e.due--
@@ -137,4 +137,19 @@ func (e *Editor) Hint() string {
 		return "click a pixel to name its wire · click a label to rename it · " + view
 	}
 	return "click toggle a pixel · drag paint · alt+drag straight line · " + view
+}
+
+// Settle runs the simulation's settle loop. A device error (a memory reading
+// a floating bit, two devices driving one net, ...) pauses the clock and is
+// shown in the status bar; it reports whether the settle succeeded.
+func (e *Editor) Settle() bool {
+	if e.run == nil {
+		return false
+	}
+	if err := e.run.Settle(); err != nil {
+		e.running = false
+		e.Status = "stopped: " + err.Error()
+		return false
+	}
+	return true
 }

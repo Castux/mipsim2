@@ -360,3 +360,15 @@ Instance names are now optional and empty by default: an unnamed instance is nam
 - Make component and the palette create unnamed instances. Renaming to an empty name returns to the automatic name. Paste keeps unnamed instances unnamed.
 - Files omit `name` for unnamed instances; fixtures use `place DEF - X,Y`.
 - Trade-off, noted in SPEC: automatic numbers shift when siblings are added or removed, so give an instance an explicit name to keep its nets' names stable.
+
+## M8 Memory devices
+
+Done criterion met: `testdata/runner/ram.fix` (a 256-byte RAM on 8-bit address and data buses, the data bus also feeding eight inverters to `q`) is written and read through its buses from the CLI (`TestRAMFromCLI`, including an init file beside a saved `.mip` and `--dump`), in the runner (`TestRAMReadWrite`, all 256 addresses) and in the editor (`TestRAMInEditor`: pins by clicking and setting buses as the Watch panel does).
+
+- **`devices` package:** `Device` and `Bus` interfaces, `Level`, `Parse`, and the memory device. It imports no module package (archtest), so devices can be tested against a fake bus.
+- **Runner:** separate pin layers for the user and for each device, combined low-wins; two devices driving one net is an error. `Settle()` now returns an error and runs the device loop (up to 16 rounds). `HalfTick`/`Tick` stop on device errors.
+- **Floating select is idle**, not an error: otherwise every circuit with a memory errors before its control logic drives `select`. Unstable select still errors. Recorded in SPEC.
+- **CLI:** devices from the document, init files relative to it, `--dump NAME`, exit 1 on a device error.
+- **Editor:** device errors stop the clock with "stopped: ..." in the status bar. `Editor.ReadFile` loads init files (the ui reads them beside the open document through `platform.ReadFile`).
+- **Memory tab:** hex grid with last read/write highlighted; click a word to edit it while paused. `mipsim -tab memory` opens on it (for screenshots).
+- Not done by hand: interactive editing in a running window was checked with screenshots only.

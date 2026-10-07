@@ -25,6 +25,7 @@ const (
 	tabDiagnostics panelTab = iota
 	tabWatch
 	tabComponents
+	tabMemory
 )
 
 type tabInfo struct {
@@ -36,6 +37,9 @@ func (a *app) panelTabs() []tabInfo {
 	var ts []tabInfo
 	if a.ed.Mode() == editor.SimulateMode {
 		ts = append(ts, tabInfo{tabWatch, "Watch"})
+		if len(a.memories()) > 0 {
+			ts = append(ts, tabInfo{tabMemory, "Memory"})
+		}
 	} else {
 		ts = append(ts, tabInfo{tabComponents, fmt.Sprintf("Components (%d)", len(a.ed.Definitions()))})
 	}
@@ -66,7 +70,7 @@ func (a *app) panelBody(l layout) image.Rectangle {
 }
 
 func (a *app) rowHeight() float64 {
-	if t := a.currentTab(); t == tabWatch || t == tabComponents {
+	if t := a.currentTab(); t == tabWatch || t == tabComponents || t == tabMemory {
 		return a.lineHeight() + 10*a.scale
 	}
 	return 2*a.lineHeight() + 14*a.scale
@@ -84,6 +88,8 @@ func (a *app) panelClick(l layout, p image.Point, mb ebiten.MouseButton) {
 	}
 	i := a.rowAt(l, p)
 	switch a.currentTab() {
+	case tabMemory:
+		a.memoryClick(l, p)
 	case tabDiagnostics:
 		diags := a.ed.Netlist().Diagnostics
 		if i < 0 || i >= len(diags) || mb != ebiten.MouseButtonLeft {
@@ -152,6 +158,8 @@ func (a *app) drawPanel(screen *ebiten.Image, l layout) {
 	x := float64(body.Min.X) + 10*a.scale
 	y := float64(body.Min.Y)
 	switch cur {
+	case tabMemory:
+		a.drawMemory(bodyImg, body)
 	case tabDiagnostics:
 		diags := a.ed.Netlist().Diagnostics
 		a.panelScroll = max(0, min(a.panelScroll, len(diags)-1))
@@ -263,6 +271,8 @@ func (a *app) panelHint(l layout, p image.Point) string {
 		return ""
 	}
 	switch a.currentTab() {
+	case tabMemory:
+		return "click a word to type a new value (while paused) · wheel scroll · highlighted: last access (blue read, pink write)"
 	case tabComponents:
 		return "left click place a copy · right click rename · middle click delete (only if unused) · wheel scroll"
 	case tabWatch:

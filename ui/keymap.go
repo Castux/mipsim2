@@ -17,6 +17,7 @@ const (
 	uiFilter
 	uiScreenshot
 	uiSetWatch // prompt: set a watched bus
+	uiSetWord  // prompt: set a memory word (target "device:index")
 )
 
 // place says where a binding's button goes.

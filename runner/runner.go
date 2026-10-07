@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Castux/mipsim2/devices"
 	"github.com/Castux/mipsim2/netlist"
 	"github.com/Castux/mipsim2/sim"
 )
@@ -18,8 +19,9 @@ const DefaultClock = "clock"
 
 // Options configures a runner.
 type Options struct {
-	Clock         string // name of the clock net; DefaultClock if empty
-	FlipThreshold int    // passed to the simulator; 0 for its default
+	Clock         string           // name of the clock net; DefaultClock if empty
+	FlipThreshold int              // passed to the simulator; 0 for its default
+	Devices       []devices.Device // serviced in this order after every settle
 }
 
 // Runner owns a simulator and drives it by name.
@@ -33,6 +35,14 @@ type Runner struct {
 	clock     netlist.NetID
 	clockHigh bool
 	halfTicks int
+
+	// Pins come in layers: the user's (Set, PinNet, the clock) and one per
+	// device. The simulator gets their combination, low winning, as with any
+	// contention. Two devices pinning one net at once is an error.
+	userPins []sim.Value
+	devs     []devices.Device
+	devPins  [][]sim.Value
+	buses    []*deviceBus
 }
 
 var busBit = regexp.MustCompile(`^(.+)_(\d+)$`)
@@ -45,6 +55,7 @@ func New(nl *netlist.Netlist, opts Options) (*Runner, error) {
 		return nil, err
 	}
 	r := &Runner{sim: s, nl: nl, numbers: map[string][]netlist.NetID{}, clock: netlist.NoNet}
+	r.userPins = make([]sim.Value, len(nl.Nets))
 
 	// Collect names in net order (deterministic), then buses from name_N.
 	type bit struct {
@@ -96,8 +107,17 @@ func New(nl *netlist.Netlist, opts Options) (*Runner, error) {
 	}
 	if id, ok := nl.Lookup(name); ok {
 		r.clock = id
-		s.Pin(id, sim.Low)
+		r.pin(id, sim.Low)
 		s.Settle()
+	}
+	for i, d := range opts.Devices {
+		r.devs = append(r.devs, d)
+		r.devPins = append(r.devPins, make([]sim.Value, len(nl.Nets)))
+		bus := &deviceBus{r: r, idx: i}
+		r.buses = append(r.buses, bus)
+		if err := d.Attach(bus); err != nil {
+			return nil, err
+		}
 	}
 	return r, nil
 }
@@ -123,9 +143,36 @@ func (r *Runner) Bus(name string) ([]netlist.NetID, bool) {
 	return ids, ok
 }
 
-// Settle runs the simulator until stable. Devices are serviced here from M8.
-func (r *Runner) Settle() {
+// maxDeviceRounds bounds the settle loop.
+const maxDeviceRounds = 16
+
+// Settle runs the settle loop: settle the circuit, service every device in
+// order, and settle again while any device changed a pin, giving up after
+// maxDeviceRounds. A device error stops it and is returned.
+func (r *Runner) Settle() error {
 	r.sim.Settle()
+	var changed []string
+	for range maxDeviceRounds {
+		changed = changed[:0]
+		for i, d := range r.devs {
+			c, err := d.Service(r.buses[i])
+			if err == nil {
+				err = r.buses[i].err
+				r.buses[i].err = nil
+			}
+			if err != nil {
+				return fmt.Errorf("tick %d: %w", r.Ticks(), err)
+			}
+			if c {
+				changed = append(changed, d.Name())
+			}
+		}
+		if len(changed) == 0 {
+			return nil
+		}
+		r.sim.Settle()
+	}
+	return fmt.Errorf("tick %d: devices still changing after %d rounds: %s", r.Ticks(), maxDeviceRounds, strings.Join(changed, ", "))
 }
 
 // HalfTick toggles the clock and settles.
@@ -133,8 +180,7 @@ func (r *Runner) HalfTick() error {
 	if err := r.ToggleClock(); err != nil {
 		return err
 	}
-	r.Settle()
-	return nil
+	return r.Settle()
 }
 
 // ToggleClock flips the clock pin without settling, so the change can be
@@ -148,7 +194,7 @@ func (r *Runner) ToggleClock() error {
 	if r.clockHigh {
 		v = sim.High
 	}
-	r.sim.Pin(r.clock, v)
+	r.pin(r.clock, v)
 	r.halfTicks++
 	return nil
 }
@@ -197,7 +243,7 @@ func (r *Runner) Set(name, value string) error {
 	if v, ok := parseLevel(value); ok && v == sim.Floating {
 		for _, id := range ids {
 			if id != netlist.NoNet {
-				r.sim.Unpin(id)
+				r.pin(id, sim.Floating)
 			}
 		}
 		return nil
@@ -222,13 +268,39 @@ func (r *Runner) Set(name, value string) error {
 	return nil
 }
 
+// PinNet pins a net (High or Low) or releases it (Floating) in the user's
+// layer. It does not settle.
+func (r *Runner) PinNet(id netlist.NetID, v sim.Value) { r.pin(id, v) }
+
+// UserPin returns the user's pin on a net, Floating if none.
+func (r *Runner) UserPin(id netlist.NetID) sim.Value { return r.userPins[id] }
+
 func (r *Runner) pin(id netlist.NetID, v sim.Value) {
+	r.userPins[id] = v
+	r.apply(id)
+}
+
+// apply gives the simulator the combination of every layer's pin on id:
+// low if any layer pins low, else high if any pins high, else released.
+func (r *Runner) apply(id netlist.NetID) {
+	v := r.userPins[id]
+	for _, pins := range r.devPins {
+		if p := pins[id]; p == sim.Low || p == sim.High && v != sim.Low {
+			v = p
+		}
+	}
+	if r.sim.Pinned(id) == v {
+		return
+	}
 	if v == sim.Floating {
 		r.sim.Unpin(id)
 	} else {
 		r.sim.Pin(id, v)
 	}
 }
+
+// Devices returns the attached devices, in service order.
+func (r *Runner) Devices() []devices.Device { return r.devs }
 
 // Value returns the value of a single net by name.
 func (r *Runner) Value(name string) (sim.Value, error) {

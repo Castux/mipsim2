@@ -15,6 +15,7 @@
 //	# place DEF NAME X,Y [ORIENT]  place an instance in the current block ("-" for NAME: unnamed, named after DEF)
 //	# line X,Y X,Y              turn on a horizontal or vertical segment (inclusive)
 //	# px X,Y                    turn on one pixel
+//	# device {JSON}             attach a device (see docs/SPEC.md, memory devices)
 //
 // Every other "# " line is kept as a Directive in file order, for the tests
 // that understand it (for example "expect" lines in behaviour fixtures). A
@@ -22,6 +23,7 @@
 package fixture
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -228,6 +230,17 @@ func Parse(src string) (*Fixture, error) {
 				Orient: o,
 				Name:   placeName(args[1]),
 			})
+
+		case "device":
+			raw := json.RawMessage(strings.TrimSpace(strings.TrimPrefix(line, "# device")))
+			var head struct {
+				Kind string `json:"kind"`
+				Name string `json:"name"`
+			}
+			if err := json.Unmarshal(raw, &head); err != nil || head.Kind == "" {
+				return nil, fail("want: device {\"kind\": ..., ...} (one JSON object)")
+			}
+			d.Devices = append(d.Devices, doc.DeviceConfig{Kind: head.Kind, Name: head.Name, Raw: raw})
 
 		default:
 			f.Directives = append(f.Directives, Directive{Line: lineNo, Word: word, Args: args, Block: cur.ID})
