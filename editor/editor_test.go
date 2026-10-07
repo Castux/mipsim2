@@ -216,3 +216,21 @@ func TestViewZoomKeepsPointFixed(t *testing.T) {
 		t.Errorf("fit scale %v, want 0.5", v.Scale)
 	}
 }
+
+// TestReplaceDocumentChangesCompiles guards the canvas cache: it rebuilds
+// textures when Compiles changes, so opening a document must never repeat the
+// previous document's count (an untitled start then Open used to show only
+// labels and boxes, with the old empty pixels).
+func TestReplaceDocumentChangesCompiles(t *testing.T) {
+	e := New(doc.New())
+	e.Netlist()
+	before := e.Compiles()
+	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "sim", "crossing.fix"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.ReplaceDocument(fx.Doc)
+	if e.Compiles() == before {
+		t.Errorf("Compiles still %d after ReplaceDocument", before)
+	}
+}

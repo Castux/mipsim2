@@ -593,7 +593,9 @@ func (e *Editor) changed(what string) {
 // ReplaceDocument swaps in a new document (after opening a file), clearing
 // history and selection.
 func (e *Editor) ReplaceDocument(d *doc.Document) {
-	*e = Editor{Doc: d, dirty: true, tool: e.tool, hz: e.hz, ReadFile: e.ReadFile}
+	// compiles carries over: renderers cache on it, and restarting it could
+	// repeat the previous document's count and keep its stale textures.
+	*e = Editor{Doc: d, dirty: true, tool: e.tool, hz: e.hz, ReadFile: e.ReadFile, compiles: e.compiles}
 	e.Netlist()
 }
 
