@@ -52,6 +52,8 @@ const statusLines = 2
 type prompt struct {
 	kind   uiAction
 	target string // the bus, for uiSetWatch
+	fresh  bool   // the next character typed replaces the buffer
+	edited bool   // the user typed something (otherwise leaving changes nothing)
 	buffer string
 }
 
@@ -184,8 +186,18 @@ func (a *app) handleTyping() bool {
 	chars := ebiten.AppendInputChars(nil)
 	pressed := inpututil.IsKeyJustPressed
 	if p := a.prompt; p != nil {
+		if len(chars) > 0 && p.fresh {
+			p.buffer, p.fresh = "", false
+		}
 		p.buffer += string(chars)
+		if len(chars) > 0 {
+			p.edited = true
+		}
 		switch {
+		case p.kind == uiSetWatch && pressed(ebiten.KeyArrowUp):
+			a.stepWatch(1)
+		case p.kind == uiSetWatch && pressed(ebiten.KeyArrowDown):
+			a.stepWatch(-1)
 		case pressed(ebiten.KeyEnter) || pressed(ebiten.KeyNumpadEnter):
 			a.prompt = nil
 			a.runPrompt(p)
@@ -193,6 +205,7 @@ func (a *app) handleTyping() bool {
 			a.prompt = nil
 			a.ed.Status = "cancelled"
 		case pressed(ebiten.KeyBackspace):
+			p.fresh, p.edited = false, true
 			if r := []rune(p.buffer); len(r) > 0 {
 				p.buffer = string(r[:len(r)-1])
 			}
@@ -240,6 +253,9 @@ func (a *app) handleKeys() {
 }
 
 func (a *app) runPrompt(p *prompt) {
+	if p.kind == uiSetWatch && !p.edited {
+		return // the field was opened and left without typing
+	}
 	value := strings.TrimSpace(p.buffer)
 	if value == "" {
 		a.ed.Status = "nothing entered"
@@ -309,6 +325,17 @@ func (a *app) handlePointer(l layout) {
 	cx, cy := ebiten.CursorPosition()
 	cur := image.Pt(cx, cy)
 	inCanvas := cur.In(l.canvas)
+
+	// Clicking anywhere applies a watch value being edited.
+	if p := a.prompt; p != nil && p.kind == uiSetWatch {
+		for _, b := range mouseButtons {
+			if inpututil.IsMouseButtonJustPressed(b) {
+				a.prompt = nil
+				a.runPrompt(p)
+				break
+			}
+		}
+	}
 
 	if _, wy := ebiten.Wheel(); wy != 0 {
 		n := 1
@@ -428,7 +455,9 @@ func (a *app) drawStatus(screen *ebiten.Image, l layout, hover string) {
 	if hint == "" {
 		hint = a.ed.Hint()
 	}
-	if p := a.prompt; p != nil {
+	if p := a.prompt; p != nil && p.kind == uiSetWatch {
+		hint = "set " + p.target + ": type a number (0x hex, 0b binary) · enter or click elsewhere applies · up/down steps · esc cancels"
+	} else if p != nil {
 		label := map[uiAction]string{uiOpen: "open: ", uiSaveAs: "save as: ", uiSetWatch: "set " + p.target + " = "}[p.kind]
 		hint = label + p.buffer + "_   (enter to confirm, esc to cancel)"
 	}

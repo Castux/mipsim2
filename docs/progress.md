@@ -317,3 +317,13 @@ Agreed with the owner: tools in a left column, `space` to run or pause, and the 
 - Clicking selects top-level instances only. Selecting a nested instance means dragging a rectangle inside its parent.
 
 **Not verified by the agent:** the interactive feel of handle dragging and palette clicks. Logic and rendering were checked by tests and screenshots.
+
+## Watch panel: editable buses (owner request)
+
+Buses in the Watch tab are inline number fields, like v1's number inputs.
+
+- Click a field to edit it in place. The first key typed replaces the value; decimal, `0x` hex and `0b` binary are accepted.
+- Enter applies, and so does clicking anywhere else. Escape cancels.
+- Up and down step the value by one (wrapping at the bus width) and apply it at once.
+- Opening a field and leaving it without typing changes nothing, so clicking an output such as `sum` does not pin it.
+- Middle click releases a bus.

@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"strconv"
+	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"github.com/Castux/mipsim2/editor"
 	"github.com/Castux/mipsim2/netlist"
@@ -123,7 +126,7 @@ func (a *app) panelClick(l layout, p image.Point, mb ebiten.MouseButton) {
 			r.Settle()
 			return
 		}
-		a.prompt = &prompt{kind: uiSetWatch, target: name, buffer: r.Format(name)}
+		a.editWatch(name)
 	}
 }
 
@@ -199,7 +202,11 @@ func (a *app) drawPanel(screen *ebiten.Image, l layout) {
 				break
 			}
 			a.drawText(bodyImg, truncate(name, 24), x, y+3*a.scale, 13, chromeText)
-			a.drawText(bodyImg, r.Format(name), valueX, y+3*a.scale, 13, a.valueColor(name))
+			if _, isBus := r.Bus(name); isBus {
+				a.drawWatchField(bodyImg, name, valueX, y, float64(body.Max.X)-34*a.scale)
+			} else {
+				a.drawText(bodyImg, r.Format(name), valueX, y+3*a.scale, 13, a.valueColor(name))
+			}
 			if pin := a.pinOf(name); pin != sim.Floating {
 				clr := color.RGBA{255, 125, 125, 255} // v1 pinned high
 				if pin == sim.Low {
@@ -266,9 +273,68 @@ func (a *app) panelHint(l layout, p image.Point) string {
 	case tabComponents:
 		return "left click place a copy · right click rename · middle click delete (only if unused) · wheel scroll"
 	case tabWatch:
-		return "wire: left pin high · right pin low · middle release · number: left click type a value, middle release · wheel scroll"
+		return "wire: left pin high · right pin low · middle release · number box: click and type a value (up/down steps), middle click releases · wheel scroll"
 	case tabDiagnostics:
 		return "click show it on the canvas · wheel scroll"
 	}
 	return ""
+}
+
+// editWatch starts editing a bus value in its Watch row. The field starts
+// with the current value, replaced by the first character typed.
+func (a *app) editWatch(name string) {
+	r := a.ed.Runner()
+	value := r.Format(name)
+	if value == "?" {
+		value = ""
+	}
+	a.prompt = &prompt{kind: uiSetWatch, target: name, buffer: value, fresh: true}
+}
+
+// stepWatch adds delta to the bus being edited, wrapping at its width, and
+// applies it at once.
+func (a *app) stepWatch(delta int) {
+	p := a.prompt
+	r := a.ed.Runner()
+	if r == nil {
+		return
+	}
+	bits, ok := r.Bus(p.target)
+	if !ok {
+		return
+	}
+	p.edited = true
+	n, err := strconv.ParseUint(strings.TrimSpace(p.buffer), 0, 64)
+	if err != nil {
+		if v, err2 := r.Number(p.target); err2 == nil {
+			n = v
+		}
+	}
+	mask := uint64(1)<<len(bits) - 1
+	if len(bits) >= 64 {
+		mask = ^uint64(0)
+	}
+	n = (n + uint64(delta)) & mask
+	p.buffer, p.fresh = strconv.FormatUint(n, 10), true
+	if err := r.Set(p.target, p.buffer); err == nil {
+		r.Settle()
+	}
+}
+
+// drawWatchField draws a bus value as an editable box from x0 to x1.
+func (a *app) drawWatchField(dst *ebiten.Image, name string, x0, y, x1 float64) {
+	r := a.ed.Runner()
+	box := image.Rect(int(x0-4*a.scale), int(y+1*a.scale), int(x1), int(y+20*a.scale))
+	editing := a.prompt != nil && a.prompt.kind == uiSetWatch && a.prompt.target == name
+	border := chromeLine
+	if editing {
+		border = cueColor
+	}
+	fillRect(dst, box, color.White)
+	vector.StrokeRect(dst, float32(box.Min.X), float32(box.Min.Y), float32(box.Dx()), float32(box.Dy()), float32(max(1, a.scale)), border, false)
+	if editing {
+		a.drawText(dst, a.prompt.buffer+"_", x0, y+3*a.scale, 13, chromeText)
+		return
+	}
+	a.drawText(dst, r.Format(name), x0, y+3*a.scale, 13, a.valueColor(name))
 }
