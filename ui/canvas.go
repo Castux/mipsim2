@@ -242,6 +242,24 @@ func colorAt(pos vec2, borders bool, f vec2) vec4 {
 				(f.y < w && idAt(pos-vec2(0, 1)) != key) || (f.y > 1-w && idAt(pos+vec2(0, 1)) != key) {
 				col = band
 			}
+			// Concave turns: both neighbours beside a corner are in the shape
+			// but the diagonal one is not, so the outline turns through this
+			// pixel's corner square.
+			sx := 0.0
+			if f.x < w {
+				sx = -1
+			} else if f.x > 1-w {
+				sx = 1
+			}
+			sy := 0.0
+			if f.y < w {
+				sy = -1
+			} else if f.y > 1-w {
+				sy = 1
+			}
+			if sx != 0 && sy != 0 && idAt(pos+vec2(sx, 0)) == key && idAt(pos+vec2(0, sy)) == key && idAt(pos+vec2(sx, sy)) != key {
+				col = band
+			}
 		}
 	}
 	// A conducting transistor's purple flows into its channel arms.
