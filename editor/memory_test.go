@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -72,5 +73,85 @@ func TestRAMInEditor(t *testing.T) {
 	e.PointerDown(pt(x, y), Middle, Mods{})
 	if !strings.Contains(e.Status, "stopped") || !strings.Contains(e.Status, "floating") {
 		t.Errorf("status %q", e.Status)
+	}
+}
+
+// TestDeviceEditing configures a memory from scratch the way the Devices tab
+// does: add, rename its buses to match the circuit, undo, and reload an init
+// file while simulating.
+func TestDeviceEditing(t *testing.T) {
+	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "runner", "ram.fix"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx.Doc.Devices = nil
+	files := map[string][]byte{"prog.bin": {1, 2, 3}}
+	e := New(fx.Doc)
+	e.ReadFile = func(name string) ([]byte, error) {
+		if b, ok := files[name]; ok {
+			return b, nil
+		}
+		return nil, fmt.Errorf("no file %s", name)
+	}
+
+	e.AddMemory()
+	e.AddMemory()
+	infos := e.Devices()
+	if len(infos) != 2 || infos[0].Name != "ram" || infos[1].Name != "ram1" {
+		t.Fatalf("devices %+v", infos)
+	}
+	// ram1 drives the same bus as ram: allowed, the runner reports it only if
+	// both drive at once. Delete it anyway.
+	e.DeleteDevice(1)
+	if !e.SetMemoryField(0, "select", "cs") {
+		t.Fatalf("set select: %s", e.Status)
+	}
+	if p := e.Devices()[0].Problem; !strings.Contains(p, "cs") || strings.Contains(p, "addr") {
+		t.Errorf("problem %q", p)
+	}
+	if !e.SetMemoryField(0, "select", "sel") {
+		t.Fatalf("set select: %s", e.Status)
+	}
+	if info := e.Devices()[0]; info.Problem != "" || !strings.Contains(info.Summary, "addr_0..7") {
+		t.Errorf("after fixing select: %+v", info)
+	}
+
+	for _, bad := range [][2]string{{"words", "0"}, {"width", "65"}, {"addr", ""}, {"readonly", "maybe"}, {"colour", "red"}} {
+		if e.SetMemoryField(0, bad[0], bad[1]) {
+			t.Errorf("accepted %s=%q", bad[0], bad[1])
+		}
+	}
+	e.SetMemoryField(0, "width", "4")
+	if p := e.Devices()[0].Problem; p != "" {
+		t.Errorf("4-bit memory on an 8-bit bus: %q (extra bits are allowed)", p)
+	}
+	e.Undo()
+	if c := e.Devices()[0].Memory; c == nil || c.Width != 8 {
+		t.Errorf("undo width: %+v", c)
+	}
+
+	e.SetMemoryField(0, "init", "missing.bin")
+	if p := e.Devices()[0].Problem; !strings.Contains(p, "missing.bin") {
+		t.Errorf("missing init: %q", p)
+	}
+	// Every problem is listed, without repeating the device's name.
+	e.SetMemoryField(0, "write", "wr")
+	if p := e.Devices()[0].Problem; !strings.Contains(p, "missing.bin") || !strings.Contains(p, "missing nets wr") || strings.Contains(p, `"ram"`) {
+		t.Errorf("both problems: %q", p)
+	}
+	e.Undo()
+	e.SetMemoryField(0, "init", "prog.bin")
+	e.Do(ActToggleSimulate)
+	if e.Mode() != SimulateMode {
+		t.Fatalf("simulate: %s", e.Status)
+	}
+	mem := e.Runner().Devices()[0].(*devices.Memory)
+	if mem.Words()[2] != 3 {
+		t.Fatalf("init not loaded: %v", mem.Words()[:4])
+	}
+	files["prog.bin"] = []byte{9}
+	e.ReloadInit("ram")
+	if mem.Words()[0] != 9 || mem.Words()[2] != 0 || !strings.Contains(e.Status, "reloaded") {
+		t.Errorf("reload: %v, %q", mem.Words()[:4], e.Status)
 	}
 }

@@ -103,7 +103,9 @@ type Editor struct {
 	nl          *netlist.Netlist
 	dirty       bool
 	lastCompile time.Duration
-	compiles    int // increments on every compile, so renderers can cache
+	compiles    int          // increments on every compile, so renderers can cache
+	devInfo     []DeviceInfo // Devices() cache, valid for devKey (version, compiles)
+	devKey      [2]int
 
 	run *runner.Runner
 

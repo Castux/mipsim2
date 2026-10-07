@@ -50,6 +50,10 @@ func (a *app) cancelBrowser() {
 func (a *app) finishBrowser(path string) {
 	mode := a.fb.Mode
 	a.fb = nil
+	if mode == filebrowser.Pick {
+		a.finishPick(path)
+		return
+	}
 	if mode == filebrowser.Save {
 		a.save(path)
 		return
@@ -213,10 +217,7 @@ func (a *app) drawBrowser(screen *ebiten.Image, l layout) {
 
 	cx, cy := ebiten.CursorPosition()
 	cur := image.Pt(cx, cy)
-	okLabel := "Open"
-	if b.Mode == filebrowser.Save {
-		okLabel = "Save"
-	}
+	okLabel := map[filebrowser.Mode]string{filebrowser.Open: "Open", filebrowser.Save: "Save", filebrowser.Pick: "Choose"}[b.Mode]
 	for _, btn := range []struct {
 		r          image.Rectangle
 		label, key string

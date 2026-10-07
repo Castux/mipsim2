@@ -380,3 +380,13 @@ Done criterion met: `testdata/runner/ram.fix` (a 256-byte RAM on 8-bit address a
 - Fixed while there: the file dialog's backdrop was meant to dim the canvas but hid it, because `color.RGBA` is premultiplied (now `NRGBA`).
 - Fixed just before: opening a file could show only labels and boxes. The canvas caches its pixel texture by the editor's compile count, which `ReplaceDocument` restarted.
 - Closing the window goes through the same guard ("Save before quitting?"). The web port will need `beforeunload` instead.
+
+## Devices tab (owner request)
+
+Memories are configured in the editor, not only by editing the `.mip` JSON.
+
+- **Devices tab** (edit mode): Add memory, delete, and an inline box per field (name, address bus, data bus, select, write, words, bits per word, read-only, init file). Edits are undoable `deviceEdit` commands on the document's device list.
+- **Status line** per device, checked against the circuit with `runner.Check` (the same `Attach` check as at simulation start): "ok: addr_0..7, data_0..7, sel, we", or every problem at once ("init file prog.bin not found; missing nets cs"). Hovering shows the full text.
+- **Init file:** typed, or chosen with the file dialog's new Pick mode (lists every file). Stored relative to the document's folder when inside it. Saving the document elsewhere does not move the path, so a relative init file may then be missing (the status line says so).
+- **Reload:** in simulate mode, clicking a memory's header in the Memory tab re-reads its init file, for a rebuilt program.
+- The check result is cached per document version and compile, so a file created on disk shows as found only after the next edit.

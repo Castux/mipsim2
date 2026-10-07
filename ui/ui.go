@@ -45,7 +45,7 @@ type Options struct {
 	Tool       string   // start with this tool selected: draw, select or label
 	Browse     string   // start with the file dialog open: "open" or "save"
 	Click      []int    // for screenshots: click once at this world pixel (x, y) with the start tool
-	Tab        string   // panel tab to show first: watch, memory, components or diagnostics
+	Tab        string   // panel tab to show first: watch, memory, components, devices or diagnostics
 }
 
 var background = color.RGBA{255, 255, 255, 255} // v1's white canvas
@@ -78,6 +78,7 @@ type app struct {
 	fb          *filebrowser.Browser // the open/save dialog, when shown
 	guard       *guard               // the unsaved-changes question, when shown
 	afterSave   func()               // runs once the pending save succeeds (the guard's action)
+	pickInit    int                  // the device whose init file the Pick dialog chooses
 	tab         panelTab
 	panelScroll int
 	lastFrame   time.Time
@@ -111,7 +112,7 @@ func newApp(opts Options) (*app, error) {
 	}
 	a := &app{opts: opts, ed: editor.New(d), view: editor.NewView(), canvas: c, text: txt, tab: tabWatch}
 	a.ed.ReadFile = a.readRelative
-	if t, ok := map[string]panelTab{"watch": tabWatch, "memory": tabMemory, "components": tabComponents, "diagnostics": tabDiagnostics}[opts.Tab]; ok {
+	if t, ok := map[string]panelTab{"watch": tabWatch, "memory": tabMemory, "components": tabComponents, "devices": tabDevices, "diagnostics": tabDiagnostics}[opts.Tab]; ok {
 		a.tab = t
 	}
 	if opts.Screenshot != "" {
@@ -287,8 +288,12 @@ func (a *app) handleKeys() {
 }
 
 func (a *app) runPrompt(p *prompt) {
-	if (p.kind == uiSetWatch || p.kind == uiSetWord) && !p.edited {
+	if (p.kind == uiSetWatch || p.kind == uiSetWord || p.kind == uiSetDevice) && !p.edited {
 		return // the field was opened and left without typing
+	}
+	if p.kind == uiSetDevice {
+		a.setDeviceField(p.target, p.buffer) // empty is allowed: no init file
+		return
 	}
 	value := strings.TrimSpace(p.buffer)
 	if value == "" {
@@ -354,7 +359,7 @@ func (a *app) handlePointer(l layout) {
 	inCanvas := cur.In(l.canvas)
 
 	// Clicking anywhere applies a watch value or memory word being edited.
-	if p := a.prompt; p != nil && (p.kind == uiSetWatch || p.kind == uiSetWord) {
+	if p := a.prompt; p != nil && (p.kind == uiSetWatch || p.kind == uiSetWord || p.kind == uiSetDevice) {
 		for _, b := range mouseButtons {
 			if inpututil.IsMouseButtonJustPressed(b) {
 				a.prompt = nil
@@ -492,6 +497,8 @@ func (a *app) drawStatus(screen *ebiten.Image, l layout, hover string) {
 		hint = guardHint()
 	} else if a.fb != nil {
 		hint = browserHint()
+	} else if p := a.prompt; p != nil && p.kind == uiSetDevice {
+		hint = "type a value · enter or click elsewhere applies · esc cancels"
 	} else if p := a.prompt; p != nil && p.kind == uiSetWord {
 		hint = "set " + p.target + ": type a value (hex; or 0x, 0b, 0d) · enter or click elsewhere applies · esc cancels"
 	} else if p := a.prompt; p != nil && p.kind == uiSetWatch {

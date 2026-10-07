@@ -112,3 +112,17 @@ func TestSaveListsOnlyDocuments(t *testing.T) {
 		t.Errorf("save entries %q, want %q", got, want)
 	}
 }
+
+func TestPickListsEveryFile(t *testing.T) {
+	root := setup(t)
+	b := New(Pick, filepath.Join(root, "notes.txt"), realLister, exists)
+	if got, want := names(b), "../ sub/ Zed/ A.mip b.mip notes.txt t.fix"; got != want {
+		t.Errorf("pick entries %q, want %q", got, want)
+	}
+	if b.Selected < 0 || b.Entries[b.Selected].Name != "notes.txt" {
+		t.Errorf("start file not selected: %d", b.Selected)
+	}
+	if path, done := b.Confirm(); !done || path != filepath.Join(root, "notes.txt") {
+		t.Errorf("confirm %q %v", path, done)
+	}
+}

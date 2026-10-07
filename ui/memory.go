@@ -78,7 +78,11 @@ func (a *app) drawMemory(dst *ebiten.Image, body image.Rectangle) {
 			if c.ReadOnly {
 				kind = "ROM"
 			}
-			a.drawText(dst, fmt.Sprintf("%s  %s %dx%d", c.Name, kind, c.Words, c.Width), float64(body.Min.X)+pad, y+5*a.scale, 0, chromeText)
+			head := fmt.Sprintf("%s  %s %dx%d", c.Name, kind, c.Words, c.Width)
+			if c.Init != "" {
+				head += "  · " + c.Init + " (click: reload)"
+			}
+			a.drawText(dst, a.fitText(head, float64(body.Dx())-2*pad), float64(body.Min.X)+pad, y+5*a.scale, 0, chromeText)
 			y += a.rowHeight()
 			continue
 		}
@@ -115,7 +119,11 @@ func (a *app) memoryClick(l layout, p image.Point) {
 	body := a.panelBody(l)
 	lines := a.memLines()
 	i := a.rowAt(l, p)
-	if i < 0 || i >= len(lines) || lines[i].start < 0 {
+	if i < 0 || i >= len(lines) {
+		return
+	}
+	if lines[i].start < 0 {
+		a.ed.ReloadInit(a.memories()[lines[i].mem].Name())
 		return
 	}
 	ln := lines[i]

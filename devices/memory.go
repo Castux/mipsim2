@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/bits"
+	"strings"
 )
 
 // MemoryConfig is the JSON configuration of a memory device.
@@ -99,6 +100,9 @@ func (m *Memory) Config() MemoryConfig { return m.cfg }
 // Words returns the memory's contents (shared, not a copy).
 func (m *Memory) Words() []uint64 { return m.words }
 
+// AddrBits is the width of the address bus.
+func (m *Memory) AddrBits() int { return len(m.addr) }
+
 // BytesPerWord is how many bytes a word takes in init files.
 func (m *Memory) BytesPerWord() int { return (m.cfg.Width + 7) / 8 }
 
@@ -134,7 +138,7 @@ func (m *Memory) Attach(bus Bus) error {
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("memory %q: no net named %v", m.cfg.Name, missing)
+		return fmt.Errorf("memory %q: missing nets %s", m.cfg.Name, strings.Join(missing, ", "))
 	}
 	return nil
 }

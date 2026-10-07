@@ -26,6 +26,7 @@ const (
 	tabWatch
 	tabComponents
 	tabMemory
+	tabDevices
 )
 
 type tabInfo struct {
@@ -42,6 +43,7 @@ func (a *app) panelTabs() []tabInfo {
 		}
 	} else {
 		ts = append(ts, tabInfo{tabComponents, fmt.Sprintf("Components (%d)", len(a.ed.Definitions()))})
+		ts = append(ts, tabInfo{tabDevices, fmt.Sprintf("Devices (%d)", len(a.ed.Devices()))})
 	}
 	if n := len(a.ed.Netlist().Diagnostics); n > 0 {
 		ts = append(ts, tabInfo{tabDiagnostics, fmt.Sprintf("Diagnostics (%d)", n)})
@@ -70,7 +72,7 @@ func (a *app) panelBody(l layout) image.Rectangle {
 }
 
 func (a *app) rowHeight() float64 {
-	if t := a.currentTab(); t == tabWatch || t == tabComponents || t == tabMemory {
+	if t := a.currentTab(); t == tabWatch || t == tabComponents || t == tabMemory || t == tabDevices {
 		return a.lineHeight() + 10*a.scale
 	}
 	return 2*a.lineHeight() + 14*a.scale
@@ -90,6 +92,8 @@ func (a *app) panelClick(l layout, p image.Point, mb ebiten.MouseButton) {
 	switch a.currentTab() {
 	case tabMemory:
 		a.memoryClick(l, p)
+	case tabDevices:
+		a.devicesClick(l, p, mb)
 	case tabDiagnostics:
 		diags := a.ed.Netlist().Diagnostics
 		if i < 0 || i >= len(diags) || mb != ebiten.MouseButtonLeft {
@@ -160,6 +164,8 @@ func (a *app) drawPanel(screen *ebiten.Image, l layout) {
 	switch cur {
 	case tabMemory:
 		a.drawMemory(bodyImg, body)
+	case tabDevices:
+		a.drawDevices(bodyImg, body)
 	case tabDiagnostics:
 		diags := a.ed.Netlist().Diagnostics
 		a.panelScroll = max(0, min(a.panelScroll, len(diags)-1))
@@ -271,7 +277,21 @@ func (a *app) panelHint(l layout, p image.Point) string {
 		return ""
 	}
 	switch a.currentTab() {
+	case tabDevices:
+		r, _, ok := a.devRowAt(a.panelBody(l), p)
+		if !ok {
+			return ""
+		}
+		if r.field == "status" {
+			if info := a.ed.Devices()[r.dev]; info.Problem != "" {
+				return info.Problem
+			}
+		}
+		return devicesHint(r)
 	case tabMemory:
+		if i := a.rowAt(l, p); i >= 0 && i < len(a.memLines()) && a.memLines()[i].start < 0 {
+			return "click to reload the init file (after rebuilding it)"
+		}
 		return "click a word to type a new value (while paused) · wheel scroll · highlighted: last access (blue read, pink write)"
 	case tabComponents:
 		return "left click place a copy · right click rename · middle click delete (only if unused) · wheel scroll"

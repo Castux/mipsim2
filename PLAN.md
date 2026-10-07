@@ -204,8 +204,8 @@ Build the headless core first and the editor second: M1 to M4 produce a working 
    - Done when: an 8-bit adder built from 8 instances of one full adder works, and editing one instance changes all 8 on screen and in simulation.
 9. **M8 Memory devices.** Device interface, memory device, settle loop, document config, hex panel.
    - Done when: a test circuit reads and writes a 256-byte RAM through a bus, from the CLI and in the editor.
-10. **M9 Real workload.** The owner builds a full 8-bit processor by hand in the editor. The agent's part: a library of unit-tested building blocks as fixtures (gates, latches, flip-flops, adders, incrementer, decoders, multiplexers, registers, counters), a test harness for the processor, and profiling.
-    - This milestone depends on the owner finishing the processor; the agent's part is done when the building-block library and harness are tested and the synthetic benchmarks meet budget.
+10. **M9 Real workload.** The owner builds a full 8-bit processor from the ground up in the editor; there is no prepared library of building blocks. The agent's part: fixes and features the owner needs along the way, a test harness for the processor, and profiling on it.
+    - This milestone depends on the owner finishing the processor; the agent's part is done when the harness runs it and the benchmarks meet budget on it.
     - Done when: the owner's processor runs a test program headless with memory attached; compile under 50 ms and at least 1,000 clock ticks per second headless on a laptop, or a profiling report explains the gap.
 11. **M10 Web port.** `js` platform layer (file input, Blob download, memory init upload), `web/` page and build script, browser-specific input fixes (alt and other keys the browser intercepts), WebGL check of the shaders, GitHub Pages deployment.
     - Done when: the owner can open, edit, simulate and save a document with memory attached in the browser, from the published Pages site.
@@ -272,6 +272,6 @@ Each has a default the agent implements until the owner decides.
 | Memory writes: level-sensitive at each settle or on a strobe edge? | Level-sensitive, as v1 |
 | Memory reading a `Floating` or `Unstable` bit? | Decided: runtime error (SPEC: Memory devices and buses) |
 | Clock net name: fixed `clock` or per document? | Per document, defaulting to `clock` |
-| Which processor is the M9 workload? | A full 8-bit processor, built by hand by the owner; the agent supplies small component tests |
+| Which processor is the M9 workload? | A full 8-bit processor, built from the ground up by the owner; no prepared component library |
 | Flip threshold for `Unstable` | 20, configurable; trips when a count goes above it, as in v1 |
 | Are diagonal-only touches ever meaningful? | Decided: never connect; warn with `W_DIAGONAL_TOUCH` |

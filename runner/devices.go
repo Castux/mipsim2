@@ -81,3 +81,22 @@ func DevicesFromDoc(d *doc.Document, read devices.ReadFile) ([]devices.Device, e
 	}
 	return out, nil
 }
+
+// namesBus answers only which nets exist, for checking a configuration
+// against a circuit without simulating it.
+type namesBus struct{ nl *netlist.Netlist }
+
+func (b namesBus) Has(name string) bool {
+	_, ok := b.nl.Lookup(name)
+	return ok
+}
+func (namesBus) Value(string) devices.Level  { return devices.Floating }
+func (namesBus) Pin(string, devices.Level)   {}
+func (namesBus) Unpin(string)                {}
+func (namesBus) Pinned(string) devices.Level { return devices.Floating }
+
+// Check reports whether a device can attach to the circuit: the same check
+// New makes, without building a simulation.
+func Check(nl *netlist.Netlist, d devices.Device) error {
+	return d.Attach(namesBus{nl})
+}

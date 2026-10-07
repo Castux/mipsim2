@@ -250,6 +250,8 @@ A memory device only reads bits it needs: `addr` while `select` is high, and `da
 
 **Settle loop** in the runner: settle; service every device in declaration order; if any reported a change, settle again; give up after 16 rounds with an error naming the devices involved. `runner.New` attaches devices but does not service them; the first `Settle()` does.
 
+Configuring: in edit mode, the panel's Devices tab lists the document's devices. Add memory creates a 256-byte RAM on `addr`, `data`, `sel` and `we` with a free name (`ram`, `ram1`, ...). Each field is an inline box (read-only toggles on click; the init file can be typed or chosen with the file dialog, and is stored relative to the document's folder when inside it). Every change is one undoable document edit. Below each device a status line says what it attaches to, or lists every problem: missing nets, an unreadable init file, a duplicate name, an invalid value. It is the same check `runner.New` makes. In simulate mode, clicking a memory's header in the Memory tab reloads its init file.
+
 Tools: `mipsim-run --dump NAME` prints a memory's words in hex after the run, 16 per line (`ram 0010: 00 ab ...`). Fixtures attach devices with `# device {JSON}`. In the editor, the panel's Memory tab (simulate mode, when the document has memories) shows each memory as a hex grid, 8 words per row, with the last access highlighted (light blue read, pink write). While the clock is paused, clicking a word edits it (hex, or `0x`, `0b`, `0d` prefixed); the circuit settles at once.
 
 Later device kinds (not v2.0):

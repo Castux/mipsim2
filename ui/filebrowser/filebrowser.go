@@ -17,9 +17,10 @@ type Mode int
 const (
 	Open Mode = iota
 	Save
+	Pick // choose any existing file, such as a memory's init file
 )
 
-func (m Mode) String() string { return [...]string{"Open", "Save as"}[m] }
+func (m Mode) String() string { return [...]string{"Open", "Save as", "Choose file"}[m] }
 
 // Entry is one item in a folder.
 type Entry struct {
@@ -70,7 +71,7 @@ func New(mode Mode, start string, list Lister, exists func(string) bool) *Browse
 		b.Name = name
 	}
 	b.chdir(dir)
-	if mode == Open && name != "" {
+	if mode != Save && name != "" {
 		b.selectName(name)
 	}
 	return b
@@ -235,8 +236,11 @@ func (b *Browser) choose(path string) (string, bool) {
 }
 
 // shows reports whether a file is listed: .mip files, and in Open mode also
-// .fix fixtures.
+// .fix fixtures. Pick lists every file.
 func (b *Browser) shows(name string) bool {
+	if b.Mode == Pick {
+		return true
+	}
 	ext := strings.ToLower(filepath.Ext(name))
 	return ext == Ext || b.Mode == Open && ext == FixtureExt
 }
