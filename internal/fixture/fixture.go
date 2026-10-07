@@ -13,6 +13,8 @@
 //	# input NAME X,Y            a label that tests pin
 //	# output NAME X,Y           a label that tests check
 //	# place DEF NAME X,Y [ORIENT]  place an instance in the current block
+//	# line X,Y X,Y              turn on a horizontal or vertical segment (inclusive)
+//	# px X,Y                    turn on one pixel
 //
 // Every other "# " line is kept as a Directive in file order, for the tests
 // that understand it (for example "expect" lines in behaviour fixtures). A
@@ -175,6 +177,33 @@ func Parse(src string) (*Fixture, error) {
 				f.Inputs = append(f.Inputs, args[0])
 			case "output":
 				f.Outputs = append(f.Outputs, args[0])
+			}
+
+		case "px", "line":
+			want := 1
+			if word == "line" {
+				want = 2
+			}
+			if len(args) != want {
+				return nil, fail("want: px X,Y or line X,Y X,Y")
+			}
+			x0, y0, err := parsePoint(args[0])
+			if err != nil {
+				return nil, fail("%v", err)
+			}
+			x1, y1 := x0, y0
+			if word == "line" {
+				if x1, y1, err = parsePoint(args[1]); err != nil {
+					return nil, fail("%v", err)
+				}
+				if x0 != x1 && y0 != y1 {
+					return nil, fail("line must be horizontal or vertical")
+				}
+			}
+			for y := min(y0, y1); y <= max(y0, y1); y++ {
+				for x := min(x0, x1); x <= max(x0, x1); x++ {
+					cur.Pixels.Set(x, y, true)
+				}
 			}
 
 		case "place":

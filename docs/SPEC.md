@@ -116,7 +116,7 @@ The simulator owns a persistent FIFO queue of nets. `Update(net)` only pushes on
 
 `Settle()` loops `Step()` until the queue is empty, then resets all flip counts to zero. A settle is therefore the unit v1 calls one `update()` call.
 
-**Unstable clears at the next settle (differs from v1).** When a settle begins (the first `Step()` after the queue was empty), every `Unstable` net becomes `Floating` and is pushed, in ascending ID order, after the entries already queued. A real oscillator goes `Unstable` again within that settle; a transient glitch recovers. v1 kept `Unstable` until a full reset. Duplicate entries in the queue are allowed, as in v1; deduplicating is an optimisation that must not change traces.
+**Unstable clears at the next settle (differs from v1).** When a settle begins (the first `Step()` after the queue was empty), every `Unstable` net becomes `Floating` and is pushed, in ascending ID order, after the entries already queued; after each such net, the channel ends (A then B) of every transistor it gates are pushed too. When the net went `Unstable`, those transistors stopped conducting without their channels being re-evaluated (v1's rule), so the channels may hold stale values; without this step a circuit whose oscillation is broken by a pin can stay wrong. A real oscillator goes `Unstable` again within that settle; a transient glitch recovers. v1 kept `Unstable` until a full reset. Duplicate entries in the queue are allowed, as in v1; deduplicating is an optimisation that must not change traces.
 
 The editor's slow-motion view calls `Step()` and redraws between calls, replacing v1's coroutine yield. A step is one queue entry, which is coarser than v1's yield per component; that is acceptable.
 

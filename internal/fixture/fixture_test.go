@@ -83,6 +83,21 @@ func TestDefinitionsAndPlacement(t *testing.T) {
 	}
 }
 
+func TestLineAndPixel(t *testing.T) {
+	f, err := Parse("# line 0,0 3,0\n# line 3,1 3,2\n# px -1,5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := bitmap.MustFromRows("####", "...#", "...#")
+	want.Set(-1, 5, true)
+	if !f.Doc.RootDef().Pixels.Equal(want) {
+		t.Errorf("pixels:\n%v", f.Doc.RootDef().Pixels)
+	}
+	if _, err := Parse("# line 0,0 2,2"); err == nil || !strings.Contains(err.Error(), "horizontal or vertical") {
+		t.Errorf("diagonal line: %v", err)
+	}
+}
+
 func TestParseErrors(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{"#x#", "not a drawing row"},

@@ -120,4 +120,39 @@ Edits recompile on mouse-up, so this is tolerable for M5. It is tracked by `Test
 
 The thin-wires variant stays the default until decided.
 
-**Not done / next:** M3 (simulator).
+## M3 Simulator
+
+**Works:**
+
+- `sim.Sim` ports v1's breadth-first `update` onto the netlist, as the spec describes:
+  - a persistent FIFO queue; `Update`, `Pin` and `Unpin` only queue;
+  - `Step` processes one entry and `Settle` drains the queue;
+  - flip counting with the v1 threshold semantics (more than 20);
+  - v1's sd1/sd2 push rule;
+  - `Unstable` locking within a settle and clearing at the next one;
+  - `Reset` as v1's setup;
+  - an `OnChange` hook for traces.
+
+  The group order is breadth-first from the popped net over adjacency lists in ascending transistor order, so runs are deterministic without sorting.
+- Behaviour fixtures in `testdata/sim`: inverter, NAND, NOR, XOR (four NAND instances), bridge crossing into two inverters, SR latch (two NOR instances, one rotated 180°), D latch (pass transistors with complementary enables `E`/`En`), and a 3-inverter ring oscillator. Each fixture runs:
+  - with its `expect` lines;
+  - twice, comparing full traces;
+  - again in all 8 orientations, wrapped in an instance.
+- Unit tests:
+  - a ring oscillator goes unstable, a pin that breaks the loop makes it stable, and releasing the pin oscillates again;
+  - low beats a high pin;
+  - single-stepping gives the same result as `Settle`;
+  - `Reset` clears pins;
+  - a netlist with errors is refused.
+- Fixture format: `line X,Y X,Y` and `px X,Y` directives for drawing wires without full rows. The `any-unstable NAMES` check is used for oscillators. `internal/tools/classify` prints a fixture's role map, nets and diagnostics, as an aid for drawing circuits by hand.
+
+**Performance:** 152×152 inverter chains (23k transistors, 46k nets), where every half tick flips every transistor: 4.5 ms per full tick, about 210 ticks/s. This is a worst case; a processor switches a fraction of its transistors per tick. Time goes to `flood` and `groupValue`, as expected. To revisit with the M9 workload.
+
+**Decisions:**
+
+- When a settle releases an `Unstable` net, it also queues the channel ends of the transistors that net gates. Without this, a ring oscillator broken by a pin kept a stale value: when a net goes `Unstable`, its transistors stop conducting but (as in v1) their channels are not re-evaluated, and releasing it to `Floating` does not count as a conduction change either. SPEC updated.
+- Which net of an oscillating loop trips first depends on evaluation order, so oscillator fixtures check that *some* net is unstable rather than naming one.
+- The D latch has complementary enable inputs instead of an internal inverter. The latch behaviour is the same, and the fixture stays small.
+- Behaviour `expect` lines apply pins in the order written, then settle once. Tests avoid changing an enable and data in the same line, because the result then depends on queue order, as it would in hardware.
+
+**Not done / next:** M4 (runner and CLI).

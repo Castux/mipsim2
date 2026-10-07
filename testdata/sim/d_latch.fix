@@ -1,0 +1,39 @@
+# d_latch.fix: pass transistor latch with complementary enables E and En
+# input D 0,6
+# input E 5,4
+# input En 8,8
+# output Q 31,4
+# output Qn 19,4
+# expect E=high En=low  D=high Q=high Qn=low
+# expect E=high En=low  D=low  Q=low  Qn=high
+# expect E=low  En=high D=low  Q=low
+# expect E=low  En=high D=high Q=low
+# expect E=high En=low  D=high Q=high
+# expect E=low  En=high D=high Q=high
+# expect E=low  En=high D=low  Q=high
+# def inv 9x11
+###......
+###......
+###......
+.#.......
+#########
+.#.......
+##.......
+.#.......
+###......
+#.#......
+###......
+# root
+# place inv i2 10,0
+# place inv i3 22,0
+# line 0,6 4,6
+# px 5,6
+# line 5,4 5,5
+# line 6,6 9,6
+# px 7,5
+# line 7,7 7,13
+# px 8,8
+# line 8,13 31,13
+# line 31,4 31,12
+# line 19,4 19,6
+# line 20,6 21,6
