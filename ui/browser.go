@@ -41,6 +41,7 @@ func (a *app) openBrowser(mode filebrowser.Mode) {
 func (a *app) cancelBrowser() {
 	a.fb = nil
 	a.afterSave = nil
+	a.importing = false
 	a.ed.Status = "cancelled"
 }
 
@@ -48,6 +49,11 @@ func (a *app) cancelBrowser() {
 func (a *app) finishBrowser(path string) {
 	mode := a.fb.Mode
 	a.fb = nil
+	if a.importing {
+		a.importing = false
+		a.finishImportPick(path)
+		return
+	}
 	if mode == filebrowser.Pick {
 		a.finishPick(path)
 		return

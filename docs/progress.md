@@ -407,3 +407,14 @@ Open, by decision: compile is still about 60 ms (+22 ms flatten) against the 50 
 - Removed: the M0 spikes (and with them the ebitenui dependency), the M5 screenshots of the old UI, and a duplicate inverter fixture.
 - One loader for `.mip` and `.fix` files (`fixture.LoadDocument`), used by the editor command, the file dialog and the CLI, which had three versions with slightly different rules.
 - README rewritten with a screenshot; PLAN has a Status section and matches what was built.
+
+## Importing components (owner request)
+
+The Components tab ends with an Import components... button. It opens the file dialog (`.mip` and `.fix`). The chosen document's components are then listed with check boxes.
+
+- Checking a component also checks every component it uses, at any depth. Those show greyed and cannot be unchecked while something uses them. Hovering a row names what it uses.
+- Imported definitions get fresh IDs. A display name already used in the document gets a suffix (`fa` becomes `fa_2`, then `fa_3`), and the status line lists the renames. Instances inside the imported components point at the imported copies, never at same-named originals.
+- The whole import is one undoable command. Devices and the source's root are not imported.
+- The selection logic is `editor.ImportSelection` and the copy is `Editor.Import`, both headless and tested on `adder8.fix` (importing into itself, so every name clashes).
+- Not done: recognising that an identical component already exists and reusing it instead of importing a copy.
+

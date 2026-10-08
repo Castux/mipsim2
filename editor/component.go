@@ -59,14 +59,7 @@ func (e *Editor) Definitions() []DefInfo {
 }
 
 // freeDefID returns an unused definition ID "partN".
-func (e *Editor) freeDefID() doc.DefID {
-	for n := 1; ; n++ {
-		id := doc.DefID(fmt.Sprintf("part%d", n))
-		if e.Doc.Defs[id] == nil {
-			return id
-		}
-	}
-}
+func (e *Editor) freeDefID() doc.DefID { return e.freeDefIDExcept(nil) }
 
 // makeComponent turns the selection into a new definition and replaces it
 // with one instance, then asks for a name.

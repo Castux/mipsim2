@@ -19,7 +19,7 @@ A 3×3 square pulls its wire high, and a 3×3 ring pulls it low (low wins). A T 
 
 - **Drawing:** a pencil with an axis lock (alt), select, move, copy and paste, rotate and mirror, labels, and unlimited undo.
 - **Diagnostics:** malformed or ambiguous patterns are reported at their location and listed in a panel.
-- **Components:** make a component from a selection and place it anywhere, in any of 8 orientations. Every placement is a live view, so editing one edits them all. Net names are hierarchical (`alu.add3.sum_2`).
+- **Components:** make a component from a selection and place it anywhere, in any of 8 orientations. Every placement is a live view, so editing one edits them all. Net names are hierarchical (`alu.add3.sum_2`). Components can be imported from other documents, along with the components they use.
 - **Simulation:** click a wire to pin it high or low, then run a clock, tick, or step one propagation at a time. Labels ending in `_0`, `_1`, ... read as numbers in the Watch panel, where you can also type values.
 - **Memory:** RAM and ROM devices attach to labelled buses. Configure them in the Devices tab, load their contents from a binary file, and view or edit them as hex while simulating.
 - **Headless runs:** `mipsim-run` runs a circuit from the command line, with pins, clock ticks, traces and memory dumps.

@@ -104,6 +104,12 @@ func (a *app) panelClick(l layout, p image.Point, mb ebiten.MouseButton) {
 		a.ed.Status = diags[i].String()
 	case tabComponents:
 		defs := a.ed.Definitions()
+		if i == importRow(defs) {
+			if mb == ebiten.MouseButtonLeft {
+				a.startImport()
+			}
+			return
+		}
 		if i < 0 || i >= len(defs) {
 			return
 		}
@@ -199,6 +205,12 @@ func (a *app) drawPanel(screen *ebiten.Image, l layout) {
 			a.drawText(bodyImg, info, float64(body.Max.X)-a.textWidth(info, 12)-10*a.scale, y+5*a.scale, 0, clr)
 			y += a.rowHeight()
 		}
+		if r := importRow(defs) - a.panelScroll; r >= 0 {
+			by := float64(body.Min.Y) + float64(r)*a.rowHeight()
+			btn := image.Rect(int(x), int(by+1*a.scale), body.Max.X-a.u(10), int(by+a.lineHeight()+9*a.scale))
+			cx, cy := ebiten.CursorPosition()
+			a.smallButton(bodyImg, btn, "Import components...", image.Pt(cx, cy))
+		}
 	case tabWatch:
 		r := a.ed.Runner()
 		if r == nil {
@@ -293,6 +305,9 @@ func (a *app) panelHint(l layout, p image.Point) string {
 		}
 		return "click a word to type a new value (while paused) · wheel scroll · highlighted: last access (blue read, pink write)"
 	case tabComponents:
+		if a.rowAt(l, p) == importRow(a.ed.Definitions()) {
+			return "copy components (and the ones they use) from another document"
+		}
 		return "left click place a copy · right click rename · middle click delete (only if unused) · wheel scroll"
 	case tabWatch:
 		return "wire: left pin high · right pin low · middle release · number box: click and type a value (up/down steps), middle click releases · wheel scroll"
@@ -372,3 +387,7 @@ func (a *app) fitText(s string, w float64) string {
 	}
 	return string(r) + ".."
 }
+
+// importRow is the Components tab row holding the Import button: after the
+// components, or after the "none yet" line.
+func importRow(defs []editor.DefInfo) int { return max(len(defs), 1) }

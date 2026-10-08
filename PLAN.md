@@ -166,7 +166,7 @@ The editor is a state machine over the document plus a command stack; it has no 
 - **Right panel:** tabs, shown only when there is something to show.
   - Watch, in simulate mode: every labelled net and `name_N` bus, with value and pin. Click a net to pin it as on the canvas; click a bus to type a number.
   - Memory, in simulate mode: each memory as a hex grid with the last access highlighted. Click a word to edit it while paused. Click a header to reload the init file.
-  - Components, in edit mode: the palette. Click to place, right click to rename, middle click to delete an unused one.
+  - Components, in edit mode: the palette. Click to place, right click to rename, middle click to delete an unused one. Import components... copies components (with the ones they use) from another document.
   - Devices, in edit mode: add, configure and delete memories, with a status line checking each against the circuit.
   - Diagnostics: click one to centre on it.
 - **Status lines:** the first describes what the mouse and modifiers do in the current state (or the hovered button, or the prompt being typed). The second shows position, counts and messages.

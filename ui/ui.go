@@ -80,6 +80,8 @@ type app struct {
 	guard       *guard               // the unsaved-changes question, when shown
 	afterSave   func()               // runs once the pending save succeeds (the guard's action)
 	pickInit    int                  // the device whose init file the Pick dialog chooses
+	importing   bool                 // the Open dialog chooses a document to import from
+	imp         *importDialog        // the import checklist, when shown
 	tab         panelTab
 	panelScroll int
 	lastFrame   time.Time
@@ -193,11 +195,15 @@ func (a *app) Update() error {
 		}
 	}
 	l := a.computeLayout()
-	if a.guard != nil || a.fb != nil {
+	if a.guard != nil || a.fb != nil || a.imp != nil {
 		a.releaseButtons() // a dialog takes the mouse: end any stroke or drag
 	}
 	if a.guard != nil {
 		a.handleGuard(l)
+		return nil
+	}
+	if a.imp != nil {
+		a.handleImport(l)
 		return nil
 	}
 	if a.fb != nil {
@@ -440,6 +446,9 @@ func (a *app) Draw(screen *ebiten.Image) {
 	if a.fb != nil {
 		a.drawBrowser(screen, l)
 	}
+	if a.imp != nil {
+		a.drawImport(screen, l)
+	}
 	if a.guard != nil {
 		a.drawGuard(screen, l)
 	}
@@ -495,6 +504,8 @@ func (a *app) drawStatus(screen *ebiten.Image, l layout, hover string) {
 	}
 	if a.guard != nil {
 		hint = guardHint()
+	} else if a.imp != nil {
+		hint = a.importHint(l)
 	} else if a.fb != nil {
 		hint = browserHint()
 	} else if p := a.prompt; p != nil && p.kind == uiSetDevice {
