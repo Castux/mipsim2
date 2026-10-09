@@ -1,0 +1,24 @@
+{
+  "format": "mipsim",
+  "version": 2,
+  "note": "two transistor centres side by side",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        ".#",
+        "####",
+        "..#"
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "E_ADJ_TRANSISTOR"
+    ]
+  }
+}

@@ -3,6 +3,7 @@ package sim
 import (
 	"fmt"
 	"image"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -10,18 +11,17 @@ import (
 	"testing"
 
 	"github.com/Castux/mipsim2/doc"
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/internal/mipfile"
 	"github.com/Castux/mipsim2/netlist"
 )
 
-// Behaviour fixtures in testdata/sim declare inputs and outputs and list
-// "# expect" lines. Each line pins the inputs it names (high, low, float, or
-// a number for a name_N bus), settles, then checks the outputs it names.
-// Pins persist from line to line, so sequential circuits can be tested.
+// Behaviour fixtures in testdata/sim (and testdata/runner) are documents
+// with a test script: each step pins the nets and buses it sets, settles,
+// then checks the values it expects (see doc.Step).
 
 type harness struct {
 	t      *testing.T
-	fx     *fixture.Fixture
+	d      *doc.Document
 	sim    *Sim
 	prefix string // added to names when the circuit is wrapped in an instance
 }
@@ -30,23 +30,19 @@ func (h *harness) net(name string) (netlist.NetID, bool) {
 	return h.sim.Netlist().Lookup(h.prefix + name)
 }
 
-// bits returns the nets of bus name_0, name_1, ... declared in names.
-func (h *harness) bits(name string, names []string) []netlist.NetID {
+// bits returns the nets of bus name_0, name_1, ..., or nil if there is none.
+func (h *harness) bits(name string) []netlist.NetID {
 	var ids []netlist.NetID
 	for i := 0; ; i++ {
-		bit := fmt.Sprintf("%s_%d", name, i)
-		if !slices.Contains(names, bit) {
-			return ids
-		}
-		id, ok := h.net(bit)
+		id, ok := h.net(fmt.Sprintf("%s_%d", name, i))
 		if !ok {
-			h.t.Fatalf("no net %s", bit)
+			return ids
 		}
 		ids = append(ids, id)
 	}
 }
 
-func parseValue(s string) (Value, bool) {
+func parseValue(s doc.Value) (Value, bool) {
 	switch s {
 	case "high", "1":
 		return High, true
@@ -60,75 +56,63 @@ func parseValue(s string) (Value, bool) {
 	return 0, false
 }
 
-// run executes every expect line and returns a trace of all value changes.
+// run executes the test script and returns a trace of all value changes.
 func (h *harness) run() []Change {
 	var trace []Change
 	h.sim.OnChange = func(c Change) { trace = append(trace, c) }
-	for _, dir := range h.fx.Find("expect") {
-		where := fmt.Sprintf("line %d", dir.Line)
-		var checks [][2]string
-		for _, arg := range dir.Args {
-			name, val, ok := strings.Cut(arg, "=")
-			if !ok {
-				h.t.Fatalf("%s: bad assignment %q", where, arg)
-			}
-			switch {
-			case slices.Contains(h.fx.Inputs, name):
-				h.pin(where, name, val)
-			case slices.Contains(h.fx.Inputs, name+"_0"):
-				n, err := strconv.ParseUint(val, 0, 64)
-				if err != nil {
-					h.t.Fatalf("%s: bus %s needs a number, got %q", where, name, val)
-				}
-				for i, id := range h.bits(name, h.fx.Inputs) {
-					h.sim.Pin(id, map[bool]Value{true: High, false: Low}[n>>i&1 == 1])
-				}
-			case slices.Contains(h.fx.Outputs, name), slices.Contains(h.fx.Outputs, name+"_0"):
-				checks = append(checks, [2]string{name, val})
-			default:
-				h.t.Fatalf("%s: %q is not a declared input or output", where, name)
-			}
+	for i, step := range h.d.Tests {
+		where := fmt.Sprintf("step %d", i+1)
+		for _, name := range slices.Sorted(maps.Keys(step.Set)) {
+			h.pin(where, name, step.Set[name])
 		}
 		h.sim.Settle()
-		for _, c := range checks {
-			h.check(where, c[0], c[1])
+		for _, name := range slices.Sorted(maps.Keys(step.Expect)) {
+			h.check(where, name, step.Expect[name])
 		}
-	}
-	// "# any-unstable NAME...": after all expect lines, at least one of the
-	// nets is Unstable. Which one trips first depends on evaluation order.
-	for _, dir := range h.fx.Find("any-unstable") {
-		found := false
-		for _, name := range dir.Args {
-			id, ok := h.net(name)
-			if !ok {
-				h.t.Fatalf("line %d: no net %s", dir.Line, name)
+		if len(step.AnyUnstable) > 0 {
+			found := false
+			for _, name := range step.AnyUnstable {
+				id, ok := h.net(name)
+				if !ok {
+					h.t.Fatalf("%s: no net %s", where, name)
+				}
+				found = found || h.sim.Value(id) == Unstable
 			}
-			found = found || h.sim.Value(id) == Unstable
-		}
-		if !found {
-			h.t.Errorf("%sline %d: none of %v is unstable", h.label(), dir.Line, dir.Args)
+			if !found {
+				h.t.Errorf("%s%s: none of %v is unstable", h.label(), where, step.AnyUnstable)
+			}
 		}
 	}
 	return trace
 }
 
-func (h *harness) pin(where, name, val string) {
-	id, ok := h.net(name)
-	if !ok {
-		h.t.Fatalf("%s: no net %s", where, name)
+func (h *harness) pin(where, name string, val doc.Value) {
+	if id, ok := h.net(name); ok {
+		v, ok := parseValue(val)
+		switch {
+		case !ok || v == Unstable:
+			h.t.Fatalf("%s: cannot pin %s to %q", where, name, val)
+		case v == Floating:
+			h.sim.Unpin(id)
+		default:
+			h.sim.Pin(id, v)
+		}
+		return
 	}
-	v, ok := parseValue(val)
-	switch {
-	case !ok || v == Unstable:
-		h.t.Fatalf("%s: cannot pin %s to %q", where, name, val)
-	case v == Floating:
-		h.sim.Unpin(id)
-	default:
-		h.sim.Pin(id, v)
+	bits := h.bits(name)
+	if bits == nil {
+		h.t.Fatalf("%s: no net or bus %s", where, name)
+	}
+	n, err := strconv.ParseUint(string(val), 0, 64)
+	if err != nil {
+		h.t.Fatalf("%s: bus %s needs a number, got %q", where, name, val)
+	}
+	for i, id := range bits {
+		h.sim.Pin(id, map[bool]Value{true: High, false: Low}[n>>i&1 == 1])
 	}
 }
 
-func (h *harness) check(where, name, val string) {
+func (h *harness) check(where, name string, val doc.Value) {
 	if id, ok := h.net(name); ok {
 		want, ok := parseValue(val)
 		if !ok {
@@ -139,12 +123,16 @@ func (h *harness) check(where, name, val string) {
 		}
 		return
 	}
-	want, err := strconv.ParseUint(val, 0, 64)
+	bits := h.bits(name)
+	if bits == nil {
+		h.t.Fatalf("%s: no net or bus %s", where, name)
+	}
+	want, err := strconv.ParseUint(string(val), 0, 64)
 	if err != nil {
 		h.t.Fatalf("%s: bus %s needs a number, got %q", where, name, val)
 	}
 	var got uint64
-	for i, id := range h.bits(name, h.fx.Outputs) {
+	for i, id := range bits {
 		switch h.sim.Value(id) {
 		case High:
 			got |= 1 << i
@@ -166,7 +154,7 @@ func (h *harness) label() string {
 	return "(wrapped " + h.prefix + ") "
 }
 
-func newHarness(t *testing.T, fx *fixture.Fixture, d *doc.Document, prefix string) *harness {
+func newHarness(t *testing.T, script, d *doc.Document, prefix string) *harness {
 	t.Helper()
 	nl := netlist.CompileDoc(d, netlist.Options{})
 	if nl.HasErrors() {
@@ -176,7 +164,7 @@ func newHarness(t *testing.T, fx *fixture.Fixture, d *doc.Document, prefix strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &harness{t: t, fx: fx, sim: s, prefix: prefix}
+	return &harness{t: t, d: script, sim: s, prefix: prefix}
 }
 
 // wrap moves the fixture's root into a definition placed with orientation o,
@@ -209,31 +197,37 @@ func wrap(d *doc.Document, o doc.Orient) *doc.Document {
 }
 
 func TestBehaviour(t *testing.T) {
-	files, err := filepath.Glob(filepath.Join("..", "testdata", "sim", "*.fix"))
-	if err != nil || len(files) == 0 {
-		t.Fatalf("no fixtures: %v", err)
+	var files []string
+	for _, dir := range []string{"sim", "runner"} {
+		fs, err := filepath.Glob(filepath.Join("..", "testdata", dir, "*.mip"))
+		if err != nil || len(fs) == 0 {
+			t.Fatalf("no fixtures in %s: %v", dir, err)
+		}
+		files = append(files, fs...)
 	}
 	for _, path := range files {
-		name := strings.TrimSuffix(filepath.Base(path), ".fix")
+		name := strings.TrimSuffix(filepath.Base(path), ".mip")
+		d, err := mipfile.Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(d.Tests) == 0 {
+			if filepath.Base(filepath.Dir(path)) == "sim" {
+				t.Errorf("%s has no tests", path)
+			}
+			continue
+		}
 		t.Run(name, func(t *testing.T) {
-			fx, err := fixture.ParseFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(fx.Find("expect")) == 0 {
-				t.Fatal("fixture has no expect lines")
-			}
-
 			// Determinism: two runs give identical traces.
-			a := newHarness(t, fx, fx.Doc, "").run()
-			b := newHarness(t, fx, fx.Doc, "").run()
+			a := newHarness(t, d, d, "").run()
+			b := newHarness(t, d, d, "").run()
 			if !slices.Equal(a, b) {
 				t.Errorf("two runs gave different traces (%d and %d changes)", len(a), len(b))
 			}
 
 			// The same behaviour in every orientation.
 			for _, o := range doc.AllOrients {
-				newHarness(t, fx, wrap(fx.Doc, o), "x.").run()
+				newHarness(t, d, wrap(d, o), "x.").run()
 			}
 		})
 	}

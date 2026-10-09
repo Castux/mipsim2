@@ -2,7 +2,7 @@
 //
 //	mipsim-run FILE [flags]
 //
-// FILE is a .mip document or a .fix test fixture. Flags may come before or
+// FILE is a .mip document. Flags may come before or
 // after it:
 //
 //	--set a=5,b=high   pin nets or buses before running (repeatable)
@@ -31,8 +31,7 @@ import (
 	"strings"
 
 	"github.com/Castux/mipsim2/devices"
-	"github.com/Castux/mipsim2/doc"
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/internal/mipfile"
 	"github.com/Castux/mipsim2/netlist"
 	"github.com/Castux/mipsim2/runner"
 	"github.com/Castux/mipsim2/sim"
@@ -95,7 +94,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	d, err := load(files[0])
+	d, err := mipfile.Load(files[0])
 	if err != nil {
 		fmt.Fprintln(stderr, "mipsim-run:", err)
 		return 1
@@ -215,13 +214,4 @@ func dump(w io.Writer, m *devices.Memory) {
 		}
 		fmt.Fprintln(w, b.String())
 	}
-}
-
-func load(path string) (*doc.Document, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	d, _, err := fixture.LoadDocument(path, data)
-	return d, err
 }

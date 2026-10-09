@@ -1,0 +1,52 @@
+{
+  "format": "mipsim",
+  "version": 2,
+  "note": "labels on an off pixel and on a transistor centre",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        ".#",
+        "###",
+        "",
+        "#.#"
+      ],
+      "labels": [
+        {
+          "x": 1,
+          "y": 3,
+          "name": "a"
+        },
+        {
+          "x": 1,
+          "y": 1,
+          "name": "t"
+        },
+        {
+          "x": 1,
+          "y": 0,
+          "name": "g"
+        },
+        {
+          "x": 0,
+          "y": 1,
+          "name": "x"
+        },
+        {
+          "x": 2,
+          "y": 1,
+          "name": "y"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "E_LABEL_OFF_NET"
+    ]
+  }
+}

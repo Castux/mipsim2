@@ -1,6 +1,0 @@
-# diagonal.fix: two nets touching only at a corner
-# diag W_DIAGONAL_TOUCH
-# label a 0,0
-# label b 1,1
-#.
-.#

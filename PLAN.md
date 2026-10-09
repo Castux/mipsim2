@@ -86,10 +86,10 @@ CI compiles everything for `GOOS=js GOARCH=wasm` as a check (build only, not dep
 
 ```sh
 # desktop editor
-go run ./cmd/mipsim testdata/runner/adder4.fix
+go run ./cmd/mipsim testdata/runner/adder4.mip
 
 # headless
-go run ./cmd/mipsim-run testdata/runner/ram.fix --set sel=1,we=1,addr=17,data=0xab --dump ram
+go run ./cmd/mipsim-run testdata/runner/ram.mip --set sel=1,we=1,addr=17,data=0xab --dump ram
 
 # web (M10)
 GOOS=js GOARCH=wasm go build -o web/mipsim.wasm ./cmd/mipsim
@@ -141,11 +141,11 @@ mipsim2/
   platform/          file I/O: native.go, js.go (build tags)
   internal/
     archtest/        dependency rule checks
-    fixture/         ASCII fixture parser, and the shared .mip/.fix loader
+    mipfile/         loads .mip files from disk (core packages do no file access)
     synth/           synthetic processor-scale circuits for benchmarks
-    tools/           classify (print a fixture's roles), synth, raylibfont
+    tools/           classify (print a document's roles), synth, raylibfont
   scripts/check.sh   every check CI runs
-  testdata/          ASCII fixtures and goldens
+  testdata/          fixtures (.mip with tests and checks) and goldens
   docs/              SPEC.md, progress.md, screenshot
   web/               index.html, wasm_exec.js, build script (M10)
   examples/          .mip circuits (M11)
@@ -228,25 +228,25 @@ Build the headless core first and the editor second: M1 to M4 produce a working 
 
 ## Testing
 
-Most tests are ASCII fixtures in `testdata/`, so a failing case is readable in a diff and easy for an agent to write. A fixture is a text file with directive lines (`# ` then a word) and drawing rows of `#` and `.`; the full syntax, including `def`, `place` and `root` for multi-definition fixtures, is documented in `internal/fixture`:
+Most tests are fixtures in `testdata/`: ordinary `.mip` documents whose rows of `#` and `.` keep a failing case readable in a diff. A fixture carries its expectations in the optional `tests` (a script of pins and expected values) and `checks` (structural assertions) fields, described in `docs/SPEC.md`:
 
-```
-# inverter.fix
-# input in 0,6
-# output out 8,4
-# expect in=low  out=high
-# expect in=high out=low
-###......
-###......
-###......
-.#.......
-#########
-.#.......
-##.......
-.#.......
-###......
-#.#......
-###......
+```json
+{
+  "format": "mipsim",
+  "version": 2,
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [0, 0],
+      "rows": ["###", "###", "###", ".#", "#########", ".#", "##", ".#", "###", "#.#", "###"],
+      "labels": [{"x": 0, "y": 6, "name": "in"}, {"x": 8, "y": 4, "name": "out"}]
+    }
+  },
+  "tests": [
+    {"set": {"in": "low"}, "expect": {"out": "high"}},
+    {"set": {"in": "high"}, "expect": {"out": "low"}}
+  ]
+}
 ```
 
 Reading it: a high source on top feeds a cross junction at row 4 (left arm is a stub, right arm is the output). Below, the transistor at (1,6) has its channel vertical and its gate arm to the left (the input). The channel's lower end reaches a low source ring. Input high makes the channel conduct, the output net joins the ring, and low wins.
@@ -255,7 +255,7 @@ Test layers:
 
 - **Classification goldens:** the compiler's role map printed as letters (`H` high, `L` low, `T` transistor, `B` bridge, `w` wire, `.` off) compared against a stored golden, regenerated with `go test -update` and reviewed by hand.
 - **Diagnostics:** each lint code has at least one fixture that triggers it and one near-miss that must not.
-- **Behaviour:** `expect` lines pin inputs, settle, and check outputs; numeric buses use `expect a=5 b=3 sum=8`.
+- **Behaviour:** each test step pins nets, settles, and checks values; numeric buses use `{"set": {"a": 5, "b": 3}, "expect": {"sum": 8}}`.
 - **Determinism:** run each behaviour fixture twice and compare full traces.
 - **Property tests:** random small bitmaps must either compile or produce diagnostics, never panic; flatten then re-split of random instance trees, with random orientations, preserves pixels.
 - **Orientation invariance:** every classification and behaviour fixture is also run in all 8 orientations, both as a transformed bitmap and wrapped in an oriented instance. The role map must transform accordingly, and the behaviour expectations must still pass.

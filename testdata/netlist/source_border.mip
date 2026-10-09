@@ -1,0 +1,33 @@
+{
+  "format": "mipsim",
+  "version": 2,
+  "note": "two attachments touching diagonally at a source corner",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "###",
+        "###",
+        "####",
+        "..#"
+      ],
+      "labels": [
+        {
+          "x": 2,
+          "y": 3,
+          "name": "vdd"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [],
+    "diag_isolated": [
+      "E_SOURCE_BORDER"
+    ]
+  }
+}

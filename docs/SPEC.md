@@ -267,12 +267,13 @@ In v2.0 the editor shows each memory as a hex panel, editable while paused.
 
 ## File format
 
-One JSON file per document, extension `.mip`, designed to diff well in git and to be readable by an AI agent. Pixels are stored as rows of `#` and `.` strings within each definition's rectangle; the root stores its rows relative to `origin`, which save sets to the top-left of its pixels' bounding box, with x rounded down to a multiple of 16 (so drawing a little left of the circuit does not rewrite every row in a diff; the loader accepts any origin). Root labels and instance positions are in world coordinates, not relative to `origin`. A definition may have a display `name`, which defaults to its ID. The file version is not part of the in-memory document. This is verbose but compresses well and makes small circuits legible in a pull request.
+One JSON file per document, extension `.mip`, saved as indented JSON by Go's standard encoder, readable by an AI agent. Pixels are stored as rows of `#` and `.` strings within each definition's rectangle; the root stores its rows relative to `origin`, which save sets to the top-left of its pixels' bounding box, with x rounded down to a multiple of 16 (so drawing a little left of the circuit does not rewrite every row in a diff; the loader accepts any origin). Root labels and instance positions are in world coordinates, not relative to `origin`. A definition may have a display `name`, which defaults to its ID. The file version is not part of the in-memory document. This is verbose but compresses well and makes small circuits legible in a pull request. Empty `rows`, `labels` and `instances` may be omitted.
 
 ```json
 {
   "format": "mipsim",
-  "version": 1,
+  "version": 2,
+  "note": "an optional description",
   "root": "top",
   "defs": {
     "top": {
@@ -288,7 +289,12 @@ One JSON file per document, extension `.mip`, designed to diff well in git and t
       "instances": []
     }
   },
-  "devices": [{"kind": "memory", "name": "data_ram", "addr": "port_addr", "...": "..."}]
+  "devices": [{"kind": "memory", "name": "data_ram", "addr": "port_addr", "...": "..."}],
+  "tests": [
+    {"set": {"clock": "high", "a": 5}, "expect": {"q": "low", "sum": 8}},
+    {"set": {"clock": "low"}, "any_unstable": ["n1", "n2"]}
+  ],
+  "checks": {"diag": [], "nets": 3, "transistors": 1, "same": [["a", "g1.in"]], "differ": [["a", "q"]]}
 }
 ```
 
@@ -296,5 +302,11 @@ Rules: unknown fields are rejected, and so are duplicate keys and anything after
 
 Limits, so that a few kilobytes cannot describe an unbounded circuit (checked by `Validate`, so they hold for edits too): coordinates of pixels, labels and instances within ±2^24; definition sizes up to 65536; the flattened circuit up to 2^20 instances and 2^28 on pixels.
 
-Devices: each entry is a JSON object with a `kind` and a `name`; names follow the label rules (letters, digits, underscores) and are unique in the document. The rest of the object belongs to the device kind and is checked by the runner (the document keeps it verbatim, compacted). A `version` bump comes with a migration function and a test. Memory init files are raw binary, referenced by path relative to the `.mip` file (on web, uploaded alongside). The same row format is used for test fixtures and for the clipboard, so a user can paste ASCII art directly.
+Tests (optional, version 2): a script of steps run in order. Each step pins the nets and buses in `set`, settles, then checks the values in `expect`, and that at least one net in `any_unstable` is unstable (which net of an oscillating loop trips first depends on evaluation order). Values are `high`, `low`, `float` or `unstable` for a net, and an unsigned number for a bus (`name_0`, `name_1`, ...), as a JSON number or a string such as `"0xab"`. Pins persist from step to step, so sequential circuits can be tested. The document carries the script; the behaviour tests run it.
+
+Checks (optional, version 2): structural assertions used by the pattern tests: `diag` (the distinct diagnostic codes with thin wires, `[]` for a clean circuit), `diag_isolated` (the same for the isolated-sources variant), `nets` and `transistors` (counts with thin wires), `same` (each list of names is one net) and `differ` (the first name is a different net from each of the others).
+
+Version 1 files, which have no note, tests or checks, load unchanged.
+
+Devices: each entry is a JSON object with a `kind` and a `name`; names follow the label rules (letters, digits, underscores) and are unique in the document. The rest of the object belongs to the device kind and is checked by the runner (the document keeps it verbatim, compacted). A `version` bump comes with a migration function and a test. Memory init files are raw binary, referenced by path relative to the `.mip` file (on web, uploaded alongside). The same row format is used for the clipboard, so a user can paste ASCII art directly.
 

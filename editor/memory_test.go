@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/Castux/mipsim2/devices"
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/internal/mipfile"
 	"github.com/Castux/mipsim2/sim"
 )
 
@@ -16,17 +16,17 @@ import (
 // is written, read back, and a device error stops the simulation with a
 // message.
 func TestRAMInEditor(t *testing.T) {
-	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "runner", "ram.fix"))
+	d, err := mipfile.Load(filepath.Join("..", "testdata", "runner", "ram.mip"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := New(fx.Doc)
+	e := New(d)
 	e.Do(ActToggleSimulate)
 	if e.Mode() != SimulateMode {
 		t.Fatalf("not simulating: %s", e.Status)
 	}
 	at := func(name string) (int, int) {
-		for _, l := range fx.Doc.RootDef().Labels {
+		for _, l := range d.RootDef().Labels {
 			if l.Name == name {
 				return l.X, l.Y
 			}
@@ -80,13 +80,13 @@ func TestRAMInEditor(t *testing.T) {
 // does: add, rename its buses to match the circuit, undo, and reload an init
 // file while simulating.
 func TestDeviceEditing(t *testing.T) {
-	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "runner", "ram.fix"))
+	d, err := mipfile.Load(filepath.Join("..", "testdata", "runner", "ram.mip"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	fx.Doc.Devices = nil
+	d.Devices = nil
 	files := map[string][]byte{"prog.bin": {1, 2, 3}}
-	e := New(fx.Doc)
+	e := New(d)
 	e.ReadFile = func(name string) ([]byte, error) {
 		if b, ok := files[name]; ok {
 			return b, nil

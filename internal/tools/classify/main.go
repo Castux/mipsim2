@@ -1,7 +1,7 @@
-// Command classify prints the role map, nets and diagnostics of a fixture.
+// Command classify prints the role map, nets and diagnostics of a document.
 // It is a development aid for drawing fixtures by hand:
 //
-//	go run ./internal/tools/classify testdata/sim/nand.fix
+//	go run ./internal/tools/classify testdata/sim/nand.mip
 package main
 
 import (
@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/internal/mipfile"
 	"github.com/Castux/mipsim2/netlist"
 )
 
@@ -18,10 +18,10 @@ func main() {
 	isolated := flag.Bool("isolated", false, "use the isolated-sources variant")
 	flag.Parse()
 	if flag.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: classify [-isolated] file.fix")
+		fmt.Fprintln(os.Stderr, "usage: classify [-isolated] file.mip")
 		os.Exit(2)
 	}
-	fx, err := fixture.ParseFile(flag.Arg(0))
+	d, err := mipfile.Load(flag.Arg(0))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -30,7 +30,7 @@ func main() {
 	if *isolated {
 		opts.Variant = netlist.IsolatedSources
 	}
-	flat := fx.Doc.Flatten()
+	flat := d.Flatten()
 	nl := netlist.Compile(flat, opts)
 	r := flat.Pixels.Bounds().Inset(-1)
 

@@ -1,0 +1,29 @@
+{
+  "format": "mipsim",
+  "version": 2,
+  "note": "any 3x3 loop of wire is a low source",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "###",
+        "#.##",
+        "###"
+      ],
+      "labels": [
+        {
+          "x": 3,
+          "y": 1,
+          "name": "gnd"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": []
+  }
+}

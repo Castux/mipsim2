@@ -1,9 +1,8 @@
 // Command mipsim is the editor.
 //
-//	mipsim [flags] [file.mip | file.fix]
+//	mipsim [flags] [file.mip]
 //
-// A .mip file is saved back in place with ctrl+s. A .fix test fixture can be
-// opened for viewing; saving it writes a .mip next to it.
+// The file is saved back in place with ctrl+s.
 package main
 
 import (
@@ -12,11 +11,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/Castux/mipsim2/doc"
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/internal/mipfile"
 	"github.com/Castux/mipsim2/ui"
 )
 
@@ -52,17 +50,14 @@ func main() {
 	}
 }
 
-// open loads a .mip or .fix file. A missing .mip file starts a new document
-// that will be saved there.
+// open loads a .mip file. A missing file starts a new document that will be
+// saved there.
 func open(path string) (*doc.Document, string, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) && !strings.EqualFold(filepath.Ext(path), ".fix") {
+	d, err := mipfile.Load(path)
+	if errors.Is(err, fs.ErrNotExist) {
 		return doc.New(), path, nil
 	}
-	if err != nil {
-		return nil, "", err
-	}
-	return fixture.LoadDocument(path, data)
+	return d, path, err
 }
 
 // parseClick parses "X,Y" for the -click flag.

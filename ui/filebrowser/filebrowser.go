@@ -34,10 +34,6 @@ type Lister func(dir string, done func([]Entry, error))
 // Ext is the extension of files the dialog saves.
 const Ext = ".mip"
 
-// FixtureExt is the extension of test fixtures, which Open also lists: they
-// load like documents.
-const FixtureExt = ".fix"
-
 // Browser is the dialog's state.
 type Browser struct {
 	Mode     Mode
@@ -235,12 +231,12 @@ func (b *Browser) choose(path string) (string, bool) {
 	return path, true
 }
 
-// shows reports whether a file is listed: .mip files, and in Open mode also
-// .fix fixtures. Pick lists every file.
+// shows reports whether a file is listed: .mip files, or every file in Pick
+// mode.
 func (b *Browser) shows(name string) bool {
 	if b.Mode == Pick {
 		return true
 	}
 	ext := strings.ToLower(filepath.Ext(name))
-	return ext == Ext || b.Mode == Open && ext == FixtureExt
+	return ext == Ext
 }

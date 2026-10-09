@@ -9,10 +9,10 @@ import (
 	"testing"
 
 	"github.com/Castux/mipsim2/doc"
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/internal/mipfile"
 )
 
-var adderFix = filepath.Join("..", "..", "testdata", "runner", "adder4.fix")
+var adderMip = filepath.Join("..", "..", "testdata", "runner", "adder4.mip")
 
 func runCLI(t *testing.T, args ...string) (string, string, int) {
 	t.Helper()
@@ -21,26 +21,13 @@ func runCLI(t *testing.T, args ...string) (string, string, int) {
 	return out.String(), errOut.String(), code
 }
 
-// TestAdderFromCLI checks all 512 inputs of the 4-bit adder through the CLI,
-// using a .mip file saved from the fixture.
+// TestAdderFromCLI checks all 512 inputs of the 4-bit adder through the CLI.
 func TestAdderFromCLI(t *testing.T) {
-	fx, err := fixture.ParseFile(adderFix)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := fx.Doc.Save()
-	if err != nil {
-		t.Fatal(err)
-	}
-	mip := filepath.Join(t.TempDir(), "adder4.mip")
-	if err := os.WriteFile(mip, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
 	for a := range 16 {
 		for b := range 16 {
 			for c := range 2 {
 				set := fmt.Sprintf("a=%d,b=%d,cin=%d", a, b, c)
-				out, errOut, code := runCLI(t, mip, "--set", set, "--watch", "sum,cout")
+				out, errOut, code := runCLI(t, adderMip, "--set", set, "--watch", "sum,cout")
 				if code != 0 {
 					t.Fatalf("%s: exit %d: %s", set, code, errOut)
 				}
@@ -55,7 +42,7 @@ func TestAdderFromCLI(t *testing.T) {
 }
 
 func TestClockAndTrace(t *testing.T) {
-	inv := filepath.Join("..", "..", "testdata", "sim", "inverter.fix")
+	inv := filepath.Join("..", "..", "testdata", "sim", "inverter.mip")
 	out, errOut, code := runCLI(t, "--clock", "in", inv, "--ticks", "2", "--watch", "in,out")
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, errOut)
@@ -78,12 +65,12 @@ func TestCLIErrors(t *testing.T) {
 	}{
 		{[]string{}, "usage"},
 		{[]string{"nope.mip"}, "nope.mip"},
-		{[]string{adderFix, "--watch", "nothing"}, "no net or bus"},
-		{[]string{adderFix, "--set", "a"}, "name=value"},
-		{[]string{adderFix, "--set", "a=99"}, "does not fit"},
-		{[]string{adderFix, "--ticks", "1"}, "needs a clock"},
-		{[]string{adderFix, "--ticks", "-3"}, "negative"},
-		{[]string{adderFix, "--dump", "nope"}, "no memory device"},
+		{[]string{adderMip, "--watch", "nothing"}, "no net or bus"},
+		{[]string{adderMip, "--set", "a"}, "name=value"},
+		{[]string{adderMip, "--set", "a=99"}, "does not fit"},
+		{[]string{adderMip, "--ticks", "1"}, "needs a clock"},
+		{[]string{adderMip, "--ticks", "-3"}, "negative"},
+		{[]string{adderMip, "--dump", "nope"}, "no memory device"},
 	}
 	for _, c := range cases {
 		_, errOut, code := runCLI(t, c.args...)
@@ -92,8 +79,9 @@ func TestCLIErrors(t *testing.T) {
 		}
 	}
 
-	bad := filepath.Join(t.TempDir(), "bad.fix")
-	os.WriteFile(bad, []byte("###\n###\n###\n###\n"), 0o644)
+	bad := filepath.Join(t.TempDir(), "bad.mip")
+	os.WriteFile(bad, []byte(`{"format": "mipsim", "version": 2, "root": "top",
+		"defs": {"top": {"rows": ["###", "###", "###", "###"]}}}`), 0o644)
 	_, errOut, code := runCLI(t, bad)
 	if code != 1 || !strings.Contains(errOut, "E_THICK") {
 		t.Errorf("circuit with errors: exit %d, stderr %q", code, errOut)
@@ -104,7 +92,7 @@ func TestCLIErrors(t *testing.T) {
 // through the buses shows in the memory dump, and reading returns the
 // contents loaded from an init file next to the document.
 func TestRAMFromCLI(t *testing.T) {
-	ram := filepath.Join("..", "..", "testdata", "runner", "ram.fix")
+	ram := filepath.Join("..", "..", "testdata", "runner", "ram.mip")
 	out, errOut, code := runCLI(t, ram, "--set", "sel=1,we=1,addr=17,data=0xab", "--watch", "data,q", "--dump", "ram")
 	if code != 0 {
 		t.Fatalf("write: exit %d: %s", code, errOut)
@@ -114,13 +102,13 @@ func TestRAMFromCLI(t *testing.T) {
 	}
 
 	// A .mip copy whose memory loads ram.bin from beside it.
-	fx, err := fixture.ParseFile(ram)
+	d, err := mipfile.Load(ram)
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &fx.Doc.Devices[0]
+	c := &d.Devices[0]
 	*c, _ = doc.NewDeviceConfig([]byte(strings.Replace(string(c.Raw), `"width":8`, `"width":8,"init":"ram.bin"`, 1)))
-	data, err := fx.Doc.Save()
+	data, err := d.Save()
 	if err != nil {
 		t.Fatal(err)
 	}

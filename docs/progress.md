@@ -405,7 +405,7 @@ Open, by decision: compile is still about 60 ms (+22 ms flatten) against the 50 
 ## Cleanup before M9
 
 - Removed: the M0 spikes (and with them the ebitenui dependency), the M5 screenshots of the old UI, and a duplicate inverter fixture.
-- One loader for `.mip` and `.fix` files (`fixture.LoadDocument`), used by the editor command, the file dialog and the CLI, which had three versions with slightly different rules.
+- One loader for `.mip` and `.fix` files (`fixture.LoadDocument`), used by the editor command, the file dialog and the CLI, which had three versions with slightly different rules. (Since replaced: fixtures are now `.mip` files.)
 - README rewritten with a screenshot; PLAN has a Status section and matches what was built.
 
 ## Importing components (owner request)
@@ -418,3 +418,12 @@ The Components tab ends with an Import components... button. It opens the file d
 - The selection logic is `editor.ImportSelection` and the copy is `Editor.Import`, both headless and tested on `adder8.fix` (importing into itself, so every name clashes).
 - Not done: recognising that an identical component already exists and reusing it instead of importing a copy.
 
+## One file format (owner request)
+
+Test fixtures were a second format (`.fix`: drawing rows plus `# ` directives). They are now ordinary `.mip` documents, and the `.fix` parser is gone.
+
+- **Format version 2** adds three optional fields: `note` (a description, replacing the fixture's first comment line), `tests` (a script: each step sets nets and buses, settles, checks expected values and optionally that some net is unstable) and `checks` (the pattern tests' assertions: diagnostic codes, net and transistor counts, same and different nets). Version 1 files load unchanged. The editor carries the fields through edits and saves.
+- **Save uses Go's standard encoder** (`json.Encoder` with two-space indent) instead of a hand-written layout. Files are longer, since each label and instance field takes its own line, but there is less code to maintain. The root origin's x still snaps to 16.
+- **Conversion:** the 34 fixtures were converted by a one-off tool that used the old parser, checking each round trip. `line`, `px` and relative `def` blocks became rows; `input` and `output` became plain labels, since a step says which names it sets and which it checks. Classification goldens are unchanged.
+- **Loading from disk** is `internal/mipfile.Load` (core packages may not use `os`). The editor command, the file dialog and the CLI only take `.mip` files.
+- **Newly run:** the `expect` lines of `adder4` and `adder8` were never executed before. The behaviour test now runs every document in `testdata/sim` and `testdata/runner` that has tests, in all 8 orientations.

@@ -8,27 +8,20 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/Castux/mipsim2/doc"
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/internal/mipfile"
 )
 
 var update = flag.Bool("update", false, "rewrite classification goldens in testdata/netlist")
 
-// Fixture directives understood here (besides the structural ones):
-//
-//	# diag CODE...           distinct diagnostic codes with thin wires ("none" for a clean circuit)
-//	# diag-isolated CODE...  the same for the isolated-sources variant
-//	# nets N                 number of nets (thin wires)
-//	# transistors N          number of transistors (thin wires)
-//	# same NAME NAME...      the named nets are one net
-//	# differ NAME NAME       the named nets are different nets
+// Fixtures in testdata/netlist are documents whose checks (doc.Checks) are
+// verified here, along with a classification golden for each.
 
 func fixtureFiles(t *testing.T) []string {
-	files, err := filepath.Glob(filepath.Join("..", "testdata", "netlist", "*.fix"))
+	files, err := filepath.Glob(filepath.Join("..", "testdata", "netlist", "*.mip"))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no fixtures found: %v", err)
 	}
@@ -68,27 +61,24 @@ func codes(nl *Netlist) []string {
 		}
 	}
 	slices.Sort(cs)
-	if cs == nil {
-		cs = []string{"none"}
-	}
 	return cs
 }
 
 func TestFixtures(t *testing.T) {
 	for _, path := range fixtureFiles(t) {
-		name := strings.TrimSuffix(filepath.Base(path), ".fix")
+		name := strings.TrimSuffix(filepath.Base(path), ".mip")
 		t.Run(name, func(t *testing.T) {
-			fx, err := fixture.ParseFile(path)
+			d, err := mipfile.Load(path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			flat := fx.Doc.Flatten()
-			r := extent(fx.Doc, flat)
+			flat := d.Flatten()
+			r := extent(d, flat)
 			thin := Compile(flat, Options{Variant: ThinWires})
 			iso := Compile(flat, Options{Variant: IsolatedSources})
 
 			got := "== thin-wires\n" + golden(thin, r) + "== isolated-sources\n" + golden(iso, r)
-			gpath := strings.TrimSuffix(path, ".fix") + ".golden"
+			gpath := strings.TrimSuffix(path, ".mip") + ".golden"
 			if *update {
 				if err := os.WriteFile(gpath, []byte(got), 0o644); err != nil {
 					t.Fatal(err)
@@ -99,43 +89,53 @@ func TestFixtures(t *testing.T) {
 				t.Errorf("classification differs from %s:\ngot:\n%s\nwant:\n%s", gpath, got, want)
 			}
 
-			for _, dir := range fx.Directives {
-				switch dir.Word {
-				case "diag", "diag-isolated":
-					nl := thin
-					if dir.Word == "diag-isolated" {
-						nl = iso
+			c := d.Checks
+			if c == nil {
+				t.Fatal("no checks")
+			}
+			for _, v := range []struct {
+				name string
+				nl   *Netlist
+				want *[]string
+			}{{"diag", thin, c.Diag}, {"diag_isolated", iso, c.DiagIsolated}} {
+				if v.want == nil {
+					continue
+				}
+				want := slices.Sorted(slices.Values(*v.want))
+				if got := codes(v.nl); !slices.Equal(got, want) {
+					t.Errorf("%s codes = %v, want %v\n%s", v.name, got, want, golden(v.nl, r))
+				}
+			}
+			if c.Nets != nil && len(thin.Nets) != *c.Nets {
+				t.Errorf("%d nets, want %d", len(thin.Nets), *c.Nets)
+			}
+			if c.Transistors != nil && len(thin.Transistors) != *c.Transistors {
+				t.Errorf("%d transistors, want %d", len(thin.Transistors), *c.Transistors)
+			}
+			lookup := func(names []string) []NetID {
+				var ids []NetID
+				for _, n := range names {
+					id, ok := thin.Lookup(n)
+					if !ok {
+						t.Errorf("no net named %q", n)
 					}
-					want := slices.Clone(dir.Args)
-					slices.Sort(want)
-					if got := codes(nl); !slices.Equal(got, want) {
-						t.Errorf("line %d: %s codes = %v, want %v\n%s", dir.Line, dir.Word, got, want, golden(nl, r))
+					ids = append(ids, id)
+				}
+				return ids
+			}
+			for _, names := range c.Same {
+				ids := lookup(names)
+				for _, id := range ids[1:] {
+					if id != ids[0] {
+						t.Errorf("%v are not one net", names)
 					}
-				case "nets", "transistors":
-					n, _ := strconv.Atoi(dir.Args[0])
-					got := len(thin.Nets)
-					if dir.Word == "transistors" {
-						got = len(thin.Transistors)
-					}
-					if got != n {
-						t.Errorf("line %d: %d %s, want %d", dir.Line, got, dir.Word, n)
-					}
-				case "same", "differ":
-					var ids []NetID
-					for _, a := range dir.Args {
-						id, ok := thin.Lookup(a)
-						if !ok {
-							t.Errorf("line %d: no net named %q", dir.Line, a)
-						}
-						ids = append(ids, id)
-					}
-					for _, id := range ids[1:] {
-						if dir.Word == "same" && id != ids[0] {
-							t.Errorf("line %d: %v are not one net", dir.Line, dir.Args)
-						}
-						if dir.Word == "differ" && id == ids[0] {
-							t.Errorf("line %d: %v are the same net", dir.Line, dir.Args)
-						}
+				}
+			}
+			for _, names := range c.Differ {
+				ids := lookup(names)
+				for _, id := range ids[1:] {
+					if id == ids[0] {
+						t.Errorf("%v are the same net", names)
 					}
 				}
 			}
@@ -184,17 +184,17 @@ func diagCounts(nl *Netlist) map[string]int {
 // the pixels and that the netlist and diagnostics are otherwise unchanged.
 func TestOrientationInvariance(t *testing.T) {
 	for _, path := range fixtureFiles(t) {
-		name := strings.TrimSuffix(filepath.Base(path), ".fix")
-		fx, err := fixture.ParseFile(path)
+		name := strings.TrimSuffix(filepath.Base(path), ".mip")
+		d, err := mipfile.Load(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		flat := fx.Doc.Flatten()
-		r := extent(fx.Doc, flat)
+		flat := d.Flatten()
+		r := extent(d, flat)
 		for _, variant := range []Variant{ThinWires, IsolatedSources} {
 			base := Compile(flat, Options{Variant: variant})
 			for _, o := range doc.AllOrients {
-				wd, m := wrap(fx.Doc, r, o)
+				wd, m := wrap(d, r, o)
 				if err := wd.Validate(); err != nil {
 					t.Fatalf("%s %v: wrapped document invalid: %v", name, o, err)
 				}

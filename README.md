@@ -34,9 +34,9 @@ You need Go 1.26 or later. On Linux, Ebitengine also needs the X11 and OpenGL de
 
 ```sh
 go run ./cmd/mipsim circuit.mip                 # edit a circuit (created on first save)
-go run ./cmd/mipsim testdata/runner/adder4.fix  # open a test fixture
-go run ./cmd/mipsim-run testdata/runner/adder4.fix --set a=3,b=5,cin=0 --watch sum,cout
-go run ./cmd/mipsim-run testdata/runner/ram.fix --set sel=1,we=1,addr=17,data=0xab --dump ram
+go run ./cmd/mipsim testdata/runner/adder4.mip  # open a test fixture
+go run ./cmd/mipsim-run testdata/runner/adder4.mip --set a=3,b=5,cin=0 --watch sum,cout
+go run ./cmd/mipsim-run testdata/runner/ram.mip --set sel=1,we=1,addr=17,data=0xab --dump ram
 go test ./...                                   # run the tests
 scripts/check.sh                                # every check CI runs
 ```
@@ -45,7 +45,7 @@ In the editor every action is a button showing its key, and the bottom line expl
 
 ## Files
 
-Documents are `.mip` files: deterministic, line-oriented JSON in which pixels are rows of `#` and `.`, so circuits diff well in git. Test fixtures (`.fix`) use the same rows plus directives, and the editor opens them too. The format is in [docs/SPEC.md](docs/SPEC.md), and the fixture syntax in `internal/fixture`.
+Documents are `.mip` files: deterministic, indented JSON in which pixels are rows of `#` and `.`, so circuits diff well in git. A document can also carry a test script (pins to set and values to expect) and structural checks; the test fixtures in `testdata/` are ordinary documents with these fields. The format is in [docs/SPEC.md](docs/SPEC.md).
 
 ## Layout
 
@@ -59,8 +59,8 @@ Documents are `.mip` files: deterministic, line-oriented JSON in which pixels ar
 | `editor/` | Editor logic: tools, selection, components, undo (no graphics, unit-tested) |
 | `ui/`, `platform/` | Ebitengine front end, file access for desktop (and web later) |
 | `cmd/` | `mipsim` (editor) and `mipsim-run` (headless CLI) |
-| `internal/` | Fixture parser, dependency checks, benchmark circuits, dev tools |
-| `testdata/` | ASCII circuit fixtures and classification goldens |
+| `internal/` | File loading, dependency checks, benchmark circuits, dev tools |
+| `testdata/` | Circuit fixtures with tests, and classification goldens |
 
 ## License
 

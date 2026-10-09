@@ -10,6 +10,7 @@ const specExample = `
 {
   "format": "mipsim",
   "version": 1,
+  "note": "the example from the spec",
   "root": "top",
   "defs": {
     "top": {
@@ -25,7 +26,12 @@ const specExample = `
       "instances": []
     }
   },
-  "devices": [{"kind": "memory", "name": "data_ram", "addr": "port_addr"}]
+  "devices": [{"kind": "memory", "name": "data_ram", "addr": "port_addr"}],
+  "tests": [
+    {"set": {"clock": "high", "a": 0}, "expect": {"q": "low", "sum": "0xff"}},
+    {"set": {"clock": "low"}, "any_unstable": ["x", "y"]}
+  ],
+  "checks": {"diag": [], "nets": 3, "same": [["a", "b"]]}
 }`
 
 func TestLoadSpecExample(t *testing.T) {
@@ -56,35 +62,88 @@ func TestSaveFormatIsStable(t *testing.T) {
 	}
 	want := `{
   "format": "mipsim",
-  "version": 1,
+  "version": 2,
+  "note": "the example from the spec",
   "root": "top",
   "defs": {
+    "nand2": {
+      "w": 11,
+      "h": 9,
+      "labels": [
+        {
+          "x": 0,
+          "y": 4,
+          "name": "a"
+        }
+      ]
+    },
     "top": {
-      "origin": [-16, -8],
+      "origin": [
+        -16,
+        -8
+      ],
       "rows": [
         ".......#",
         "......###",
         ".......#"
       ],
       "labels": [
-        {"x":-9,"y":-8,"name":"clock"}
+        {
+          "x": -9,
+          "y": -8,
+          "name": "clock"
+        }
       ],
       "instances": [
-        {"id":"i1","def":"nand2","x":20,"y":4,"orient":"r90","name":"g1"}
+        {
+          "id": "i1",
+          "def": "nand2",
+          "x": 20,
+          "y": 4,
+          "orient": "r90",
+          "name": "g1"
+        }
       ]
-    },
-    "nand2": {
-      "w": 11, "h": 9,
-      "rows": [],
-      "labels": [
-        {"x":0,"y":4,"name":"a"}
-      ],
-      "instances": []
     }
   },
   "devices": [
-    {"kind":"memory","name":"data_ram","addr":"port_addr"}
-  ]
+    {
+      "kind": "memory",
+      "name": "data_ram",
+      "addr": "port_addr"
+    }
+  ],
+  "tests": [
+    {
+      "set": {
+        "a": 0,
+        "clock": "high"
+      },
+      "expect": {
+        "q": "low",
+        "sum": "0xff"
+      }
+    },
+    {
+      "set": {
+        "clock": "low"
+      },
+      "any_unstable": [
+        "x",
+        "y"
+      ]
+    }
+  ],
+  "checks": {
+    "diag": [],
+    "nets": 3,
+    "same": [
+      [
+        "a",
+        "b"
+      ]
+    ]
+  }
 }
 `
 	if string(data) != want {
@@ -103,7 +162,7 @@ func TestSaveFormatIsStable(t *testing.T) {
 func TestLoadRejects(t *testing.T) {
 	cases := []struct{ name, edit, want string }{
 		{"bad format", `"format": "mipsim"|"format": "other"`, "format is"},
-		{"newer version", `"version": 1|"version": 2`, "newer"},
+		{"newer version", `"version": 1|"version": 3`, "newer"},
 		{"unknown field", `"root": "top",|"root": "top", "colour": 3,`, "unknown field"},
 		{"bad row char", `"rows": ["..."]|"rows": [".x."]`, "unexpected character"},
 		{"row too wide", `"rows": ["..."]|"rows": ["............"]`, "characters for width"},

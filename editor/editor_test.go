@@ -8,7 +8,7 @@ import (
 
 	"github.com/Castux/mipsim2/bitmap"
 	"github.com/Castux/mipsim2/doc"
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/internal/mipfile"
 	"github.com/Castux/mipsim2/netlist"
 	"github.com/Castux/mipsim2/sim"
 )
@@ -149,12 +149,33 @@ func TestEditInsideInstanceEditsDefinition(t *testing.T) {
 	}
 }
 
-func TestSimulateInverter(t *testing.T) {
-	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "sim", "inverter.fix"))
+// TestEditKeepsTests checks that a document's note, tests and checks survive
+// drawing, undo and redo, so saving from the editor keeps them.
+func TestEditKeepsTests(t *testing.T) {
+	d, err := mipfile.Load(filepath.Join("..", "testdata", "sim", "sr_latch.mip"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := New(fx.Doc)
+	orig := d.Clone()
+	e := New(d)
+	drag(e, Mods{}, pt(40, 40))
+	e.Undo()
+	e.Redo()
+	if e.Doc.Note != orig.Note || len(e.Doc.Tests) != len(orig.Tests) || len(e.Doc.Tests) == 0 {
+		t.Errorf("note %q and %d tests, want %q and %d", e.Doc.Note, len(e.Doc.Tests), orig.Note, len(orig.Tests))
+	}
+	e.Undo()
+	if !e.Doc.Equal(orig) {
+		t.Error("undo did not restore the document")
+	}
+}
+
+func TestSimulateInverter(t *testing.T) {
+	d, err := mipfile.Load(filepath.Join("..", "testdata", "sim", "inverter.mip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := New(d)
 	e.Do(ActToggleSimulate)
 	if e.Mode() != SimulateMode {
 		t.Fatalf("not simulating: %s", e.Status)
@@ -226,11 +247,11 @@ func TestReplaceDocumentChangesCompiles(t *testing.T) {
 	e := New(doc.New())
 	e.Netlist()
 	before := e.Compiles()
-	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "sim", "crossing.fix"))
+	d, err := mipfile.Load(filepath.Join("..", "testdata", "sim", "crossing.mip"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.ReplaceDocument(fx.Doc)
+	e.ReplaceDocument(d)
 	if e.Compiles() == before {
 		t.Errorf("Compiles still %d after ReplaceDocument", before)
 	}

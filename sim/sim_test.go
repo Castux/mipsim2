@@ -4,17 +4,18 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/doc"
+	"github.com/Castux/mipsim2/internal/mipfile"
 	"github.com/Castux/mipsim2/netlist"
 )
 
 func load(t *testing.T, name string) (*Sim, func(string) netlist.NetID) {
 	t.Helper()
-	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "sim", name))
+	d, err := mipfile.Load(filepath.Join("..", "testdata", "sim", name))
 	if err != nil {
 		t.Fatal(err)
 	}
-	nl := netlist.CompileDoc(fx.Doc, netlist.Options{})
+	nl := netlist.CompileDoc(d, netlist.Options{})
 	s, err := New(nl, Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +40,7 @@ func countUnstable(s *Sim) int {
 }
 
 func TestUnstableClearsAtNextSettle(t *testing.T) {
-	s, net := load(t, "ring_osc.fix")
+	s, net := load(t, "ring_osc.mip")
 	if countUnstable(s) == 0 {
 		t.Fatal("oscillator not unstable after reset")
 	}
@@ -70,7 +71,7 @@ func TestUnstableClearsAtNextSettle(t *testing.T) {
 }
 
 func TestLowWinsOverHighPin(t *testing.T) {
-	s, net := load(t, "inverter.fix")
+	s, net := load(t, "inverter.mip")
 	s.Pin(net("in"), High)
 	s.Pin(net("out"), High)
 	s.Settle()
@@ -89,8 +90,8 @@ func TestLowWinsOverHighPin(t *testing.T) {
 }
 
 func TestStepMatchesSettle(t *testing.T) {
-	a, netA := load(t, "xor.fix")
-	b, netB := load(t, "xor.fix")
+	a, netA := load(t, "xor.mip")
+	b, netB := load(t, "xor.mip")
 	a.Pin(netA("a"), High)
 	b.Pin(netB("a"), High)
 
@@ -119,7 +120,7 @@ func TestStepMatchesSettle(t *testing.T) {
 }
 
 func TestResetClearsPins(t *testing.T) {
-	s, net := load(t, "inverter.fix")
+	s, net := load(t, "inverter.mip")
 	s.Pin(net("in"), High)
 	s.Settle()
 	s.Reset()
@@ -129,8 +130,13 @@ func TestResetClearsPins(t *testing.T) {
 }
 
 func TestNewRejectsErrors(t *testing.T) {
-	fx := fixture.MustParse("###\n###\n###\n###")
-	nl := netlist.CompileDoc(fx.Doc, netlist.Options{})
+	d := doc.New() // a 3x4 block: a thick-region error
+	for y := range 4 {
+		for x := range 3 {
+			d.RootDef().Pixels.Set(x, y, true)
+		}
+	}
+	nl := netlist.CompileDoc(d, netlist.Options{})
 	if _, err := New(nl, Options{}); err != ErrNetlistHasErrors {
 		t.Errorf("New on a netlist with errors: %v", err)
 	}
@@ -139,7 +145,7 @@ func TestNewRejectsErrors(t *testing.T) {
 // TestChangeSteps checks that every change reports the step it belongs to,
 // including the release of unstable nets at the start of a settle.
 func TestChangeSteps(t *testing.T) {
-	s, net := load(t, "ring_osc.fix")
+	s, net := load(t, "ring_osc.mip")
 	var changes []Change
 	s.OnChange = func(c Change) { changes = append(changes, c) }
 	s.Pin(net("n1"), Low)
@@ -160,11 +166,11 @@ func TestChangeSteps(t *testing.T) {
 // times in one settle, and the next switch marks its nets unstable. A
 // negative threshold means the default, so pins stay clean.
 func TestFlipThreshold(t *testing.T) {
-	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "sim", "inverter.fix"))
+	d, err := mipfile.Load(filepath.Join("..", "testdata", "sim", "inverter.mip"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	nl := netlist.CompileDoc(fx.Doc, netlist.Options{})
+	nl := netlist.CompileDoc(d, netlist.Options{})
 	s, err := New(nl, Options{FlipThreshold: -1})
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +183,7 @@ func TestFlipThreshold(t *testing.T) {
 	}
 
 	for _, th := range []int{1, 5} {
-		ring, _ := load(t, "ring_osc.fix")
+		ring, _ := load(t, "ring_osc.mip")
 		s, _ := New(ring.Netlist(), Options{FlipThreshold: th})
 		most := int32(0)
 		s.OnChange = func(Change) {

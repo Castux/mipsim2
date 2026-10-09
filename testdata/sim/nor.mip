@@ -1,0 +1,84 @@
+{
+  "format": "mipsim",
+  "version": 2,
+  "note": "two pull-down transistors in parallel; inputs on both edges",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "###",
+        "###",
+        "###",
+        ".#...#",
+        "#########",
+        ".#...#",
+        "##...####",
+        ".#.#.#",
+        ".#####",
+        "...#",
+        "..###",
+        "..#.#",
+        "..###"
+      ],
+      "labels": [
+        {
+          "x": 0,
+          "y": 6,
+          "name": "a"
+        },
+        {
+          "x": 8,
+          "y": 6,
+          "name": "b"
+        },
+        {
+          "x": 8,
+          "y": 4,
+          "name": "out"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "set": {
+        "a": "low",
+        "b": "low"
+      },
+      "expect": {
+        "out": "high"
+      }
+    },
+    {
+      "set": {
+        "a": "high",
+        "b": "low"
+      },
+      "expect": {
+        "out": "low"
+      }
+    },
+    {
+      "set": {
+        "a": "low",
+        "b": "high"
+      },
+      "expect": {
+        "out": "low"
+      }
+    },
+    {
+      "set": {
+        "a": "high",
+        "b": "high"
+      },
+      "expect": {
+        "out": "low"
+      }
+    }
+  ]
+}

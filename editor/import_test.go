@@ -7,22 +7,22 @@ import (
 	"testing"
 
 	"github.com/Castux/mipsim2/doc"
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/internal/mipfile"
 )
 
-func loadFix(t *testing.T, path ...string) *doc.Document {
+func loadMip(t *testing.T, path ...string) *doc.Document {
 	t.Helper()
-	fx, err := fixture.ParseFile(filepath.Join(append([]string{".."}, path...)...))
+	d, err := mipfile.Load(filepath.Join(append([]string{".."}, path...)...))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return fx.Doc
+	return d
 }
 
 // TestImportSelection checks that picking a component forces everything it
 // uses, at any depth, and that forced ones cannot be unpicked alone.
 func TestImportSelection(t *testing.T) {
-	src := loadFix(t, "testdata", "runner", "adder8.fix")
+	src := loadMip(t, "testdata", "runner", "adder8.mip")
 	s := NewImportSelection(src)
 	var names []string
 	for _, it := range s.Items {
@@ -63,7 +63,7 @@ func TestImportSelection(t *testing.T) {
 // instances point at the imported copies (not the originals), and undo
 // removes them all.
 func TestImportRenamesAndRelinks(t *testing.T) {
-	src := loadFix(t, "testdata", "runner", "adder8.fix")
+	src := loadMip(t, "testdata", "runner", "adder8.mip")
 	e := New(src.Clone())
 	before := len(e.Definitions())
 	s := NewImportSelection(src)

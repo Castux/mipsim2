@@ -1,9 +1,0 @@
-# transistor.fix: a T is a transistor; the arm opposite the missing side is the gate
-# diag none
-# nets 3
-# transistors 1
-# input g 1,0
-# label a 0,1
-# label b 2,1
-.#.
-###

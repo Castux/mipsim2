@@ -1,0 +1,25 @@
+{
+  "format": "mipsim",
+  "version": 2,
+  "note": "a ring sharing pixels with a high source",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "#####",
+        "###.#",
+        "#####"
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "E_RING_OVERLAP",
+      "W_SOURCE_SHORT"
+    ]
+  }
+}

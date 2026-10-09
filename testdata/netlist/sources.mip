@@ -1,0 +1,35 @@
+{
+  "format": "mipsim",
+  "version": 2,
+  "note": "a high source and a low source, each with a labelled wire",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "####...###",
+        "###....#.##",
+        "###....###"
+      ],
+      "labels": [
+        {
+          "x": 3,
+          "y": 0,
+          "name": "vdd"
+        },
+        {
+          "x": 7,
+          "y": 1,
+          "name": "gnd"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [],
+    "nets": 2
+  }
+}

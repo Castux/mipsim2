@@ -1,0 +1,145 @@
+{
+  "format": "mipsim",
+  "version": 2,
+  "note": "nested, rotated instances and a source spanning an instance edge",
+  "root": "top",
+  "defs": {
+    "half": {
+      "w": 2,
+      "h": 3,
+      "rows": [
+        "##",
+        "##",
+        "##"
+      ]
+    },
+    "inv": {
+      "w": 9,
+      "h": 11,
+      "rows": [
+        "###",
+        "###",
+        "###",
+        ".#",
+        "#########",
+        ".#",
+        "##",
+        ".#",
+        "###",
+        "#.#",
+        "###"
+      ],
+      "labels": [
+        {
+          "x": 0,
+          "y": 6,
+          "name": "in"
+        },
+        {
+          "x": 8,
+          "y": 4,
+          "name": "out"
+        }
+      ]
+    },
+    "pair": {
+      "w": 21,
+      "h": 11,
+      "rows": [
+        "",
+        "",
+        "",
+        "",
+        ".........#",
+        ".........#",
+        ".........###"
+      ],
+      "instances": [
+        {
+          "id": "i1",
+          "def": "inv",
+          "x": 0,
+          "y": 0,
+          "name": "g1"
+        },
+        {
+          "id": "i2",
+          "def": "inv",
+          "x": 12,
+          "y": 0,
+          "name": "g2"
+        }
+      ]
+    },
+    "top": {
+      "origin": [
+        32,
+        0
+      ],
+      "rows": [
+        "..........#",
+        "..........##",
+        "..........#"
+      ],
+      "labels": [
+        {
+          "x": 43,
+          "y": 1,
+          "name": "vdd"
+        }
+      ],
+      "instances": [
+        {
+          "id": "i1",
+          "def": "pair",
+          "x": 0,
+          "y": 0,
+          "name": "p1"
+        },
+        {
+          "id": "i2",
+          "def": "pair",
+          "x": 24,
+          "y": 0,
+          "orient": "r90",
+          "name": "p2"
+        },
+        {
+          "id": "i3",
+          "def": "half",
+          "x": 40,
+          "y": 0,
+          "name": "h"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [],
+    "nets": 11,
+    "transistors": 4,
+    "same": [
+      [
+        "p1.g1.out",
+        "p1.g2.in"
+      ],
+      [
+        "p2.g1.out",
+        "p2.g2.in"
+      ],
+      [
+        "vdd"
+      ]
+    ],
+    "differ": [
+      [
+        "p1.g1.out",
+        "p2.g1.out"
+      ],
+      [
+        "p1.g1.in",
+        "p1.g2.out"
+      ]
+    ]
+  }
+}

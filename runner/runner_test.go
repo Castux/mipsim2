@@ -7,23 +7,24 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/doc"
+	"github.com/Castux/mipsim2/internal/mipfile"
 	"github.com/Castux/mipsim2/netlist"
 	"github.com/Castux/mipsim2/sim"
 )
 
 func load(t *testing.T, path string, opts Options) *Runner {
 	t.Helper()
-	fx, err := fixture.ParseFile(path)
+	d, err := mipfile.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return fromFixture(t, fx, opts)
+	return fromDoc(t, d, opts)
 }
 
-func fromFixture(t *testing.T, fx *fixture.Fixture, opts Options) *Runner {
+func fromDoc(t *testing.T, d *doc.Document, opts Options) *Runner {
 	t.Helper()
-	nl := netlist.CompileDoc(fx.Doc, netlist.Options{})
+	nl := netlist.CompileDoc(d, netlist.Options{})
 	if nl.HasErrors() {
 		t.Fatalf("compile errors: %v", nl.Diagnostics)
 	}
@@ -35,7 +36,7 @@ func fromFixture(t *testing.T, fx *fixture.Fixture, opts Options) *Runner {
 }
 
 func TestAdderAllInputs(t *testing.T) {
-	r := load(t, filepath.Join("..", "testdata", "runner", "adder4.fix"), Options{})
+	r := load(t, filepath.Join("..", "testdata", "runner", "adder4.mip"), Options{})
 	for _, name := range []string{"a", "b", "sum"} {
 		if bits, ok := r.Bus(name); !ok || len(bits) != 4 {
 			t.Fatalf("bus %s = %v", name, bits)
@@ -70,7 +71,7 @@ func TestAdderAllInputs(t *testing.T) {
 }
 
 func TestNamesAndFormat(t *testing.T) {
-	r := load(t, filepath.Join("..", "testdata", "runner", "adder4.fix"), Options{})
+	r := load(t, filepath.Join("..", "testdata", "runner", "adder4.mip"), Options{})
 	names := r.Names()
 	for _, want := range []string{"a", "a_0", "b_3", "cin", "cout", "sum", "sum_2"} {
 		if !slices.Contains(names, want) {
@@ -101,7 +102,7 @@ func TestNamesAndFormat(t *testing.T) {
 }
 
 func TestSetErrors(t *testing.T) {
-	r := load(t, filepath.Join("..", "testdata", "runner", "adder4.fix"), Options{})
+	r := load(t, filepath.Join("..", "testdata", "runner", "adder4.mip"), Options{})
 	cases := [][2]string{{"nope", "1"}, {"a", "16"}, {"a", "x"}, {"cin", "5"}}
 	for _, c := range cases {
 		if err := r.Set(c[0], c[1]); err == nil {
@@ -120,11 +121,11 @@ func TestSetErrors(t *testing.T) {
 }
 
 func TestClockToggles(t *testing.T) {
-	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "sim", "inverter.fix"))
+	d, err := mipfile.Load(filepath.Join("..", "testdata", "sim", "inverter.mip"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := fromFixture(t, fx, Options{Clock: "in"})
+	r := fromDoc(t, d, Options{Clock: "in"})
 	if !r.HasClock() || r.Format("out") != "1" {
 		t.Fatalf("clock low at start should give out=1, got %s", r.Format("out"))
 	}
@@ -142,7 +143,7 @@ func TestClockToggles(t *testing.T) {
 }
 
 func TestAdder8Sampled(t *testing.T) {
-	r := load(t, filepath.Join("..", "testdata", "runner", "adder8.fix"), Options{})
+	r := load(t, filepath.Join("..", "testdata", "runner", "adder8.mip"), Options{})
 	rng := rand.New(rand.NewPCG(9, 9))
 	cases := [][3]int{{0, 0, 0}, {255, 255, 1}, {255, 1, 0}, {128, 128, 0}, {85, 170, 1}}
 	for range 1500 {

@@ -1,0 +1,27 @@
+{
+  "format": "mipsim",
+  "version": 2,
+  "note": "a T whose arm is part of a thick region",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "##",
+        "####",
+        "..#",
+        "..#"
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "E_THICK",
+      "W_FLOATING_GATE"
+    ],
+    "diag_isolated": []
+  }
+}

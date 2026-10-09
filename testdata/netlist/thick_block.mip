@@ -1,0 +1,26 @@
+{
+  "format": "mipsim",
+  "version": 2,
+  "note": "a 3x4 block is not a source",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "###",
+        "###",
+        "###",
+        "###"
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "E_THICK"
+    ],
+    "diag_isolated": []
+  }
+}

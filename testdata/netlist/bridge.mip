@@ -1,0 +1,43 @@
+{
+  "format": "mipsim",
+  "version": 2,
+  "note": "crossing wires through a bridge gap stay separate",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "..#",
+        "..#",
+        "##.##",
+        "..#",
+        "..#"
+      ],
+      "labels": [
+        {
+          "x": 2,
+          "y": 0,
+          "name": "v"
+        },
+        {
+          "x": 0,
+          "y": 2,
+          "name": "h"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [],
+    "nets": 2,
+    "differ": [
+      [
+        "v",
+        "h"
+      ]
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "format": "mipsim",
+  "version": 2,
+  "note": "a high source wired straight to a low source",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "###.###",
+        "#####.#",
+        "###.###"
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "W_SOURCE_SHORT"
+    ]
+  }
+}
