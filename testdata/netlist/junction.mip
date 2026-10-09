@@ -1,0 +1,24 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "a 4-way cross of wire is a plain junction",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        ".#",
+        "###",
+        ".#"
+      ]
+    }
+  },
+  "checks": {
+    "diag": [],
+    "nets": 1,
+    "transistors": 0
+  }
+}

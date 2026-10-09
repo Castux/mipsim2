@@ -1,0 +1,35 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "a power block and a ground block, each with a labelled wire",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "HHH#...LLL",
+        "HHH....L.L#",
+        "HHH....LLL"
+      ],
+      "labels": [
+        {
+          "x": 3,
+          "y": 0,
+          "name": "vdd"
+        },
+        {
+          "x": 7,
+          "y": 1,
+          "name": "gnd"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [],
+    "nets": 2
+  }
+}

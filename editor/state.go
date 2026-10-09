@@ -160,9 +160,9 @@ func (e *Editor) Hint() string {
 	case e.tool == Select:
 		return "drag select an area · click select the innermost component, click again for the one around it · drag the selection to move it · esc clear · " + view
 	case e.tool == LabelTool:
-		return "click a pixel to name its wire · click a label to rename it · " + view
+		return "click a cell to name its wire · click a label to rename it · " + view
 	}
-	return "click toggle a pixel · drag paint · alt+drag straight line · " + view
+	return "left: wire or erase · right: cycle kind · 1-5: set kind · alt+drag: line · " + view
 }
 
 // Settle runs the simulation's settle loop. A device error (a memory reading

@@ -1,0 +1,52 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "labels on an empty cell and on a transistor cell",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        ".#",
+        "#T#",
+        "",
+        "#.#"
+      ],
+      "labels": [
+        {
+          "x": 1,
+          "y": 3,
+          "name": "a"
+        },
+        {
+          "x": 1,
+          "y": 1,
+          "name": "t"
+        },
+        {
+          "x": 1,
+          "y": 0,
+          "name": "g"
+        },
+        {
+          "x": 0,
+          "y": 1,
+          "name": "x"
+        },
+        {
+          "x": 2,
+          "y": 1,
+          "name": "y"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "E_LABEL_OFF_NET"
+    ]
+  }
+}

@@ -9,19 +9,21 @@ import (
 	"github.com/Castux/mipsim2/doc"
 )
 
-// Inverter is the plan's inverter: input at (0,6), output at (8,4).
+// Inverter is the plan's inverter, in typed cells: input at (0,6), output
+// at (8,4). It keeps the footprint of the original 3x3-source drawing so
+// benchmarks stay comparable with earlier measurements.
 var Inverter = []string{
-	"###......",
-	"###......",
-	"###......",
+	"HHH......",
+	"HHH......",
+	"HHH......",
 	".#.......",
 	"#########",
 	".#.......",
-	"##.......",
+	"#T.......",
 	".#.......",
-	"###......",
-	"#.#......",
-	"###......",
+	"LLL......",
+	"L.L......",
+	"LLL......",
 }
 
 const (

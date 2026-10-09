@@ -1,6 +1,0 @@
-# floating_gate.fix: a gate stub with no source, label or driver
-# diag W_FLOATING_GATE
-# label a 0,1
-# label b 2,1
-.#.
-###

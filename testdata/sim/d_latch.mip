@@ -1,0 +1,150 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "D latch: pass transistors with complementary enables E and En feed two inverters, Q feeds back",
+  "root": "top",
+  "defs": {
+    "inv": {
+      "w": 3,
+      "h": 3,
+      "rows": [
+        ".H#",
+        "#T",
+        ".L"
+      ]
+    },
+    "top": {
+      "origin": [
+        0,
+        -1
+      ],
+      "rows": [
+        "..#...........##",
+        "..#......##....#",
+        "##T###.........#",
+        "....#..........#",
+        "....#..........#",
+        "....T####......#",
+        "....#..........#",
+        "....############"
+      ],
+      "labels": [
+        {
+          "x": 0,
+          "y": 1,
+          "name": "D"
+        },
+        {
+          "x": 2,
+          "y": -1,
+          "name": "E"
+        },
+        {
+          "x": 8,
+          "y": 4,
+          "name": "En"
+        },
+        {
+          "x": 9,
+          "y": 0,
+          "name": "Qn"
+        },
+        {
+          "x": 14,
+          "y": -1,
+          "name": "Q"
+        }
+      ],
+      "instances": [
+        {
+          "id": "i1",
+          "def": "inv",
+          "x": 6,
+          "y": 0,
+          "name": "i2"
+        },
+        {
+          "id": "i2",
+          "def": "inv",
+          "x": 11,
+          "y": -1,
+          "name": "i3"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "set": {
+        "D": "high",
+        "E": "high",
+        "En": "low"
+      },
+      "expect": {
+        "Q": "high",
+        "Qn": "low"
+      }
+    },
+    {
+      "set": {
+        "D": "low",
+        "E": "high",
+        "En": "low"
+      },
+      "expect": {
+        "Q": "low",
+        "Qn": "high"
+      }
+    },
+    {
+      "set": {
+        "D": "low",
+        "E": "low",
+        "En": "high"
+      },
+      "expect": {
+        "Q": "low"
+      }
+    },
+    {
+      "set": {
+        "D": "high",
+        "E": "low",
+        "En": "high"
+      },
+      "expect": {
+        "Q": "low"
+      }
+    },
+    {
+      "set": {
+        "D": "high",
+        "E": "high",
+        "En": "low"
+      },
+      "expect": {
+        "Q": "high"
+      }
+    },
+    {
+      "set": {
+        "D": "high",
+        "E": "low",
+        "En": "high"
+      },
+      "expect": {
+        "Q": "high"
+      }
+    },
+    {
+      "set": {
+        "D": "low",
+        "E": "low",
+        "En": "high"
+      },
+      "expect": {
+        "Q": "high"
+      }
+    }
+  ]
+}

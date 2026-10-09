@@ -1,7 +1,0 @@
-# gate_on_channel.fix: the gate loops round to a channel end
-# diag W_GATE_ON_CHANNEL
-# label b 4,3
-####.
-#..#.
-#..#.
-#####

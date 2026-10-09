@@ -6,21 +6,35 @@ import (
 	"strings"
 )
 
-// Row-string codec: one string per row, '#' for on and '.' for off. Used by
-// the .mip file format, test fixtures and the clipboard.
+// Row-string codec: one string per row, one character per cell: '.' empty,
+// '#' wire, 'H' power, 'L' ground, 'T' transistor, 'B' bridge. Used by the
+// .mip file format and the clipboard.
+
+// KindChars maps each kind to its character in rows.
+const KindChars = ".#HLTB"
+
+// KindOf returns the kind written as c, or false.
+func KindOf(c byte) (Kind, bool) {
+	for k := range numKinds {
+		if KindChars[k] == c {
+			return k, true
+		}
+	}
+	return Empty, false
+}
 
 // EncodeRows returns the rows of r as strings, with trailing '.' characters
 // and trailing empty rows omitted. Pixels outside r are ignored.
 func (b *Bitmap) EncodeRows(r image.Rectangle) []string {
 	r = r.Canon()
 	rows := make([][]byte, r.Dy())
-	b.ForEachIn(r, func(x, y int) {
+	b.ForEachCellIn(r, func(x, y int, k Kind) {
 		row := &rows[y-r.Min.Y]
 		lx := x - r.Min.X
 		for len(*row) <= lx {
 			*row = append(*row, '.')
 		}
-		(*row)[lx] = '#'
+		(*row)[lx] = KindChars[k]
 	})
 	n := len(rows)
 	for n > 0 && len(rows[n-1]) == 0 {
@@ -33,17 +47,17 @@ func (b *Bitmap) EncodeRows(r image.Rectangle) []string {
 	return out
 }
 
-// DecodeRows turns on the pixels described by rows, with the first character
-// of the first row at origin. Only '#' and '.' are accepted.
+// DecodeRows sets the cells described by rows, with the first character of
+// the first row at origin. Empty cells ('.') are left unchanged.
 func (b *Bitmap) DecodeRows(rows []string, origin image.Point) error {
 	for y, row := range rows {
 		for x := 0; x < len(row); x++ {
-			switch row[x] {
-			case '#':
-				b.Set(origin.X+x, origin.Y+y, true)
-			case '.':
-			default:
-				return fmt.Errorf("row %d, column %d: unexpected character %q (want '#' or '.')", y, x, row[x])
+			k, ok := KindOf(row[x])
+			if !ok {
+				return fmt.Errorf("row %d, column %d: unexpected character %q (want one of %q)", y, x, row[x], KindChars)
+			}
+			if k != Empty {
+				b.Put(origin.X+x, origin.Y+y, k)
 			}
 		}
 	}

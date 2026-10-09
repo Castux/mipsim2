@@ -11,18 +11,25 @@ import (
 	"strings"
 )
 
-// FormatName and FormatVersion identify .mip files.
+// FormatName and FormatVersion identify .mip files. Version 2 added the
+// optional note, tests and checks. Version 3 made cells typed: rows use
+// '#' wire, 'H' power, 'L' ground, 'T' transistor and 'B' bridge. Versions
+// 1 and 2 were one-bit drawings in an older pattern language and are no
+// longer read.
 const (
 	FormatName    = "mipsim"
-	FormatVersion = 1
+	FormatVersion = 3
 )
 
 type fileDoc struct {
 	Format  string             `json:"format"`
 	Version int                `json:"version"`
+	Note    string             `json:"note,omitempty"`
 	Root    string             `json:"root"`
 	Defs    map[string]fileDef `json:"defs"`
 	Devices []json.RawMessage  `json:"devices,omitempty"`
+	Tests   []Step             `json:"tests,omitempty"`
+	Checks  *Checks            `json:"checks,omitempty"`
 }
 
 type fileDef struct {
@@ -30,9 +37,9 @@ type fileDef struct {
 	W         int         `json:"w,omitempty"`
 	H         int         `json:"h,omitempty"`
 	Origin    *[2]int     `json:"origin,omitempty"`
-	Rows      []string    `json:"rows"`
-	Labels    []fileLabel `json:"labels"`
-	Instances []fileInst  `json:"instances"`
+	Rows      []string    `json:"rows,omitempty"`
+	Labels    []fileLabel `json:"labels,omitempty"`
+	Instances []fileInst  `json:"instances,omitempty"`
 }
 
 type fileLabel struct {
@@ -50,95 +57,56 @@ type fileInst struct {
 	Name   string `json:"name,omitempty"`
 }
 
-// Save encodes the document as a .mip file. The output is deterministic and
-// laid out for readable diffs: one pixel row, label or instance per line, the
-// root definition first and the others sorted by ID.
+// Save encodes the document as a .mip file: indented JSON, deterministic,
+// with one pixel row per line.
 func (d *Document) Save() ([]byte, error) {
 	if err := d.Validate(); err != nil {
 		return nil, err
 	}
-	var b bytes.Buffer
-	str := func(s string) string { j, _ := json.Marshal(s); return string(j) }
-	compact := func(v any) string { j, _ := json.Marshal(v); return string(j) }
-
-	fmt.Fprintf(&b, "{\n  \"format\": %s,\n  \"version\": %d,\n  \"root\": %s,\n  \"defs\": {\n",
-		str(FormatName), FormatVersion, str(string(d.Root)))
-
-	ids := d.DefIDs()
-	ids = slices.DeleteFunc(ids, func(id DefID) bool { return id == d.Root })
-	ids = append([]DefID{d.Root}, ids...)
-	for i, id := range ids {
-		def := d.Defs[id]
-		fmt.Fprintf(&b, "    %s: {\n", str(string(id)))
+	f := fileDoc{
+		Format: FormatName, Version: FormatVersion, Note: d.Note, Root: string(d.Root),
+		Defs: map[string]fileDef{}, Tests: d.Tests, Checks: d.Checks,
+	}
+	for id, def := range d.Defs {
+		fd := fileDef{}
 		if def.Name != "" && def.Name != string(id) {
-			fmt.Fprintf(&b, "      \"name\": %s,\n", str(def.Name))
+			fd.Name = def.Name
 		}
-		var rows []string
 		if id == d.Root {
 			// The origin's x snaps to a multiple of 16, so drawing a little left
 			// of the circuit does not rewrite every row in a diff. (A new row
 			// above only adds a line, so y is not snapped.)
 			r := def.Pixels.Bounds()
 			r.Min.X = floorTo(r.Min.X, 16)
-			fmt.Fprintf(&b, "      \"origin\": [%d, %d],\n", r.Min.X, r.Min.Y)
-			rows = def.Pixels.EncodeRows(r)
+			fd.Origin = &[2]int{r.Min.X, r.Min.Y}
+			fd.Rows = def.Pixels.EncodeRows(r)
 		} else {
-			fmt.Fprintf(&b, "      \"w\": %d, \"h\": %d,\n", def.W, def.H)
-			rows = def.Pixels.EncodeRows(def.Rect())
+			fd.W, fd.H = def.W, def.H
+			fd.Rows = def.Pixels.EncodeRows(def.Rect())
 		}
-
-		writeList(&b, "rows", len(rows), func(i int) string { return str(rows[i]) })
-		b.WriteString(",\n")
-		writeList(&b, "labels", len(def.Labels), func(i int) string {
-			l := def.Labels[i]
-			return compact(fileLabel(l))
-		})
-		b.WriteString(",\n")
-		writeList(&b, "instances", len(def.Instances), func(i int) string {
-			inst := def.Instances[i]
+		for _, l := range def.Labels {
+			fd.Labels = append(fd.Labels, fileLabel(l))
+		}
+		for _, inst := range def.Instances {
 			fi := fileInst{ID: string(inst.ID), Def: string(inst.Def), X: inst.X, Y: inst.Y, Name: inst.Name}
 			if inst.Orient != Identity {
 				fi.Orient = inst.Orient.String()
 			}
-			return compact(fi)
-		})
-		b.WriteString("\n    }")
-		if i < len(ids)-1 {
-			b.WriteString(",")
+			fd.Instances = append(fd.Instances, fi)
 		}
-		b.WriteString("\n")
+		f.Defs[string(id)] = fd
 	}
-	b.WriteString("  }")
-
-	if len(d.Devices) > 0 {
-		b.WriteString(",\n")
-		writeList(&b, "devices", len(d.Devices), func(i int) string {
-			return string(d.Devices[i].Raw) // Validate checked it is compact JSON
-		})
+	for _, dc := range d.Devices {
+		f.Devices = append(f.Devices, dc.Raw)
 	}
-	b.WriteString("\n}\n")
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(f); err != nil {
+		return nil, err
+	}
 	return b.Bytes(), nil
-}
-
-// writeList writes `"name": [` and one item per line, indented to match Save.
-func writeList(b *bytes.Buffer, name string, n int, item func(int) string) {
-	indent := "      "
-	if name == "devices" {
-		indent = "  "
-	}
-	if n == 0 {
-		fmt.Fprintf(b, "%s%q: []", indent, name)
-		return
-	}
-	fmt.Fprintf(b, "%s%q: [\n", indent, name)
-	for i := range n {
-		b.WriteString(indent + "  " + item(i))
-		if i < n-1 {
-			b.WriteString(",")
-		}
-		b.WriteString("\n")
-	}
-	b.WriteString(indent + "]")
 }
 
 // Load decodes a .mip file and validates it. Errors name the definition and
@@ -162,11 +130,11 @@ func Load(data []byte) (*Document, error) {
 		return nil, fmt.Errorf("file version %d is newer than this program supports (%d)", f.Version, FormatVersion)
 	case f.Version < 1:
 		return nil, fmt.Errorf("invalid file version %d", f.Version)
+	case f.Version < 3:
+		return nil, fmt.Errorf("file version %d uses the old one-bit pattern language, which is no longer read; convert it with the upgrade tool from commit 35584bd (go run ./internal/tools/upgrade FILE)", f.Version)
 	}
-	// Future versions: migrate f from f.Version up to FormatVersion here, one
-	// tested function per step.
 
-	d := &Document{Root: DefID(f.Root), Defs: map[DefID]*Definition{}}
+	d := &Document{Root: DefID(f.Root), Defs: map[DefID]*Definition{}, Note: f.Note, Tests: f.Tests, Checks: f.Checks}
 	var ps Problems
 	add := func(where, format string, args ...any) {
 		ps = append(ps, Problem{Where: where, Msg: fmt.Sprintf(format, args...)})

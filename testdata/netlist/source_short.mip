@@ -1,0 +1,24 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "a power block wired straight to a ground block",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "HHH.LLL",
+        "HHH#L.L",
+        "HHH.LLL"
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "W_SOURCE_SHORT"
+    ]
+  }
+}

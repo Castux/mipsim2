@@ -18,6 +18,7 @@ type Dense struct {
 	words  []uint64
 	rank   []int32 // rank[i] = number of on pixels in words[:i]
 	count  int
+	kinds  []Kind // by index
 }
 
 // ToDense copies the pixels inside r into a Dense.
@@ -25,7 +26,11 @@ func (b *Bitmap) ToDense(r image.Rectangle) *Dense {
 	r = r.Canon()
 	d := &Dense{Rect: r, stride: (r.Dx() + 63) / 64}
 	d.words = make([]uint64, d.stride*r.Dy())
-	defer d.buildRank()
+	defer func() {
+		d.buildRank()
+		d.kinds = make([]Kind, d.count)
+		d.ForEach(func(i, x, y int) { d.kinds[i] = b.At(x, y) })
+	}()
 	if r.Empty() {
 		return d
 	}
@@ -35,7 +40,7 @@ func (b *Bitmap) ToDense(r image.Rectangle) *Dense {
 		if cx+chunkSize <= r.Min.X || cx >= r.Max.X || cy+chunkSize <= r.Min.Y || cy >= r.Max.Y {
 			continue
 		}
-		for ly, row := range c {
+		for ly, row := range c.on {
 			y := cy + ly
 			if row == 0 || y < r.Min.Y || y >= r.Max.Y {
 				continue
@@ -78,6 +83,17 @@ func (d *Dense) Get(x, y int) bool {
 
 // Count returns the number of on pixels.
 func (d *Dense) Count() int { return d.count }
+
+// Kind returns the kind of the on pixel with index i.
+func (d *Dense) Kind(i int) Kind { return d.kinds[i] }
+
+// At returns the kind of cell (x, y), in world coordinates.
+func (d *Dense) At(x, y int) Kind {
+	if i := d.Index(x, y); i >= 0 {
+		return d.kinds[i]
+	}
+	return Empty
+}
 
 // Index returns the raster-order index of on pixel (x, y), or -1 if it is off.
 func (d *Dense) Index(x, y int) int {

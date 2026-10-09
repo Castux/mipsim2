@@ -322,7 +322,7 @@ func (e *Editor) resizeSelected(r image.Rectangle) {
 		px := d.Pixels
 		d.Pixels = px.Crop(lr)
 		moved := bitmap.New()
-		d.Pixels.ForEach(func(x, y int) { moved.Set(x+shift.X, y+shift.Y, true) })
+		d.Pixels.ForEachCell(func(x, y int, k bitmap.Kind) { moved.Put(x+shift.X, y+shift.Y, k) })
 		d.Pixels = moved
 		for i := range d.Labels {
 			d.Labels[i].X += shift.X

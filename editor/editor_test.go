@@ -8,7 +8,7 @@ import (
 
 	"github.com/Castux/mipsim2/bitmap"
 	"github.com/Castux/mipsim2/doc"
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/internal/mipfile"
 	"github.com/Castux/mipsim2/netlist"
 	"github.com/Castux/mipsim2/sim"
 )
@@ -149,12 +149,33 @@ func TestEditInsideInstanceEditsDefinition(t *testing.T) {
 	}
 }
 
-func TestSimulateInverter(t *testing.T) {
-	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "sim", "inverter.fix"))
+// TestEditKeepsTests checks that a document's note, tests and checks survive
+// drawing, undo and redo, so saving from the editor keeps them.
+func TestEditKeepsTests(t *testing.T) {
+	d, err := mipfile.Load(filepath.Join("..", "testdata", "sim", "sr_latch.mip"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := New(fx.Doc)
+	orig := d.Clone()
+	e := New(d)
+	drag(e, Mods{}, pt(40, 40))
+	e.Undo()
+	e.Redo()
+	if e.Doc.Note != orig.Note || len(e.Doc.Tests) != len(orig.Tests) || len(e.Doc.Tests) == 0 {
+		t.Errorf("note %q and %d tests, want %q and %d", e.Doc.Note, len(e.Doc.Tests), orig.Note, len(orig.Tests))
+	}
+	e.Undo()
+	if !e.Doc.Equal(orig) {
+		t.Error("undo did not restore the document")
+	}
+}
+
+func TestSimulateInverter(t *testing.T) {
+	d, err := mipfile.Load(filepath.Join("..", "testdata", "sim", "inverter.mip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := New(d)
 	e.Do(ActToggleSimulate)
 	if e.Mode() != SimulateMode {
 		t.Fatalf("not simulating: %s", e.Status)
@@ -162,22 +183,28 @@ func TestSimulateInverter(t *testing.T) {
 	nl := e.Netlist()
 	in, _ := nl.Lookup("in")
 	out, _ := nl.Lookup("out")
+	var at image.Point // the input label's cell
+	for _, l := range d.RootDef().Labels {
+		if l.Name == "in" {
+			at = l.Pos()
+		}
+	}
 	if e.Value(out) != sim.High {
 		t.Fatalf("out = %v at start", e.Value(out))
 	}
-	e.PointerDown(pt(0, 6), Left, Mods{}) // pin input high
+	e.PointerDown(at, Left, Mods{}) // pin input high
 	if e.Value(in) != sim.High || e.Value(out) != sim.Low {
 		t.Errorf("after pinning in high: in=%v out=%v", e.Value(in), e.Value(out))
 	}
-	e.PointerMove(pt(0, 6), Mods{})
+	e.PointerMove(at, Mods{})
 	if _, n, desc := e.Hover(); n != in || !strings.Contains(desc, "in = high (pinned high)") {
 		t.Errorf("hover = %d %q", n, desc)
 	}
-	e.PointerDown(pt(0, 6), Right, Mods{})
+	e.PointerDown(at, Right, Mods{})
 	if e.Value(out) != sim.High {
 		t.Errorf("after pinning in low: out=%v", e.Value(out))
 	}
-	e.PointerDown(pt(0, 6), Middle, Mods{})
+	e.PointerDown(at, Middle, Mods{})
 	if e.Value(in) != sim.Floating {
 		t.Errorf("after release: in=%v", e.Value(in))
 	}
@@ -192,9 +219,10 @@ func TestSimulateInverter(t *testing.T) {
 func TestSimulateRefusesErrors(t *testing.T) {
 	e := New(doc.New())
 	drag(e, Mods{}, pt(0, 0), pt(3, 0))
-	drag(e, Mods{}, pt(0, 1), pt(3, 1)) // 2-pixel-thick wire: E_THICK
+	e.PointerMove(pt(3, 0), Mods{})
+	e.Do(ActTransistor) // the wire's end: a transistor with one neighbour
 	e.Do(ActToggleSimulate)
-	if e.Mode() != EditMode || !strings.Contains(e.Status, "E_THICK") {
+	if e.Mode() != EditMode || !strings.Contains(e.Status, "E_TRANSISTOR_ARMS") {
 		t.Errorf("mode %v, status %q", e.Mode(), e.Status)
 	}
 }
@@ -226,11 +254,11 @@ func TestReplaceDocumentChangesCompiles(t *testing.T) {
 	e := New(doc.New())
 	e.Netlist()
 	before := e.Compiles()
-	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "sim", "crossing.fix"))
+	d, err := mipfile.Load(filepath.Join("..", "testdata", "sim", "crossing.mip"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.ReplaceDocument(fx.Doc)
+	e.ReplaceDocument(d)
 	if e.Compiles() == before {
 		t.Errorf("Compiles still %d after ReplaceDocument", before)
 	}

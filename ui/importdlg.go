@@ -10,8 +10,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
+	"github.com/Castux/mipsim2/doc"
 	"github.com/Castux/mipsim2/editor"
-	"github.com/Castux/mipsim2/internal/fixture"
 	"github.com/Castux/mipsim2/platform"
 	"github.com/Castux/mipsim2/ui/filebrowser"
 )
@@ -40,7 +40,7 @@ func (a *app) finishImportPick(path string) {
 			a.ed.Status = "import failed: " + err.Error()
 			return
 		}
-		d, _, err := fixture.LoadDocument(path, data)
+		d, err := doc.Load(data)
 		if err != nil {
 			a.ed.Status = "import failed: " + firstLine(err.Error())
 			return

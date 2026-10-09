@@ -1,8 +1,0 @@
-# channel_short.fix: both channel ends are joined by a loop
-# diag W_CHANNEL_SHORT
-# label g 2,0
-..#..
-.###.
-.#.#.
-.#.#.
-.###.

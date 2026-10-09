@@ -2,7 +2,7 @@
 //
 //	mipsim-run FILE [flags]
 //
-// FILE is a .mip document or a .fix test fixture. Flags may come before or
+// FILE is a .mip document. Flags may come before or
 // after it:
 //
 //	--set a=5,b=high   pin nets or buses before running (repeatable)
@@ -11,7 +11,6 @@
 //	--clock NAME       the clock net (default "clock")
 //	--trace            also print every change of a named net
 //	--dump ram         print a memory device's contents (hex) after the run
-//	--isolated         compile with the isolated-sources rules
 //
 // Output is one line per tick: "tick N: name=value ...". Nets print as 0, 1,
 // z (floating) or x (unstable); buses (name_0, name_1, ...) as numbers, or ?
@@ -31,8 +30,7 @@ import (
 	"strings"
 
 	"github.com/Castux/mipsim2/devices"
-	"github.com/Castux/mipsim2/doc"
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/internal/mipfile"
 	"github.com/Castux/mipsim2/netlist"
 	"github.com/Castux/mipsim2/runner"
 	"github.com/Castux/mipsim2/sim"
@@ -68,9 +66,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	ticks := fs.Int("ticks", 0, "clock periods to run")
 	clock := fs.String("clock", runner.DefaultClock, "name of the clock net")
 	trace := fs.Bool("trace", false, "print every change of a named net")
-	isolated := fs.Bool("isolated", false, "compile with the isolated-sources rules")
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, "usage: mipsim-run FILE [--set a=1,...] [--ticks N] [--watch a,...] [--clock NAME] [--trace] [--dump MEM,...] [--isolated]")
+		fmt.Fprintln(stderr, "usage: mipsim-run FILE [--set a=1,...] [--ticks N] [--watch a,...] [--clock NAME] [--trace] [--dump MEM,...]")
 		fs.PrintDefaults()
 	}
 
@@ -95,15 +92,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	d, err := load(files[0])
+	d, err := mipfile.Load(files[0])
 	if err != nil {
 		fmt.Fprintln(stderr, "mipsim-run:", err)
 		return 1
 	}
 	opts := netlist.Options{}
-	if *isolated {
-		opts.Variant = netlist.IsolatedSources
-	}
 	nl := netlist.CompileDoc(d, opts)
 	for _, diag := range nl.Diagnostics {
 		fmt.Fprintln(stderr, diag)
@@ -215,13 +209,4 @@ func dump(w io.Writer, m *devices.Memory) {
 		}
 		fmt.Fprintln(w, b.String())
 	}
-}
-
-func load(path string) (*doc.Document, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	d, _, err := fixture.LoadDocument(path, data)
-	return d, err
 }

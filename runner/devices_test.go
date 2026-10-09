@@ -8,25 +8,25 @@ import (
 	"testing"
 
 	"github.com/Castux/mipsim2/doc"
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/internal/mipfile"
 	"github.com/Castux/mipsim2/netlist"
 	"github.com/Castux/mipsim2/sim"
 )
 
 func ramRunner(t *testing.T, edit func(d *doc.Document)) (*Runner, error) {
 	t.Helper()
-	fx, err := fixture.ParseFile(filepath.Join("..", "testdata", "runner", "ram.fix"))
+	d, err := mipfile.Load(filepath.Join("..", "testdata", "runner", "ram.mip"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if edit != nil {
-		edit(fx.Doc)
+		edit(d)
 	}
-	devs, err := DevicesFromDoc(fx.Doc, nil)
+	devs, err := DevicesFromDoc(d, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	nl := netlist.CompileDoc(fx.Doc, netlist.Options{})
+	nl := netlist.CompileDoc(d, netlist.Options{})
 	if nl.HasErrors() {
 		t.Fatal(nl.Diagnostics)
 	}

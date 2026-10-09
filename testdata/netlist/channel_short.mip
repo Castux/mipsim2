@@ -1,0 +1,33 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "both channel ends are joined by a loop",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "..#",
+        ".#T#",
+        ".#.#",
+        ".#.#",
+        ".###"
+      ],
+      "labels": [
+        {
+          "x": 2,
+          "y": 0,
+          "name": "g"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "W_CHANNEL_SHORT"
+    ]
+  }
+}

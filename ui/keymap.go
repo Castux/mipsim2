@@ -60,6 +60,13 @@ var keymap = []binding{
 	{key: ebiten.KeyS, keyName: "s", editOnly: true, action: editor.ActSelect, place: toolCol, label: "Select"},
 	{key: ebiten.KeyN, keyName: "n", editOnly: true, action: editor.ActLabel, place: toolCol, label: "Label"},
 
+	// Set the hovered cell's kind.
+	{key: ebiten.Key1, keyName: "1", editOnly: true, action: editor.ActWire},
+	{key: ebiten.Key2, keyName: "2", editOnly: true, action: editor.ActPower},
+	{key: ebiten.Key3, keyName: "3", editOnly: true, action: editor.ActGround},
+	{key: ebiten.Key4, keyName: "4", editOnly: true, action: editor.ActTransistor},
+	{key: ebiten.Key5, keyName: "5", editOnly: true, action: editor.ActBridge},
+
 	{key: ebiten.KeyC, keyName: "c", editOnly: true, action: editor.ActCopy, place: editCol, label: "Copy"},
 	{key: ebiten.KeyX, keyName: "x", editOnly: true, action: editor.ActCut, place: editCol, label: "Cut"},
 	{key: ebiten.KeyV, keyName: "v", editOnly: true, action: editor.ActPaste, place: editCol, label: "Paste"},

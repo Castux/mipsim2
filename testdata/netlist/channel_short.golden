@@ -1,14 +1,3 @@
-== thin-wires
-.....
-..w..
-.wTw.
-.w.w.
-.w.w.
-.www.
-.....
-nets 2, transistors 1
-2,1: warning W_CHANNEL_SHORT: both channel ends are the same net
-== isolated-sources
 .....
 ..w..
 .wTw.

@@ -27,7 +27,7 @@ func (c *clip) empty() bool {
 // labels, and the instances lying entirely inside it.
 func extract(d *doc.Document, def *doc.Definition, r image.Rectangle) *clip {
 	c := &clip{w: r.Dx(), h: r.Dy(), pixels: bitmap.New()}
-	def.Pixels.ForEachIn(r, func(x, y int) { c.pixels.Set(x-r.Min.X, y-r.Min.Y, true) })
+	def.Pixels.ForEachCellIn(r, func(x, y int, k bitmap.Kind) { c.pixels.Put(x-r.Min.X, y-r.Min.Y, k) })
 	for _, l := range def.Labels {
 		if l.Pos().In(r) {
 			c.labels = append(c.labels, doc.Label{X: l.X - r.Min.X, Y: l.Y - r.Min.Y, Name: l.Name})
@@ -72,7 +72,7 @@ func clearRect(d *doc.Document, def *doc.Definition, r image.Rectangle, instance
 // Pasted instances get fresh IDs, and new names where theirs are taken.
 func insert(d *doc.Document, def *doc.Definition, c *clip, p image.Point) {
 	clearRect(d, def, image.Rect(p.X, p.Y, p.X+c.w, p.Y+c.h), false)
-	c.pixels.ForEach(func(x, y int) { def.Pixels.Set(x+p.X, y+p.Y, true) })
+	c.pixels.ForEachCell(func(x, y int, k bitmap.Kind) { def.Pixels.Put(x+p.X, y+p.Y, k) })
 	for _, l := range c.labels {
 		def.Labels = append(def.Labels, doc.Label{X: l.X + p.X, Y: l.Y + p.Y, Name: l.Name})
 	}
@@ -134,9 +134,9 @@ func (c *clip) transform(d *doc.Document, o doc.Orient) *clip {
 	f := o.Affine(c.w, c.h)
 	w, h := o.Size(c.w, c.h)
 	n := &clip{w: w, h: h, pixels: bitmap.New()}
-	c.pixels.ForEach(func(x, y int) {
+	c.pixels.ForEachCell(func(x, y int, k bitmap.Kind) {
 		p := f.Apply(image.Pt(x, y))
-		n.pixels.Set(p.X, p.Y, true)
+		n.pixels.Put(p.X, p.Y, k)
 	})
 	for _, l := range c.labels {
 		p := f.Apply(l.Pos())

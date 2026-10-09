@@ -1,6 +1,7 @@
 package doc
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -64,13 +65,17 @@ func TestUnnamedInstancesInFlattenAndFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var f fileDoc
+	if err := json.Unmarshal(data, &f); err != nil {
+		t.Fatal(err)
+	}
 	named := 0
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.Contains(line, `"id":`) && strings.Contains(line, `"name":`) {
+	for _, fi := range f.Defs[string(d.Root)].Instances {
+		if fi.Name != "" {
 			named++
 		}
 	}
-	if named != 1 {
+	if named != 1 || strings.Count(string(data), `"name": ""`) != 0 {
 		t.Errorf("empty names should be omitted from the file:\n%s", data)
 	}
 	back, err := Load(data)

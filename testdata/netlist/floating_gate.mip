@@ -1,0 +1,35 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "a gate stub with no source, label or driver",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        ".#",
+        "#T#"
+      ],
+      "labels": [
+        {
+          "x": 0,
+          "y": 1,
+          "name": "a"
+        },
+        {
+          "x": 2,
+          "y": 1,
+          "name": "b"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "W_FLOATING_GATE"
+    ]
+  }
+}

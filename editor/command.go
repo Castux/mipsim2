@@ -3,6 +3,7 @@ package editor
 import (
 	"image"
 
+	"github.com/Castux/mipsim2/bitmap"
 	"github.com/Castux/mipsim2/doc"
 )
 
@@ -14,11 +15,11 @@ type Command interface {
 	Name() string
 }
 
-// pixelChange sets one pixel of one definition.
+// pixelChange sets one cell of one definition.
 type pixelChange struct {
 	def      doc.DefID
 	p        image.Point // local coordinates
-	old, new bool
+	old, new bitmap.Kind
 }
 
 // pixelEdit is a set of pixel changes made by one stroke. It is cheaper than
@@ -31,14 +32,14 @@ func (c *pixelEdit) Name() string { return "draw" }
 
 func (c *pixelEdit) Do(d *doc.Document) {
 	for _, ch := range c.changes {
-		d.Defs[ch.def].Pixels.Set(ch.p.X, ch.p.Y, ch.new)
+		d.Defs[ch.def].Pixels.Put(ch.p.X, ch.p.Y, ch.new)
 	}
 }
 
 func (c *pixelEdit) Undo(d *doc.Document) {
 	for i := len(c.changes) - 1; i >= 0; i-- {
 		ch := c.changes[i]
-		d.Defs[ch.def].Pixels.Set(ch.p.X, ch.p.Y, ch.old)
+		d.Defs[ch.def].Pixels.Put(ch.p.X, ch.p.Y, ch.old)
 	}
 }
 

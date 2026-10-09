@@ -7,6 +7,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
+	"github.com/Castux/mipsim2/bitmap"
 	"github.com/Castux/mipsim2/editor"
 	"github.com/Castux/mipsim2/netlist"
 	"github.com/Castux/mipsim2/sim"
@@ -63,10 +64,9 @@ func roleAt(pos vec2) int {
 	return byteOf(imageSrc0At(pos).b) / 32
 }
 
-// isOn reports whether the pixel at pos is on (bridge gaps are off pixels).
+// isOn reports whether the cell at pos is not empty.
 func isOn(pos vec2) bool {
-	r := roleAt(pos)
-	return r != 0 && r != 5
+	return roleAt(pos) != 0
 }
 
 // stateAt returns the simulated state of the net of the pixel at pos.
@@ -191,14 +191,14 @@ func colorAt(pos vec2, borders bool, f vec2) vec4 {
 	} else if role == 4 {
 		col = vec3(0.502, 0, 0.502) // transistor centre: purple
 	} else if role == 5 {
-		col = vec3(0.88, 0.88, 0.88) // bridge gap: half-transparent silver
+		col = vec3(0.88, 0.88, 0.88) // bridge: half-transparent silver
 	}
 
 	if role == 1 {
 		col = wireColor(state)
 	}
 
-	// A bridge gap, zoomed in, is a cross: each beam half a wire wide, coloured
+	// A bridge, zoomed in, is a cross: each beam half a wire wide, coloured
 	// like the net it joins (north–south, then west–east on top).
 	if role == 5 && borders {
 		col = background()
@@ -217,7 +217,7 @@ func colorAt(pos vec2, borders bool, f vec2) vec4 {
 	// Outlines, as a band inside the cell when zoomed in enough.
 	band := vec3(-1)
 	if role == 6 {
-		band = vec3(1, 0, 0) // malformed thick region
+		band = vec3(1, 0, 0) // transistor or bridge with the wrong neighbours
 	} else if Simulating > 0.5 && role == 4 && state == 3 {
 		band = vec3(0.647, 0.165, 0.165) // gate unstable
 	} else if Simulating > 0.5 && role != 4 && pin == 1 {
@@ -458,11 +458,15 @@ func (c *canvas) draw(dst *ebiten.Image, area image.Rectangle, v *editor.View, h
 }
 
 // drawStroke shows pixels changed by a stroke that has not been compiled yet.
-func drawStroke(dst *ebiten.Image, v *editor.View, cells []image.Point, value bool) {
-	clr := color.RGBA{192, 192, 192, 255}
-	if !value {
-		clr = color.RGBA{255, 255, 255, 255}
-	}
+func drawStroke(dst *ebiten.Image, v *editor.View, cells []image.Point, value bitmap.Kind) {
+	clr := [...]color.RGBA{
+		bitmap.Empty:      {255, 255, 255, 255},
+		bitmap.Wire:       {192, 192, 192, 255},
+		bitmap.Power:      {255, 0, 0, 255},
+		bitmap.Ground:     {0, 0, 255, 255},
+		bitmap.Transistor: {128, 0, 128, 255},
+		bitmap.Bridge:     {224, 224, 224, 255},
+	}[value]
 	s := float32(max(v.Scale, 1))
 	for _, p := range cells {
 		x, y := v.ToScreen(p)

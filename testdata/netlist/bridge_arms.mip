@@ -1,0 +1,23 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "bridges need exactly four neighbours: this one has three",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        ".#",
+        "#B#"
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "E_BRIDGE_ARMS"
+    ]
+  }
+}

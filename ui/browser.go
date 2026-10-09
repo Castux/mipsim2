@@ -8,7 +8,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
-	"github.com/Castux/mipsim2/internal/fixture"
+	"github.com/Castux/mipsim2/doc"
 	"github.com/Castux/mipsim2/platform"
 	"github.com/Castux/mipsim2/ui/filebrowser"
 )
@@ -67,18 +67,15 @@ func (a *app) finishBrowser(path string) {
 			a.ed.Status = "open failed: " + err.Error()
 			return
 		}
-		d, savePath, err := fixture.LoadDocument(path, data)
+		d, err := doc.Load(data)
 		if err != nil {
 			a.ed.Status = "open failed: " + firstLine(err.Error())
 			return
 		}
 		a.ed.ReplaceDocument(d)
-		a.setPath(savePath)
+		a.setPath(path)
 		a.fit()
 		a.ed.Status = "opened " + path
-		if savePath != path {
-			a.ed.Status += " (a fixture: saving writes " + filepath.Base(savePath) + ")"
-		}
 	})
 }
 

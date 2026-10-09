@@ -405,7 +405,7 @@ Open, by decision: compile is still about 60 ms (+22 ms flatten) against the 50 
 ## Cleanup before M9
 
 - Removed: the M0 spikes (and with them the ebitenui dependency), the M5 screenshots of the old UI, and a duplicate inverter fixture.
-- One loader for `.mip` and `.fix` files (`fixture.LoadDocument`), used by the editor command, the file dialog and the CLI, which had three versions with slightly different rules.
+- One loader for `.mip` and `.fix` files (`fixture.LoadDocument`), used by the editor command, the file dialog and the CLI, which had three versions with slightly different rules. (Since replaced: fixtures are now `.mip` files.)
 - README rewritten with a screenshot; PLAN has a Status section and matches what was built.
 
 ## Importing components (owner request)
@@ -418,3 +418,27 @@ The Components tab ends with an Import components... button. It opens the file d
 - The selection logic is `editor.ImportSelection` and the copy is `Editor.Import`, both headless and tested on `adder8.fix` (importing into itself, so every name clashes).
 - Not done: recognising that an identical component already exists and reusing it instead of importing a copy.
 
+## One file format (owner request)
+
+Test fixtures were a second format (`.fix`: drawing rows plus `# ` directives). They are now ordinary `.mip` documents, and the `.fix` parser is gone.
+
+- **Format version 2** adds three optional fields: `note` (a description, replacing the fixture's first comment line), `tests` (a script: each step sets nets and buses, settles, checks expected values and optionally that some net is unstable) and `checks` (the pattern tests' assertions: diagnostic codes, net and transistor counts, same and different nets). Version 1 files load unchanged. The editor carries the fields through edits and saves.
+- **Save uses Go's standard encoder** (`json.Encoder` with two-space indent) instead of a hand-written layout. Files are longer, since each label and instance field takes its own line, but there is less code to maintain. The root origin's x still snaps to 16.
+- **Conversion:** the 34 fixtures were converted by a one-off tool that used the old parser, checking each round trip. `line`, `px` and relative `def` blocks became rows; `input` and `output` became plain labels, since a step says which names it sets and which it checks. Classification goldens are unchanged.
+- **Loading from disk** is `internal/mipfile.Load` (core packages may not use `os`). The editor command, the file dialog and the CLI only take `.mip` files.
+- **Newly run:** the `expect` lines of `adder4` and `adder8` were never executed before. The behaviour test now runs every document in `testdata/sim` and `testdata/runner` that has tests, in all 8 orientations.
+
+## Typed cells (owner decision)
+
+The one-bit pattern language made circuits bulky (an inverter was 3×11) and every attempt to shrink it ran into ambiguity: marker dots and hole transistors were tried on the `markers` branch and dropped. Cells are now typed, as in v1, with stricter rules than v1:
+
+- **Kinds:** wire `#`, power `H`, ground `L`, transistor `T`, bridge `B`. Wire, power and ground conduct to each other in any shape (sources join their neighbours, so a gate's output can leave its power cell). A transistor needs exactly three neighbours (the odd one is the gate), a bridge exactly four; neither may touch another transistor or bridge. Breaking a rule is an error at the cell, which is drawn with a red outline.
+- **Sizes:** inverter 2×3 (power, transistor, ground in a column), NAND 2×5, NOR 5×4, four-NAND XOR 20×14, gated NAND D latch 17×12.
+- **Examples redrawn:** every example in `testdata/sim` and `testdata/runner` is drawn natively in cells (no more 3×3 blocks or gap crossings), keeping its component structure, names and test script: gate components are a 3×3 inverter, a 3×5 NAND and a 5×3 NOR; the full adder is 51×28 (was 127×61), from two XOR components that take `b` from their bottom edge. `testdata/sim/nand_d_latch.mip` is the textbook gated NAND latch. Tests that used old coordinates now read label positions.
+- **Storage:** `bitmap` keeps its one-bit occupancy plane and adds three kind bit-planes per chunk, allocated only when a chunk holds a cell other than wire. `At`/`Put`/`ForEachCell` carry kinds; `Get`/`Set` still mean "not empty" and "wire".
+- **Files:** format version 3, rows of `.#HLTB`. Versions 1 and 2 are migrated on load by `doc.MigratePatterns`, per definition, with the old thin-wires rules: 3×3 squares become power, rings ground, T centres transistors, bridge gaps bridge cells, everything else wire. `internal/tools/upgrade` rewrites files in place. Every fixture was migrated this way, and all behaviour tests (including the exhaustive 4-bit adder through the CLI) pass unchanged.
+- **Compiler:** pattern recognition is gone (no thick regions, rings, gaps or isolated-sources variant), so `E_THICK`, `E_RING_OVERLAP`, `E_GAP_AMBIGUOUS` and `--isolated` are removed. New codes: `E_TRANSISTOR_ARMS`, `E_BRIDGE_ARMS`; `E_ADJ_TRANSISTOR` and `E_BRIDGE_ARM` now mean touching cells. Netlist fixtures for removed rules were deleted; new ones cover the neighbour rules, thick wires and joining sources.
+- **Editor:** the pencil has no brush. Left click or drag paints wire, or erases when it starts on a filled cell. Right click cycles the cell through the kinds its neighbours allow, counted in the flattened circuit: with three, wire, transistor, power, ground; with four, wire, bridge, power, ground; otherwise wire, power, ground (an empty cell becomes power). Keys 1 to 5 set the hovered cell to wire, power, ground, transistor or bridge. Each is one undo step. Undo, copy, paste, rotate, mirror and component moves keep kinds. (A first version had five brush buttons; switching between them was tiresome.)
+- **Limit of the migration:** a pattern split across an instance edge is not recognised (`hier.mip`'s source spanning an edge was fixed by hand).
+- **The gated NAND D latch** in `coolproc` (`nand_d_latch`) did not hold: with the gate low its pass transistors leave the NAND inputs floating, which a NAND reads as low. `testdata/cells/nand_d_latch.mip` is the textbook four-NAND circuit, which holds.
+- **Conversion removed:** once every `.mip` in the repository was version 3 (the `coolproc` branch's drawings and the stash on it included), `doc.MigratePatterns` and `internal/tools/upgrade` were deleted. Loading a version 1 or 2 file is an error that names commit 35584bd, whose upgrade tool converts it. In the `coolproc` stash, two transistors and one bridge sat across an instance edge: the transistors were set by hand, and the bridge cannot be expressed (the same gap has three arms in the other placement of `part1`), so it was left empty. `internal/synth` draws its benchmark inverter in typed cells with the old footprint; the 1M-cell compile benchmark went from about 60 ms to 29 ms without pattern recognition.

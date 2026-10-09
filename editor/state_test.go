@@ -6,29 +6,29 @@ import (
 	"time"
 
 	"github.com/Castux/mipsim2/doc"
-	"github.com/Castux/mipsim2/internal/fixture"
 	"github.com/Castux/mipsim2/sim"
 )
 
 // clocked is the inverter with its input labelled clock.
-const clocked = `
-# label clock 0,6
-# label out 8,4
-###
-###
-###
-.#.
-#########
-.#.
-##.
-.#.
-###
-#.#
-###
-`
+const clocked = `{
+  "format": "mipsim", "version": 3, "root": "top",
+  "defs": {"top": {
+    "rows": [".H#", "#T", ".L"],
+    "labels": [{"x": 0, "y": 1, "name": "clock"}, {"x": 2, "y": 0, "name": "out"}]
+  }}
+}`
+
+func loadClocked(t *testing.T) *doc.Document {
+	t.Helper()
+	d, err := doc.LoadString(clocked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
 
 func TestRunningClock(t *testing.T) {
-	e := New(fixture.MustParse(clocked).Doc)
+	e := New(loadClocked(t))
 	if e.Enabled(ActRunPause) {
 		t.Error("run enabled in edit mode")
 	}
@@ -70,7 +70,7 @@ func TestRunningClock(t *testing.T) {
 }
 
 func TestStepShowsPropagation(t *testing.T) {
-	e := New(fixture.MustParse(clocked).Doc)
+	e := New(loadClocked(t))
 	e.Do(ActToggleSimulate)
 	out, _ := e.Netlist().Lookup("out")
 	e.Do(ActStep) // toggles the clock high and evaluates one net

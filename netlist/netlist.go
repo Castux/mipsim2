@@ -1,6 +1,6 @@
-// Package netlist is the pattern compiler: it classifies the pixels of a flat
-// bitmap, builds nets and transistors, names nets from labels, and reports
-// located diagnostics. See docs/SPEC.md, "Tile semantics" and "Netlist".
+// Package netlist is the circuit compiler: it checks the cells of a flat
+// document, builds nets and transistors, names nets from labels, and reports
+// located diagnostics. See docs/SPEC.md, "Cells" and "Netlist".
 package netlist
 
 import (
@@ -50,11 +50,11 @@ type Role uint8
 const (
 	RoleOff        Role = iota
 	RoleWire            // on pixel joining its orthogonal neighbours
-	RoleHigh            // part of a high source (3×3 square)
-	RoleLow             // part of a low source (3×3 ring)
-	RoleTransistor      // transistor centre
-	RoleBridge          // off pixel joining north–south and west–east
-	RoleThick           // on pixel in a malformed thick region (E_THICK)
+	RoleHigh            // power cell
+	RoleLow             // ground cell
+	RoleTransistor      // transistor cell
+	RoleBridge          // bridge cell, joining north–south and west–east
+	RoleInvalid         // transistor or bridge cell breaking its neighbour rule
 )
 
 // Letter returns the character used in classification goldens.
@@ -77,7 +77,7 @@ func (l Level) String() string {
 
 // Diagnostic is a located compile error or warning.
 type Diagnostic struct {
-	Code  string // e.g. "E_THICK"
+	Code  string // e.g. "E_TRANSISTOR_ARMS"
 	Level Level
 	Pos   image.Point // world coordinates
 	Msg   string
@@ -87,26 +87,8 @@ func (d Diagnostic) String() string {
 	return fmt.Sprintf("%d,%d: %s %s: %s", d.Pos.X, d.Pos.Y, d.Level, d.Code, d.Msg)
 }
 
-// Variant selects between the two candidate recognition rules being compared
-// in M2 (SPEC: "Two candidate rules").
-type Variant uint8
-
-const (
-	ThinWires       Variant = iota // default: every 2×2 block must be part of a 3×3 high source
-	IsolatedSources                // thick regions are wire; sources need an empty border
-)
-
-func (v Variant) String() string {
-	if v == IsolatedSources {
-		return "isolated-sources"
-	}
-	return "thin-wires"
-}
-
-// Options configures Compile.
-type Options struct {
-	Variant Variant
-}
+// Options configures Compile. There are none yet.
+type Options struct{}
 
 // Netlist is the compiled circuit.
 type Netlist struct {
@@ -116,11 +98,10 @@ type Netlist struct {
 	ChannelOf   [][]int32 // net -> indices of transistors it is a channel end of
 	Diagnostics []Diagnostic
 
-	names   map[string]NetID
-	grid    *bitmap.Dense
-	roles   []Role  // per on pixel, by grid index
-	pixNet  []NetID // per on pixel, by grid index
-	bridges *bitmap.Bitmap
+	names  map[string]NetID
+	grid   *bitmap.Dense
+	roles  []Role  // per on pixel, by grid index
+	pixNet []NetID // per on pixel, by grid index
 }
 
 // HasErrors reports whether any diagnostic is an error.
@@ -144,9 +125,6 @@ func (n *Netlist) RoleAt(x, y int) Role {
 	if i := n.grid.Index(x, y); i >= 0 {
 		return n.roles[i]
 	}
-	if n.bridges.Get(x, y) {
-		return RoleBridge
-	}
 	return RoleOff
 }
 
@@ -164,12 +142,10 @@ func (n *Netlist) Bounds() image.Rectangle {
 	return n.grid.Rect
 }
 
-// ForEachPixel calls fn for every on pixel and every bridge gap, in raster
-// order for the on pixels, then the gaps. net is NoNet for transistor
-// centres and gaps.
+// ForEachPixel calls fn for every non-empty cell in raster order. net is
+// NoNet for transistor and bridge cells.
 func (n *Netlist) ForEachPixel(fn func(x, y int, role Role, net NetID)) {
 	n.grid.ForEach(func(i, x, y int) { fn(x, y, n.roles[i], n.pixNet[i]) })
-	n.bridges.ForEach(func(x, y int) { fn(x, y, RoleBridge, NoNet) })
 }
 
 // RoleMap renders the roles inside r as one string per row, using

@@ -1,4 +1,3 @@
-== thin-wires
 .....
 ..w..
 .wTw.
@@ -6,15 +5,5 @@
 .w.w.
 .....
 nets 5, transistors 1
-1,1: error E_LABEL_OFF_NET: label "t" is not on a wire or source pixel
-1,3: error E_LABEL_OFF_NET: label "a" is not on a wire or source pixel
-== isolated-sources
-.....
-..w..
-.wTw.
-.....
-.w.w.
-.....
-nets 5, transistors 1
-1,1: error E_LABEL_OFF_NET: label "t" is not on a wire or source pixel
-1,3: error E_LABEL_OFF_NET: label "a" is not on a wire or source pixel
+1,1: error E_LABEL_OFF_NET: label "t" is not on a wire, power or ground cell
+1,3: error E_LABEL_OFF_NET: label "a" is not on a wire, power or ground cell

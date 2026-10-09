@@ -1,13 +1,3 @@
-== thin-wires
-.......
-.wwww..
-.w..w..
-.w..w..
-.wwwTw.
-.......
-nets 2, transistors 1
-3,3: warning W_GATE_ON_CHANNEL: gate is the same net as a channel end
-== isolated-sources
 .......
 .wwww..
 .w..w..

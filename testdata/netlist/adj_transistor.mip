@@ -1,0 +1,24 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "two transistor cells side by side: an error",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        ".#",
+        "#TT#",
+        "..#"
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "E_ADJ_TRANSISTOR"
+    ]
+  }
+}

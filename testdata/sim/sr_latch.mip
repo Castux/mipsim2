@@ -1,0 +1,121 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "SR latch: two cross-coupled NOR instances; Q crosses Qn at a bridge",
+  "root": "top",
+  "defs": {
+    "nor": {
+      "w": 5,
+      "h": 3,
+      "rows": [
+        ".#H#",
+        "#T.T#",
+        ".LLL"
+      ]
+    },
+    "top": {
+      "origin": [
+        -16,
+        -2
+      ],
+      "rows": [
+        ".....................######",
+        ".....................#....#",
+        "..................###B##..#",
+        "..................#..#.#..#",
+        ".....................#.#",
+        "...............#.....#.#.....#"
+      ],
+      "labels": [
+        {
+          "x": -1,
+          "y": 3,
+          "name": "R"
+        },
+        {
+          "x": 13,
+          "y": 3,
+          "name": "S"
+        },
+        {
+          "x": 3,
+          "y": 0,
+          "name": "Q"
+        },
+        {
+          "x": 10,
+          "y": 0,
+          "name": "Qn"
+        }
+      ],
+      "instances": [
+        {
+          "id": "i1",
+          "def": "nor",
+          "x": 0,
+          "y": 2,
+          "name": "n1"
+        },
+        {
+          "id": "i2",
+          "def": "nor",
+          "x": 8,
+          "y": 2,
+          "name": "n2"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "set": {
+        "R": "low",
+        "S": "high"
+      },
+      "expect": {
+        "Q": "high",
+        "Qn": "low"
+      }
+    },
+    {
+      "set": {
+        "R": "low",
+        "S": "low"
+      },
+      "expect": {
+        "Q": "high",
+        "Qn": "low"
+      }
+    },
+    {
+      "set": {
+        "R": "high",
+        "S": "low"
+      },
+      "expect": {
+        "Q": "low",
+        "Qn": "high"
+      }
+    },
+    {
+      "set": {
+        "R": "low",
+        "S": "low"
+      },
+      "expect": {
+        "Q": "low",
+        "Qn": "high"
+      }
+    },
+    {
+      "set": {
+        "R": "high",
+        "S": "high"
+      },
+      "expect": {
+        "Q": "low",
+        "Qn": "low"
+      }
+    }
+  ]
+}

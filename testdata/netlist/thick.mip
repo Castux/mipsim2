@@ -1,0 +1,24 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "wires may be any shape: a thick blob and a 2-wide line are one net",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "###",
+        "###",
+        "########",
+        "########"
+      ]
+    }
+  },
+  "checks": {
+    "diag": [],
+    "nets": 1
+  }
+}

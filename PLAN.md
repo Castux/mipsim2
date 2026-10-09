@@ -15,13 +15,13 @@ Where the build departs from the original plan below, the plan has been updated 
 
 ## Context
 
-MiPSim v2 is a rewrite of [Castux/mipsim](https://github.com/Castux/mipsim) in Go, with a one-bit pixel editor, reusable components, and attachable memory. This document is the handover for an AI agent building it. The specification (tile semantics, simulation, components, devices, file format) lives in [docs/SPEC.md](docs/SPEC.md).
+MiPSim v2 is a rewrite of [Castux/mipsim](https://github.com/Castux/mipsim) in Go, with a pixel-art cell editor, reusable components, and attachable memory. This document is the handover for an AI agent building it. The specification (tile semantics, simulation, components, devices, file format) lives in [docs/SPEC.md](docs/SPEC.md).
 
 v1 is a browser editor written in Lua and run through Fengari. Its core is three files: `Geom.lua` (613 lines, tiles to components and connections), `Simulator.lua` (268 lines) and `Canvas.lua` (735 lines, editor). Circuits are grids of five tile types: wire, power, ground, transistor, bridge. The largest real design is `bf-proc/`, a Brainfuck processor whose program and data RAM are emulated by a Lua host (`BFHost.lua`) reading and driving named wires after each clock edge.
 
 What v2 changes:
 
-- **Tiles:** one pixel type. Function comes from local pixel patterns, not tile kinds.
+- **Tiles:** typed cells (wire, power, ground, transistor, bridge) with strict neighbour rules. (Originally one pixel type whose function came from local patterns; replaced after M8, see progress.md, "Typed cells".)
 - **Reuse:** a rectangular region can be made a component and placed many times. All placements are live views of one shared definition, always drawn fully expanded.
 - **Memory:** RAM and ROM become simulator devices attached to named buses, replacing hand-built RAM and ad hoc host scripts.
 - **Runtime:** Go, native window on desktop, plus a headless mode with no graphics dependency. The same code is later compiled to WebAssembly for the browser (M10); desktop comes first.
@@ -33,7 +33,7 @@ What stays: the n-MOS switch-level model, low-wins-over-high, labels and the `na
 Goals, in priority order:
 
 1. A deterministic headless simulator library and CLI that can run a processor-scale circuit (bf-proc size or larger) with attached memory, driven by a clock.
-2. A pattern compiler that turns a one-bit bitmap into a netlist and reports every ambiguous or malformed pattern as a located diagnostic, never silently guessing.
+2. A compiler that turns the cells into a netlist and reports every broken rule as a located diagnostic, never silently guessing.
 3. An editor on desktop, ported to the web later from the same codebase: draw, select, copy, cut, paste, move, undo, label, make and place components, simulate and force wires.
 4. Live component definitions: editing any instance edits all of them immediately.
 
@@ -86,10 +86,10 @@ CI compiles everything for `GOOS=js GOARCH=wasm` as a check (build only, not dep
 
 ```sh
 # desktop editor
-go run ./cmd/mipsim testdata/runner/adder4.fix
+go run ./cmd/mipsim testdata/runner/adder4.mip
 
 # headless
-go run ./cmd/mipsim-run testdata/runner/ram.fix --set sel=1,we=1,addr=17,data=0xab --dump ram
+go run ./cmd/mipsim-run testdata/runner/ram.mip --set sel=1,we=1,addr=17,data=0xab --dump ram
 
 # web (M10)
 GOOS=js GOARCH=wasm go build -o web/mipsim.wasm ./cmd/mipsim
@@ -110,7 +110,7 @@ flowchart TB
     subgraph core["Headless core: no graphics imports"]
         direction LR
         bitmap["<b>Bitmap</b><br/>chunked 1-bit storage"] --> doc["<b>Document model</b><br/>defs, instances, flatten"]
-        doc -- flat bitmap --> netlist["<b>Pattern compiler</b><br/>pixels to nets, diagnostics"]
+        doc -- flat bitmap --> netlist["<b>Compiler</b><br/>cells to nets, diagnostics"]
         netlist -- netlist --> sim["<b>Simulator</b><br/>breadth-first update, pins"]
         runner["<b>Runner</b><br/>clock, settle loop, I/O"] <--> sim
         runner <--> devices["<b>Devices</b><br/>memory on named buses"]
@@ -128,9 +128,9 @@ mipsim2/
   cmd/
     mipsim/          editor entry point (desktop and wasm)
     mipsim-run/      headless CLI
-  bitmap/            chunked 1-bit bitmap, rect ops, row-string codec
+  bitmap/            chunked grid of typed cells, rect ops, row-string codec
   doc/               definitions, instances, labels, invariants, flatten, .mip I/O
-  netlist/           pattern recognition, nets, transistors, diagnostics
+  netlist/           cell rules, nets, transistors, diagnostics
   sim/               switch-level simulator: Update, Step, Settle, Pin
   devices/           Device interface, memory
   runner/            clock, settle loop, named nets and numbers, traces
@@ -141,11 +141,11 @@ mipsim2/
   platform/          file I/O: native.go, js.go (build tags)
   internal/
     archtest/        dependency rule checks
-    fixture/         ASCII fixture parser, and the shared .mip/.fix loader
+    mipfile/         loads .mip files from disk (core packages do no file access)
     synth/           synthetic processor-scale circuits for benchmarks
-    tools/           classify (print a fixture's roles), synth, raylibfont
+    tools/           classify (print a document's roles), synth, raylibfont
   scripts/check.sh   every check CI runs
-  testdata/          ASCII fixtures and goldens
+  testdata/          fixtures (.mip with tests and checks) and goldens
   docs/              SPEC.md, progress.md, screenshot
   web/               index.html, wasm_exec.js, build script (M10)
   examples/          .mip circuits (M11)
@@ -178,7 +178,7 @@ The editor is a state machine over the document plus a command stack; it has no 
 
 | Tool | Key | Behaviour |
 | --- | --- | --- |
-| Pencil | `d` | Click toggles a pixel; drag paints the value of the first pixel toggled. Holding alt during a drag locks it to a horizontal or vertical line: the axis is the dominant direction once the cursor has moved 2 pixels from the start, and stays until release |
+| Pencil | `d` | Left click or drag paints wire, or erases when it starts on a filled cell. Right click cycles the cell through the kinds its neighbours allow (transistor with three, bridge with four, then power and ground); keys 1 to 5 set the hovered cell. Holding alt during a drag locks it to a horizontal or vertical line: the axis is the dominant direction once the cursor has moved 2 pixels from the start, and stays until release |
 | Select | `s` | Drag a rectangle; click selects the innermost instance under the pointer (click again for its parent) |
 | Move | drag selection | Moves pixels, labels and whole instances; invariants checked on drop |
 | Copy, cut, paste | `c` `x` `v` | Clipboard holds pixels, labels and linked instances; paste follows the cursor until click |
@@ -228,25 +228,25 @@ Build the headless core first and the editor second: M1 to M4 produce a working 
 
 ## Testing
 
-Most tests are ASCII fixtures in `testdata/`, so a failing case is readable in a diff and easy for an agent to write. A fixture is a text file with directive lines (`# ` then a word) and drawing rows of `#` and `.`; the full syntax, including `def`, `place` and `root` for multi-definition fixtures, is documented in `internal/fixture`:
+Most tests are fixtures in `testdata/`: ordinary `.mip` documents whose rows of cell characters keep a failing case readable in a diff. A fixture carries its expectations in the optional `tests` (a script of pins and expected values) and `checks` (structural assertions) fields, described in `docs/SPEC.md`:
 
-```
-# inverter.fix
-# input in 0,6
-# output out 8,4
-# expect in=low  out=high
-# expect in=high out=low
-###......
-###......
-###......
-.#.......
-#########
-.#.......
-##.......
-.#.......
-###......
-#.#......
-###......
+```json
+{
+  "format": "mipsim",
+  "version": 3,
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [0, 0],
+      "rows": [".H#", "#T", ".L"],
+      "labels": [{"x": 0, "y": 1, "name": "in"}, {"x": 2, "y": 0, "name": "out"}]
+    }
+  },
+  "tests": [
+    {"set": {"in": "low"}, "expect": {"out": "high"}},
+    {"set": {"in": "high"}, "expect": {"out": "low"}}
+  ]
+}
 ```
 
 Reading it: a high source on top feeds a cross junction at row 4 (left arm is a stub, right arm is the output). Below, the transistor at (1,6) has its channel vertical and its gate arm to the left (the input). The channel's lower end reaches a low source ring. Input high makes the channel conduct, the output net joins the ring, and low wins.
@@ -255,7 +255,7 @@ Test layers:
 
 - **Classification goldens:** the compiler's role map printed as letters (`H` high, `L` low, `T` transistor, `B` bridge, `w` wire, `.` off) compared against a stored golden, regenerated with `go test -update` and reviewed by hand.
 - **Diagnostics:** each lint code has at least one fixture that triggers it and one near-miss that must not.
-- **Behaviour:** `expect` lines pin inputs, settle, and check outputs; numeric buses use `expect a=5 b=3 sum=8`.
+- **Behaviour:** each test step pins nets, settles, and checks values; numeric buses use `{"set": {"a": 5, "b": 3}, "expect": {"sum": 8}}`.
 - **Determinism:** run each behaviour fixture twice and compare full traces.
 - **Property tests:** random small bitmaps must either compile or produce diagnostics, never panic; flatten then re-split of random instance trees, with random orientations, preserves pixels.
 - **Orientation invariance:** every classification and behaviour fixture is also run in all 8 orientations, both as a transformed bitmap and wrapped in an oriented instance. The role map must transform accordingly, and the behaviour expectations must still pass.
@@ -279,7 +279,7 @@ Each has a default the agent implements until the owner decides.
 
 | Question | Decision |
 | --- | --- |
-| One-pixel-wide wires (`E_THICK`) or isolated sources with thick wires allowed? | Decided: thin wires (`E_THICK`), after the M2 comparison |
+| One-pixel-wide wires (`E_THICK`) or isolated sources with thick wires allowed? | Decided: thin wires after the M2 comparison; superseded by typed cells, where wires may be any shape |
 | Should floating nets keep their last value or go `Floating` like v1? | `Floating`, as v1 |
 | When does `Unstable` clear? | Decided: at the start of the next settle (differs from v1, which kept it until reset) |
 | Do instances need rotation and mirroring? | Decided: yes, all 8 orientations, in the data model from M1 |

@@ -1,0 +1,43 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "wires crossing through a bridge cell stay separate",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "..#",
+        "..#",
+        "##B##",
+        "..#",
+        "..#"
+      ],
+      "labels": [
+        {
+          "x": 2,
+          "y": 0,
+          "name": "v"
+        },
+        {
+          "x": 0,
+          "y": 2,
+          "name": "h"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [],
+    "nets": 2,
+    "differ": [
+      [
+        "v",
+        "h"
+      ]
+    ]
+  }
+}

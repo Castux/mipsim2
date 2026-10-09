@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"maps"
+	"reflect"
 	"slices"
 
 	"github.com/Castux/mipsim2/bitmap"
@@ -82,11 +84,16 @@ func NewDeviceConfig(raw json.RawMessage) (DeviceConfig, error) {
 	return DeviceConfig{Kind: *head.Kind, Name: *head.Name, Raw: c.Bytes()}, nil
 }
 
-// Document is a tree of definitions rooted at Root.
+// Document is a tree of definitions rooted at Root. Note, Tests and Checks
+// are optional and only carried: a description, a test script that pins and
+// checks nets, and structural assertions for the pattern tests.
 type Document struct {
 	Root    DefID
 	Defs    map[DefID]*Definition
 	Devices []DeviceConfig
+	Note    string
+	Tests   []Step
+	Checks  *Checks
 }
 
 // New returns a document with an empty root definition called "top".
@@ -133,7 +140,7 @@ func (d *Document) PlacedRect(inst Instance) image.Rectangle {
 
 // Clone returns a deep copy.
 func (d *Document) Clone() *Document {
-	n := &Document{Root: d.Root, Defs: make(map[DefID]*Definition, len(d.Defs))}
+	n := &Document{Root: d.Root, Defs: make(map[DefID]*Definition, len(d.Defs)), Note: d.Note}
 	for _, id := range d.DefIDs() {
 		n.Defs[id] = d.Defs[id].Clone()
 	}
@@ -141,6 +148,9 @@ func (d *Document) Clone() *Document {
 		dev.Raw = slices.Clone(dev.Raw)
 		n.Devices = append(n.Devices, dev)
 	}
+	// Tests and checks are only ever replaced whole, never edited in place.
+	n.Tests = slices.Clone(d.Tests)
+	n.Checks = d.Checks
 	return n
 }
 
@@ -155,8 +165,15 @@ func (def *Definition) Clone() *Definition {
 
 // Equal reports whether two documents have the same content.
 func (d *Document) Equal(o *Document) bool {
-	if d.Root != o.Root || len(d.Defs) != len(o.Defs) || len(d.Devices) != len(o.Devices) {
+	if d.Root != o.Root || len(d.Defs) != len(o.Defs) || len(d.Devices) != len(o.Devices) ||
+		d.Note != o.Note || len(d.Tests) != len(o.Tests) || !reflect.DeepEqual(d.Checks, o.Checks) {
 		return false
+	}
+	for i := range d.Tests {
+		a, b := d.Tests[i], o.Tests[i]
+		if !maps.Equal(a.Set, b.Set) || !maps.Equal(a.Expect, b.Expect) || !slices.Equal(a.AnyUnstable, b.AnyUnstable) {
+			return false
+		}
 	}
 	for id, a := range d.Defs {
 		b, ok := o.Defs[id]

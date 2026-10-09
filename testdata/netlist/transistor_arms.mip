@@ -1,0 +1,27 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "transistors need exactly three neighbours: one with two, one with four",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "#T#",
+        "",
+        "..#",
+        ".#T#",
+        "..#"
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "E_TRANSISTOR_ARMS"
+    ],
+    "transistors": 0
+  }
+}

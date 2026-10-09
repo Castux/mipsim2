@@ -48,7 +48,7 @@ func names(b *Browser) string {
 func TestListingAndNavigation(t *testing.T) {
 	root := setup(t)
 	b := New(Open, filepath.Join(root, "b.mip"), realLister, exists)
-	if got, want := names(b), "../ sub/ Zed/ A.mip b.mip t.fix"; got != want {
+	if got, want := names(b), "../ sub/ Zed/ A.mip b.mip"; got != want {
 		t.Fatalf("entries %q, want %q", got, want)
 	}
 	if b.Selected != 4 {

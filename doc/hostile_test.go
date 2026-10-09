@@ -9,7 +9,7 @@ import (
 
 // mip wraps definitions (and optional extra top-level fields) in a file.
 func mip(defs string, extra string) string {
-	return `{"format": "mipsim", "version": 1, "root": "top", "defs": {` + defs + `}` + extra + `}`
+	return `{"format": "mipsim", "version": 3, "root": "top", "defs": {` + defs + `}` + extra + `}`
 }
 
 const emptyTop = `"top": {"rows": [], "labels": [], "instances": []}`
@@ -55,8 +55,8 @@ func TestHostileFiles(t *testing.T) {
 		{"trailing data", mip(emptyTop, "") + ` garbage {{{`, "after the document"},
 		{"two documents", mip(emptyTop, "") + mip(emptyTop, ""), "after the document"},
 		{"duplicate definition", mip(emptyTop+`, "top": {"rows": ["#"], "labels": [], "instances": []}`, ""), `line 1, column `},
-		{"duplicate field", `{"format": "mipsim", "format": "mipsim", "version": 1, "root": "top", "defs": {` + emptyTop + `}}`, `duplicate key "format"`},
-		{"syntax error position", "{\n  \"format\": \"mipsim\",\n  \"version\": 1,\n  oops\n}", "line 4, column 3"},
+		{"duplicate field", `{"format": "mipsim", "format": "mipsim", "version": 3, "root": "top", "defs": {` + emptyTop + `}}`, `duplicate key "format"`},
+		{"syntax error position", "{\n  \"format\": \"mipsim\",\n  \"version\": 3,\n  oops\n}", "line 4, column 3"},
 		{"truncated", `{"format": "mipsim", "version"`, "ends too early"},
 		{"device without name", mip(emptyTop, `, "devices": [{"kind": "memory"}]`), `needs a "name"`},
 		{"device bad name", mip(emptyTop, `, "devices": [{"kind": "memory", "name": "my ram"}]`), "invalid name"},

@@ -1,0 +1,10 @@
+......
+.wXw..
+......
+...w..
+..wXw.
+...w..
+......
+nets 6, transistors 0
+1,0: error E_TRANSISTOR_ARMS: a transistor needs exactly 3 neighbours (gate and channel), it has 2
+2,3: error E_TRANSISTOR_ARMS: a transistor needs exactly 3 neighbours (gate and channel), it has 4

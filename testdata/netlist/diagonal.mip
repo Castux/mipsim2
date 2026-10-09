@@ -1,0 +1,35 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "two nets touching only at a corner",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "#",
+        ".#"
+      ],
+      "labels": [
+        {
+          "x": 0,
+          "y": 0,
+          "name": "a"
+        },
+        {
+          "x": 1,
+          "y": 1,
+          "name": "b"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "W_DIAGONAL_TOUCH"
+    ]
+  }
+}

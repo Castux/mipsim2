@@ -1,0 +1,32 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "the gate loops round to a channel end",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "####",
+        "#..#",
+        "#..#",
+        "###T#"
+      ],
+      "labels": [
+        {
+          "x": 4,
+          "y": 3,
+          "name": "b"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "W_GATE_ON_CHANNEL"
+    ]
+  }
+}
