@@ -1,7 +1,7 @@
 {
   "format": "mipsim",
   "version": 3,
-  "note": "the plan's inverter, migrated from the 3x3 pattern language",
+  "note": "inverter: power, transistor and ground in a column; the output leaves the power cell",
   "root": "top",
   "defs": {
     "top": {
@@ -10,27 +10,19 @@
         0
       ],
       "rows": [
-        "HHH",
-        "HHH",
-        "HHH",
-        ".#",
-        "#########",
-        ".#",
+        ".H#",
         "#T",
-        ".#",
-        "LLL",
-        "L.L",
-        "LLL"
+        ".L"
       ],
       "labels": [
         {
           "x": 0,
-          "y": 6,
+          "y": 1,
           "name": "in"
         },
         {
-          "x": 8,
-          "y": 4,
+          "x": 2,
+          "y": 0,
           "name": "out"
         }
       ]

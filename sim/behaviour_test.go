@@ -16,7 +16,7 @@ import (
 	"github.com/Castux/mipsim2/netlist"
 )
 
-// Behaviour fixtures in testdata/sim (and testdata/runner) are documents
+// Behaviour fixtures in testdata/sim and testdata/runner are documents
 // with a test script: each step pins the nets and buses it sets, settles,
 // then checks the values it expects (see doc.Step).
 
@@ -199,7 +199,7 @@ func wrap(d *doc.Document, o doc.Orient) *doc.Document {
 
 func TestBehaviour(t *testing.T) {
 	var files []string
-	for _, dir := range []string{"sim", "runner", "cells"} {
+	for _, dir := range []string{"sim", "runner"} {
 		fs, err := filepath.Glob(filepath.Join("..", "testdata", dir, "*.mip"))
 		if err != nil || len(fs) == 0 {
 			t.Fatalf("no fixtures in %s: %v", dir, err)

@@ -1,7 +1,7 @@
 {
   "format": "mipsim",
   "version": 3,
-  "note": "two pull-down transistors in parallel; inputs on both edges",
+  "note": "NOR: two transistors in parallel, sharing power and ground; inputs on both sides",
   "root": "top",
   "defs": {
     "top": {
@@ -10,34 +10,25 @@
         0
       ],
       "rows": [
-        "HHH",
-        "HHH",
-        "HHH",
-        ".#...#",
-        "#########",
-        ".#...#",
-        "#T...T###",
-        ".#.#.#",
-        ".#####",
-        "...#",
-        "..LLL",
-        "..L.L",
-        "..LLL"
+        "..#",
+        ".#H#",
+        "#T.T#",
+        ".LLL"
       ],
       "labels": [
         {
           "x": 0,
-          "y": 6,
+          "y": 2,
           "name": "a"
         },
         {
-          "x": 8,
-          "y": 6,
+          "x": 4,
+          "y": 2,
           "name": "b"
         },
         {
-          "x": 8,
-          "y": 4,
+          "x": 2,
+          "y": 0,
           "name": "out"
         }
       ]

@@ -252,13 +252,21 @@ func TestAdder8SharedEdit(t *testing.T) {
 		t.Fatalf("100+55 = %s", got)
 	}
 
-	// Erase the sum output pixel inside the first full adder: all 8 lose it.
+	// Erase the sum output cell inside the first full adder (just left of
+	// the sum_0 label): all 8 lose it.
+	var out image.Point
+	for _, l := range d.RootDef().Labels {
+		if l.Name == "sum_0" {
+			out = l.Pos().Add(image.Pt(-1, 0))
+		}
+	}
+	pitch := d.RootDef().Instances[1].Y - d.RootDef().Instances[0].Y
 	e.Do(ActPencil)
-	drag(e, Mods{}, pt(126, 18))
+	drag(e, Mods{}, out)
 	flat := e.Doc.Flatten().Pixels
 	for i := range 8 {
-		if flat.Get(126, 18+64*i) {
-			t.Errorf("full adder %d still has its sum output pixel", i)
+		if flat.Get(out.X, out.Y+pitch*i) {
+			t.Errorf("full adder %d still has its sum output cell", i)
 		}
 	}
 	if got := sum(); got != "?" {
@@ -280,18 +288,18 @@ func TestClickSelectsDeepestInstance(t *testing.T) {
 	}
 	e := New(d)
 	e.Do(ActSelect)
-	inner := image.Rect(0, 0, 9, 11) // p1.g1: inverter g1 inside pair p1 at (0,0)
-	outer := image.Rect(0, 0, 21, 11)
+	inner := image.Rect(0, 0, 3, 3) // p1.g1: inverter g1 inside pair p1 at (0,0)
+	outer := image.Rect(0, 0, 8, 3)
 
-	drag(e, Mods{}, pt(2, 8))
+	drag(e, Mods{}, pt(1, 1))
 	if e.Selected() != inner || e.sel.def != "pair" {
 		t.Fatalf("first click selected %v in %s, want %v in pair (%q)", e.Selected(), e.sel.def, inner, e.Status)
 	}
-	drag(e, Mods{}, pt(2, 8))
+	drag(e, Mods{}, pt(1, 1))
 	if e.Selected() != outer || e.sel.def != e.Doc.Root {
 		t.Fatalf("second click selected %v in %s, want %v at the top level", e.Selected(), e.sel.def, outer)
 	}
-	drag(e, Mods{}, pt(2, 8))
+	drag(e, Mods{}, pt(1, 1))
 	if e.Selected() != inner {
 		t.Fatalf("third click selected %v, want to wrap back to %v", e.Selected(), inner)
 	}

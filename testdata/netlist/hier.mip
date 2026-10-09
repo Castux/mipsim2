@@ -1,7 +1,7 @@
 {
   "format": "mipsim",
   "version": 3,
-  "note": "nested, rotated instances, and power cells spanning an instance edge (they join like any cells)",
+  "note": "nested, rotated instances (a pair of inverters, placed twice, once rotated), and power cells spanning an instance edge",
   "root": "top",
   "defs": {
     "half": {
@@ -14,45 +14,32 @@
       ]
     },
     "inv": {
-      "w": 9,
-      "h": 11,
+      "w": 3,
+      "h": 3,
       "rows": [
-        "HHH",
-        "HHH",
-        "HHH",
-        ".#",
-        "#########",
-        ".#",
+        ".H#",
         "#T",
-        ".#",
-        "LLL",
-        "L.L",
-        "LLL"
+        ".L"
       ],
       "labels": [
         {
           "x": 0,
-          "y": 6,
+          "y": 1,
           "name": "in"
         },
         {
-          "x": 8,
-          "y": 4,
+          "x": 2,
+          "y": 0,
           "name": "out"
         }
       ]
     },
     "pair": {
-      "w": 21,
-      "h": 11,
+      "w": 8,
+      "h": 3,
       "rows": [
-        "",
-        "",
-        "",
-        "",
-        ".........#",
-        ".........#",
-        ".........###"
+        "...##",
+        "....#"
       ],
       "instances": [
         {
@@ -65,7 +52,7 @@
         {
           "id": "i2",
           "def": "inv",
-          "x": 12,
+          "x": 5,
           "y": 0,
           "name": "g2"
         }

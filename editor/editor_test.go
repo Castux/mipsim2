@@ -183,22 +183,28 @@ func TestSimulateInverter(t *testing.T) {
 	nl := e.Netlist()
 	in, _ := nl.Lookup("in")
 	out, _ := nl.Lookup("out")
+	var at image.Point // the input label's cell
+	for _, l := range d.RootDef().Labels {
+		if l.Name == "in" {
+			at = l.Pos()
+		}
+	}
 	if e.Value(out) != sim.High {
 		t.Fatalf("out = %v at start", e.Value(out))
 	}
-	e.PointerDown(pt(0, 6), Left, Mods{}) // pin input high
+	e.PointerDown(at, Left, Mods{}) // pin input high
 	if e.Value(in) != sim.High || e.Value(out) != sim.Low {
 		t.Errorf("after pinning in high: in=%v out=%v", e.Value(in), e.Value(out))
 	}
-	e.PointerMove(pt(0, 6), Mods{})
+	e.PointerMove(at, Mods{})
 	if _, n, desc := e.Hover(); n != in || !strings.Contains(desc, "in = high (pinned high)") {
 		t.Errorf("hover = %d %q", n, desc)
 	}
-	e.PointerDown(pt(0, 6), Right, Mods{})
+	e.PointerDown(at, Right, Mods{})
 	if e.Value(out) != sim.High {
 		t.Errorf("after pinning in low: out=%v", e.Value(out))
 	}
-	e.PointerDown(pt(0, 6), Middle, Mods{})
+	e.PointerDown(at, Middle, Mods{})
 	if e.Value(in) != sim.Floating {
 		t.Errorf("after release: in=%v", e.Value(in))
 	}

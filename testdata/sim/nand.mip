@@ -1,7 +1,7 @@
 {
   "format": "mipsim",
   "version": 3,
-  "note": "two pull-down transistors in series",
+  "note": "NAND: two transistors in series",
   "root": "top",
   "defs": {
     "top": {
@@ -10,34 +10,26 @@
         0
       ],
       "rows": [
-        "HHH",
-        "HHH",
-        "HHH",
-        ".#",
-        "#########",
-        ".#",
+        ".H#",
         "#T",
         ".#",
         "#T",
-        ".#",
-        "LLL",
-        "L.L",
-        "LLL"
+        ".L"
       ],
       "labels": [
         {
           "x": 0,
-          "y": 6,
+          "y": 1,
           "name": "a"
         },
         {
           "x": 0,
-          "y": 8,
+          "y": 3,
           "name": "b"
         },
         {
-          "x": 8,
-          "y": 4,
+          "x": 2,
+          "y": 0,
           "name": "out"
         }
       ]
