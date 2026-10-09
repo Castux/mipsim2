@@ -228,18 +228,18 @@ Build the headless core first and the editor second: M1 to M4 produce a working 
 
 ## Testing
 
-Most tests are fixtures in `testdata/`: ordinary `.mip` documents whose rows of `#` and `.` keep a failing case readable in a diff. A fixture carries its expectations in the optional `tests` (a script of pins and expected values) and `checks` (structural assertions) fields, described in `docs/SPEC.md`:
+Most tests are fixtures in `testdata/`: ordinary `.mip` documents whose rows of cell characters keep a failing case readable in a diff. A fixture carries its expectations in the optional `tests` (a script of pins and expected values) and `checks` (structural assertions) fields, described in `docs/SPEC.md`:
 
 ```json
 {
   "format": "mipsim",
-  "version": 2,
+  "version": 3,
   "root": "top",
   "defs": {
     "top": {
       "origin": [0, 0],
-      "rows": ["###", "###", "###", ".#", "#########", ".#", "##", ".#", "###", "#.#", "###"],
-      "labels": [{"x": 0, "y": 6, "name": "in"}, {"x": 8, "y": 4, "name": "out"}]
+      "rows": [".H#", "#T", ".L"],
+      "labels": [{"x": 0, "y": 1, "name": "in"}, {"x": 2, "y": 0, "name": "out"}]
     }
   },
   "tests": [

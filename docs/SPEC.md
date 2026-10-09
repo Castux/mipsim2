@@ -30,7 +30,7 @@ Inverter     NAND         NOR
              .L
 ```
 
-Versions 1 and 2 of the file format used one-bit pixels in a pattern language (3×3 square = power, 3×3 ring = ground, T shape = transistor, gap between four wire ends = bridge). Such files are migrated on load, per definition, by `doc.MigratePatterns`; a pattern split across an instance edge is not recognised, so fix those by hand. `internal/tools/upgrade` rewrites files in the current version.
+Versions 1 and 2 of the file format used one-bit pixels in a pattern language (3×3 square = power, 3×3 ring = ground, T shape = transistor, gap between four wire ends = bridge). They are no longer read: loading one is an error naming the commit (35584bd) whose `internal/tools/upgrade` converts them, per definition (a pattern split across an instance edge is not recognised and needs fixing by hand).
 
 ### Lint rules
 

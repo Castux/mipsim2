@@ -13,9 +13,9 @@ import (
 
 // FormatName and FormatVersion identify .mip files. Version 2 added the
 // optional note, tests and checks. Version 3 made cells typed: rows use
-// '#' wire, 'H' power, 'L' ground, 'T' transistor and 'B' bridge. Version 1
-// and 2 rows are one-bit drawings in the old pattern language, migrated on
-// load (see migrate.go).
+// '#' wire, 'H' power, 'L' ground, 'T' transistor and 'B' bridge. Versions
+// 1 and 2 were one-bit drawings in an older pattern language and are no
+// longer read.
 const (
 	FormatName    = "mipsim"
 	FormatVersion = 3
@@ -130,9 +130,9 @@ func Load(data []byte) (*Document, error) {
 		return nil, fmt.Errorf("file version %d is newer than this program supports (%d)", f.Version, FormatVersion)
 	case f.Version < 1:
 		return nil, fmt.Errorf("invalid file version %d", f.Version)
+	case f.Version < 3:
+		return nil, fmt.Errorf("file version %d uses the old one-bit pattern language, which is no longer read; convert it with the upgrade tool from commit 35584bd (go run ./internal/tools/upgrade FILE)", f.Version)
 	}
-	// Migrations from older versions run per definition, after decoding.
-	legacy := f.Version < 3
 
 	d := &Document{Root: DefID(f.Root), Defs: map[DefID]*Definition{}, Note: f.Note, Tests: f.Tests, Checks: f.Checks}
 	var ps Problems
@@ -175,11 +175,6 @@ func Load(data []byte) (*Document, error) {
 		}
 		if err := def.Pixels.DecodeRows(fd.Rows, origin); err != nil {
 			add(where, "%v", err)
-		} else if legacy {
-			if hasKinds(def.Pixels) {
-				add(where, "version %d rows hold only '#' and '.'", f.Version)
-			}
-			def.Pixels = MigratePatterns(def.Pixels)
 		}
 		for _, l := range fd.Labels {
 			def.Labels = append(def.Labels, Label(l))

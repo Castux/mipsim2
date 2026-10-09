@@ -11,10 +11,10 @@ import (
 
 // clocked is the inverter with its input labelled clock.
 const clocked = `{
-  "format": "mipsim", "version": 2, "root": "top",
+  "format": "mipsim", "version": 3, "root": "top",
   "defs": {"top": {
-    "rows": ["###", "###", "###", ".#.", "#########", ".#.", "##.", ".#.", "###", "#.#", "###"],
-    "labels": [{"x": 0, "y": 6, "name": "clock"}, {"x": 8, "y": 4, "name": "out"}]
+    "rows": [".H#", "#T", ".L"],
+    "labels": [{"x": 0, "y": 1, "name": "clock"}, {"x": 2, "y": 0, "name": "out"}]
   }}
 }`
 

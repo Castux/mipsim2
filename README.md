@@ -47,7 +47,7 @@ In the editor every action is a button showing its key, and the bottom line expl
 
 ## Files
 
-Documents are `.mip` files: deterministic, indented JSON in which cells are rows of characters (`.#HLTB`), so circuits diff well in git. Files from the earlier one-bit pattern language (format versions 1 and 2) are converted when opened; `go run ./internal/tools/upgrade FILE...` rewrites them. A document can also carry a test script (pins to set and values to expect) and structural checks; the test fixtures in `testdata/` are ordinary documents with these fields. The format is in [docs/SPEC.md](docs/SPEC.md).
+Documents are `.mip` files: deterministic, indented JSON in which cells are rows of characters (`.#HLTB`), so circuits diff well in git. Files from the earlier one-bit pattern language (format versions 1 and 2) are no longer read; the upgrade tool at commit 35584bd converts them. A document can also carry a test script (pins to set and values to expect) and structural checks; the test fixtures in `testdata/` are ordinary documents with these fields. The format is in [docs/SPEC.md](docs/SPEC.md).
 
 ## Layout
 
