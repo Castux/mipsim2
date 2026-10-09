@@ -19,7 +19,7 @@ Inverter     NAND         NOR
 
 ## Features
 
-- **Drawing:** a pencil that paints the chosen cell kind (keys 1 to 5), with an axis lock (alt), select, move, copy and paste, rotate and mirror, labels, and unlimited undo.
+- **Drawing:** left click or drag paints wire (or erases), right click cycles a cell through the kinds its neighbours allow (transistor with three, bridge with four, then power and ground), and keys 1 to 5 set the hovered cell. Plus an axis lock (alt), select, move, copy and paste, rotate and mirror, labels, and unlimited undo.
 - **Diagnostics:** transistors and bridges with the wrong neighbours, and other mistakes, are reported at their location and listed in a panel.
 - **Components:** make a component from a selection and place it anywhere, in any of 8 orientations. Every placement is a live view, so editing one edits them all. Net names are hierarchical (`alu.add3.sum_2`). Components can be imported from other documents, along with the components they use.
 - **Simulation:** click a wire to pin it high or low, then run a clock, tick, or step one propagation at a time. Labels ending in `_0`, `_1`, ... read as numbers in the Watch panel, where you can also type values.

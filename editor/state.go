@@ -2,7 +2,6 @@ package editor
 
 import (
 	"fmt"
-	"github.com/Castux/mipsim2/bitmap"
 	"time"
 )
 
@@ -110,9 +109,6 @@ func (e *Editor) Mark() SaveMark { return SaveMark{e.top()} }
 // MarkSavedAt records that the state m was saved.
 func (e *Editor) MarkSavedAt(m SaveMark) { e.savedTop = m.top }
 
-// Brush returns the kind of cell the pencil paints.
-func (e *Editor) Brush() bitmap.Kind { return e.brush }
-
 // Pasting reports whether a paste preview follows the pointer.
 func (e *Editor) Pasting() bool { return e.paste }
 
@@ -166,7 +162,7 @@ func (e *Editor) Hint() string {
 	case e.tool == LabelTool:
 		return "click a cell to name its wire · click a label to rename it · " + view
 	}
-	return "click paints the kind (1-5), or erases a cell of that kind · drag paint · alt+drag straight line · " + view
+	return "left: wire or erase · right: cycle kind · 1-5: set kind · alt+drag: line · " + view
 }
 
 // Settle runs the simulation's settle loop. A device error (a memory reading

@@ -313,34 +313,60 @@ func TestASCIIClipboard(t *testing.T) {
 	}
 }
 
-// TestBrushKinds checks that the pencil paints the chosen kind, erases a
-// cell of that kind, overwrites other kinds, and that undo, copy, paste and
-// rotate keep kinds.
-func TestBrushKinds(t *testing.T) {
-	e := withRows("#")
-	e.Do(ActPower)
-	if e.Tool() != Pencil || e.Brush() != bitmap.Power {
-		t.Fatalf("tool %v brush %v", e.Tool(), e.Brush())
-	}
-	drag(e, Mods{}, pt(1, 0)) // paint power
-	e.Do(ActTransistor)
-	drag(e, Mods{}, pt(0, 0)) // overwrite the wire
+// rightClick clicks the right button at p.
+func rightClick(e *Editor, p image.Point) {
+	e.PointerDown(p, Right, Mods{})
+	e.PointerUp(p, Right)
+}
+
+// TestCellKinds checks the pencil's gestures: left paints wire or erases,
+// right cycles a cell through the kinds its neighbours allow, keys 1 to 5
+// set the hovered cell, and undo, copy, paste and rotate keep kinds.
+func TestCellKinds(t *testing.T) {
+	e := withRows("###", ".#.", "...", "...", ".#.", "###", ".#.")
+	e.Do(ActPencil)
 	before := e.Doc.Clone()
-	drag(e, Mods{}, pt(2, 0)) // paint a transistor
-	if got := rows(e); got != "THT" {
-		t.Fatalf("after painting %q", got)
+	rightClick(e, pt(1, 0)) // three neighbours
+	if got := rows(e); got != "#T#|.#|||.#|###|.#" {
+		t.Fatalf("after one right click %q", got)
 	}
 	checkUndoRedo(t, e, before)
-	drag(e, Mods{}, pt(2, 0)) // a transistor brush on a transistor erases it
-	if got := rows(e); got != "TH" {
-		t.Fatalf("after erasing %q", got)
+	var seen []string
+	for range 4 {
+		rightClick(e, pt(1, 0))
+		seen = append(seen, e.Doc.RootDef().Pixels.At(1, 0).String())
 	}
+	if got := strings.Join(seen, " "); got != "power ground wire transistor" {
+		t.Errorf("three-neighbour cycle %q", got)
+	}
+	rightClick(e, pt(1, 5)) // four neighbours
+	if k := e.Doc.RootDef().Pixels.At(1, 5); k.String() != "bridge" {
+		t.Errorf("four-neighbour cell became %v", k)
+	}
+	rightClick(e, pt(4, 3)) // empty
+	rightClick(e, pt(0, 0)) // one neighbour: wire -> power
+	if got := rows(e); got != "HT#|.#||....H|.#|#B#|.#" {
+		t.Fatalf("after cycling %q", got)
+	}
+	// Left: a stroke from an empty cell paints wire, from any cell erases.
+	drag(e, Mods{}, pt(3, 2), pt(4, 2))
+	drag(e, Mods{}, pt(1, 0))
+	if got := rows(e); got != "H.#|.#|...##|....H|.#|#B#|.#" {
+		t.Fatalf("after left strokes %q", got)
+	}
+	// Keys set the hovered cell.
+	e.PointerMove(pt(3, 2), Mods{})
+	e.Do(ActGround)
+	if k := e.Doc.RootDef().Pixels.At(3, 2); k.String() != "ground" {
+		t.Errorf("key set %v", k)
+	}
+	// Copy, paste and rotate keep kinds.
 	selectRect(e, pt(0, 0), pt(1, 0))
 	e.Do(ActCopy)
 	e.Do(ActPaste)
 	e.Do(ActRotate)
-	e.PointerDown(pt(4, 0), Left, Mods{})
-	if got := rows(e); got != "TH..T|....H" {
+	e.PointerDown(pt(6, 0), Left, Mods{})
+	if got := rows(e); got != "H.#...H|.#|...L#|....H|.#|#B#|.#" {
 		t.Errorf("after rotated paste %q", got)
 	}
 }

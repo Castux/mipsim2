@@ -87,7 +87,7 @@ const (
 	ActMakeComponent
 	ActExplode
 	ActRename // the selected instance
-	// The pencil's cell kind; each also selects the pencil.
+	// Set the cell under the pointer to a kind (edit mode).
 	ActWire
 	ActPower
 	ActGround
@@ -95,20 +95,10 @@ const (
 	ActBridge
 )
 
-// brushActions maps the kind actions to the kinds they select.
-var brushActions = map[Action]bitmap.Kind{
+// kindActions maps the kind actions to the kinds they set.
+var kindActions = map[Action]bitmap.Kind{
 	ActWire: bitmap.Wire, ActPower: bitmap.Power, ActGround: bitmap.Ground,
 	ActTransistor: bitmap.Transistor, ActBridge: bitmap.Bridge,
-}
-
-// BrushAction returns the action selecting kind k.
-func BrushAction(k bitmap.Kind) Action {
-	for a, b := range brushActions {
-		if b == k {
-			return a
-		}
-	}
-	return ActWire
 }
 
 // cheapCompile is the compile time below which strokes recompile on every
@@ -119,9 +109,8 @@ const cheapCompile = 8 * time.Millisecond
 type Editor struct {
 	Doc *doc.Document
 
-	mode  Mode
-	tool  Tool
-	brush bitmap.Kind // what the pencil paints
+	mode Mode
+	tool Tool
 
 	flat        *doc.Flat
 	nl          *netlist.Netlist
@@ -199,7 +188,7 @@ type typing struct {
 
 // New returns an editor on d in edit mode.
 func New(d *doc.Document) *Editor {
-	e := &Editor{Doc: d, dirty: true, hz: 4, brush: bitmap.Wire}
+	e := &Editor{Doc: d, dirty: true, hz: 4}
 	e.Netlist()
 	return e
 }
@@ -281,8 +270,9 @@ func (e *Editor) Do(a Action) {
 	case ActPencil:
 		e.setTool(Pencil)
 	case ActWire, ActPower, ActGround, ActTransistor, ActBridge:
-		e.brush = brushActions[a]
-		e.setTool(Pencil)
+		if e.mode == EditMode {
+			e.setCell(e.hover, kindActions[a])
+		}
 	case ActSelect:
 		e.setTool(Select)
 	case ActLabel:
@@ -445,16 +435,20 @@ func (e *Editor) PointerDown(p image.Point, b Button, m Mods) {
 		}
 		return
 	}
+	if b == Right && e.tool == Pencil {
+		e.cycleCell(p)
+		return
+	}
 	if b != Left {
 		return
 	}
 	switch e.tool {
 	case Pencil:
 		loc := e.Doc.Locate(p)
-		// A stroke starting on a cell of the brush's kind erases; any other
-		// stroke paints the brush's kind, over whatever is there.
-		value := e.brush
-		if e.Doc.Defs[loc.Def].Pixels.At(loc.Local.X, loc.Local.Y) == e.brush {
+		// A stroke starting on an empty cell paints wire; one starting on
+		// any other cell erases.
+		value := bitmap.Wire
+		if e.Doc.Defs[loc.Def].Pixels.Get(loc.Local.X, loc.Local.Y) {
 			value = bitmap.Empty
 		}
 		e.stroke = &stroke{value: value, start: p, last: p, edit: &pixelEdit{}, done: map[image.Point]bool{}}
@@ -585,6 +579,67 @@ func (e *Editor) paint(p image.Point) {
 	px.Put(loc.Local.X, loc.Local.Y, s.value)
 	s.cells = append(s.cells, p)
 	s.edit.changes = append(s.edit.changes, pixelChange{def: loc.Def, p: loc.Local, old: old, new: s.value})
+}
+
+// cycleCell steps the cell at world p through the kinds that make sense for
+// its neighbours (counted in the flattened circuit, so across instance
+// edges): with three, wire, transistor, power, ground; with four, wire,
+// bridge, power, ground; otherwise wire, power, ground. An empty cell
+// becomes power.
+func (e *Editor) cycleCell(p image.Point) {
+	if !doc.InRange(p) {
+		return
+	}
+	e.Netlist()
+	n := 0
+	for _, d := range [4]image.Point{{0, -1}, {1, 0}, {0, 1}, {-1, 0}} {
+		if e.flat.Pixels.Get(p.X+d.X, p.Y+d.Y) {
+			n++
+		}
+	}
+	cycle := []bitmap.Kind{bitmap.Wire, bitmap.Power, bitmap.Ground}
+	switch n {
+	case 3:
+		cycle = []bitmap.Kind{bitmap.Wire, bitmap.Transistor, bitmap.Power, bitmap.Ground}
+	case 4:
+		cycle = []bitmap.Kind{bitmap.Wire, bitmap.Bridge, bitmap.Power, bitmap.Ground}
+	}
+	loc := e.Doc.Locate(p)
+	cur := e.Doc.Defs[loc.Def].Pixels.At(loc.Local.X, loc.Local.Y)
+	next := cycle[0] // also for a kind not in this cell's cycle
+	if cur == bitmap.Empty {
+		next = bitmap.Power
+	}
+	for i, k := range cycle {
+		if k == cur {
+			next = cycle[(i+1)%len(cycle)]
+		}
+	}
+	e.setCell(p, next)
+}
+
+// setCell sets the cell at world p to kind k as one undoable edit.
+func (e *Editor) setCell(p image.Point, k bitmap.Kind) {
+	if !doc.InRange(p) {
+		return
+	}
+	loc := e.Doc.Locate(p)
+	px := e.Doc.Defs[loc.Def].Pixels
+	old := px.At(loc.Local.X, loc.Local.Y)
+	if old == k {
+		return
+	}
+	edit := &pixelEdit{changes: []pixelChange{{def: loc.Def, p: loc.Local, old: old, new: k}}}
+	edit.Do(e.Doc)
+	e.undo = append(e.undo, edit)
+	e.redo = nil
+	e.version++
+	e.dirty = true
+	e.Netlist()
+	e.reportDiagnostics()
+	if e.Status == "" {
+		e.Status = k.String()
+	}
 }
 
 // afterPaint recompiles during a stroke, if compiling is cheap (see Netlist).
