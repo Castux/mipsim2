@@ -15,13 +15,13 @@ Where the build departs from the original plan below, the plan has been updated 
 
 ## Context
 
-MiPSim v2 is a rewrite of [Castux/mipsim](https://github.com/Castux/mipsim) in Go, with a one-bit pixel editor, reusable components, and attachable memory. This document is the handover for an AI agent building it. The specification (tile semantics, simulation, components, devices, file format) lives in [docs/SPEC.md](docs/SPEC.md).
+MiPSim v2 is a rewrite of [Castux/mipsim](https://github.com/Castux/mipsim) in Go, with a pixel-art cell editor, reusable components, and attachable memory. This document is the handover for an AI agent building it. The specification (tile semantics, simulation, components, devices, file format) lives in [docs/SPEC.md](docs/SPEC.md).
 
 v1 is a browser editor written in Lua and run through Fengari. Its core is three files: `Geom.lua` (613 lines, tiles to components and connections), `Simulator.lua` (268 lines) and `Canvas.lua` (735 lines, editor). Circuits are grids of five tile types: wire, power, ground, transistor, bridge. The largest real design is `bf-proc/`, a Brainfuck processor whose program and data RAM are emulated by a Lua host (`BFHost.lua`) reading and driving named wires after each clock edge.
 
 What v2 changes:
 
-- **Tiles:** one pixel type. Function comes from local pixel patterns, not tile kinds.
+- **Tiles:** typed cells (wire, power, ground, transistor, bridge) with strict neighbour rules. (Originally one pixel type whose function came from local patterns; replaced after M8, see progress.md, "Typed cells".)
 - **Reuse:** a rectangular region can be made a component and placed many times. All placements are live views of one shared definition, always drawn fully expanded.
 - **Memory:** RAM and ROM become simulator devices attached to named buses, replacing hand-built RAM and ad hoc host scripts.
 - **Runtime:** Go, native window on desktop, plus a headless mode with no graphics dependency. The same code is later compiled to WebAssembly for the browser (M10); desktop comes first.
@@ -33,7 +33,7 @@ What stays: the n-MOS switch-level model, low-wins-over-high, labels and the `na
 Goals, in priority order:
 
 1. A deterministic headless simulator library and CLI that can run a processor-scale circuit (bf-proc size or larger) with attached memory, driven by a clock.
-2. A pattern compiler that turns a one-bit bitmap into a netlist and reports every ambiguous or malformed pattern as a located diagnostic, never silently guessing.
+2. A compiler that turns the cells into a netlist and reports every broken rule as a located diagnostic, never silently guessing.
 3. An editor on desktop, ported to the web later from the same codebase: draw, select, copy, cut, paste, move, undo, label, make and place components, simulate and force wires.
 4. Live component definitions: editing any instance edits all of them immediately.
 
@@ -110,7 +110,7 @@ flowchart TB
     subgraph core["Headless core: no graphics imports"]
         direction LR
         bitmap["<b>Bitmap</b><br/>chunked 1-bit storage"] --> doc["<b>Document model</b><br/>defs, instances, flatten"]
-        doc -- flat bitmap --> netlist["<b>Pattern compiler</b><br/>pixels to nets, diagnostics"]
+        doc -- flat bitmap --> netlist["<b>Compiler</b><br/>cells to nets, diagnostics"]
         netlist -- netlist --> sim["<b>Simulator</b><br/>breadth-first update, pins"]
         runner["<b>Runner</b><br/>clock, settle loop, I/O"] <--> sim
         runner <--> devices["<b>Devices</b><br/>memory on named buses"]
@@ -128,9 +128,9 @@ mipsim2/
   cmd/
     mipsim/          editor entry point (desktop and wasm)
     mipsim-run/      headless CLI
-  bitmap/            chunked 1-bit bitmap, rect ops, row-string codec
+  bitmap/            chunked grid of typed cells, rect ops, row-string codec
   doc/               definitions, instances, labels, invariants, flatten, .mip I/O
-  netlist/           pattern recognition, nets, transistors, diagnostics
+  netlist/           cell rules, nets, transistors, diagnostics
   sim/               switch-level simulator: Update, Step, Settle, Pin
   devices/           Device interface, memory
   runner/            clock, settle loop, named nets and numbers, traces
@@ -178,7 +178,7 @@ The editor is a state machine over the document plus a command stack; it has no 
 
 | Tool | Key | Behaviour |
 | --- | --- | --- |
-| Pencil | `d` | Click toggles a pixel; drag paints the value of the first pixel toggled. Holding alt during a drag locks it to a horizontal or vertical line: the axis is the dominant direction once the cursor has moved 2 pixels from the start, and stays until release |
+| Pencil | `d` | Left click or drag paints wire, or erases when it starts on a filled cell. Right click cycles the cell through the kinds its neighbours allow (transistor with three, bridge with four, then power and ground); keys 1 to 5 set the hovered cell. Holding alt during a drag locks it to a horizontal or vertical line: the axis is the dominant direction once the cursor has moved 2 pixels from the start, and stays until release |
 | Select | `s` | Drag a rectangle; click selects the innermost instance under the pointer (click again for its parent) |
 | Move | drag selection | Moves pixels, labels and whole instances; invariants checked on drop |
 | Copy, cut, paste | `c` `x` `v` | Clipboard holds pixels, labels and linked instances; paste follows the cursor until click |
@@ -279,7 +279,7 @@ Each has a default the agent implements until the owner decides.
 
 | Question | Decision |
 | --- | --- |
-| One-pixel-wide wires (`E_THICK`) or isolated sources with thick wires allowed? | Decided: thin wires (`E_THICK`), after the M2 comparison |
+| One-pixel-wide wires (`E_THICK`) or isolated sources with thick wires allowed? | Decided: thin wires after the M2 comparison; superseded by typed cells, where wires may be any shape |
 | Should floating nets keep their last value or go `Floating` like v1? | `Floating`, as v1 |
 | When does `Unstable` clear? | Decided: at the start of the next settle (differs from v1, which kept it until reset) |
 | Do instances need rotation and mirroring? | Decided: yes, all 8 orientations, in the data model from M1 |

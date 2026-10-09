@@ -738,7 +738,7 @@ func (e *Editor) Hover() (image.Point, netlist.NetID, string) {
 	n := nl.NetAt(p.X, p.Y)
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d,%d", p.X, p.Y)
-	roleNames := [...]string{"off", "wire", "high source", "low source", "transistor", "bridge", "thick (error)"}
+	roleNames := [...]string{"empty", "wire", "power", "ground", "transistor", "bridge", "invalid transistor or bridge"}
 	if role != netlist.RoleOff {
 		fmt.Fprintf(&b, " %s", roleNames[role])
 	}
