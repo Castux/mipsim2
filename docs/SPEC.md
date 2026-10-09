@@ -1,75 +1,58 @@
 # MiPSim v2 specification
 
-This is the authoritative specification of the pixel language, the simulation model, components, devices and the file format. It was split out of `PLAN.md` in M0. Any behaviour change updates this file and adds a fixture in the same commit.
+This is the authoritative specification of the cell language, the simulation model, components, devices and the file format. It was split out of `PLAN.md` in M0. Any behaviour change updates this file and adds a fixture in the same commit.
 
-## Tile semantics (spec)
+## Cells (spec)
 
-The circuit is a set of "on" pixels on an unbounded integer grid. Connectivity is orthogonal only: diagonal neighbours never connect. Wires are one pixel wide. Every on or off pixel classifies into exactly one role below, or produces a diagnostic.
+The circuit is a grid of cells on an unbounded integer plane. A cell is empty or one of five kinds, written in files and on the clipboard as one character:
 
-The five patterns, `#` on and `.` off (the centre pixel is the one being classified):
+| Kind | Char | Meaning |
+| --- | --- | --- |
+| wire | `#` | conductor |
+| power | `H` | conductor driven high (a pull-up: low wins) |
+| ground | `L` | conductor driven low |
+| transistor | `T` | n-MOS switch |
+| bridge | `B` | crossing |
+
+Connectivity is orthogonal only: diagonal neighbours never connect.
+
+- **Wire, power and ground** cells conduct to each other: orthogonally adjacent ones are one net, whatever the shape (T junctions, crosses and thick blobs are all fine). A net containing a power cell is driven high, one containing a ground cell is driven low, and low wins (`W_SOURCE_SHORT` if it has both). Because sources conduct, a gate's output can leave its power cell directly: the smallest inverter is a column of power, transistor and ground, with the output wire on the power cell's side and the input on the transistor's.
+- **Transistor:** exactly three non-empty orthogonal neighbours. The two collinear ones are the channel ends (interchangeable), the odd one is the gate. Any other count is `E_TRANSISTOR_ARMS`.
+- **Bridge:** exactly four non-empty orthogonal neighbours. It joins north to south and west to east, independently. Any other count is `E_BRIDGE_ARMS`.
+- A transistor or bridge may not touch another transistor or bridge (`E_ADJ_TRANSISTOR`, `E_BRIDGE_ARM`); put a wire between them. A transistor or bridge breaking a rule is drawn with a red outline and takes no part in the circuit.
 
 ```
-High source   Low source    Transistor    Bridge        Wire junction
-  ###           ###           .#.           .#.           .#.
-  ###           #.#           ###           #.#           ###
-  ###           ###           ...           .#.           .#.
+Inverter     NAND         NOR
+.H#  out     .H#  out     ..#    out
+#T   in      #T   a       .#H#
+.L           .#           #T.T#  a, b
+             #T   b       .LLL
+             .L
 ```
 
-- **High source:** a 3×3 fully on square. Drives its net high.
-- **Low source:** a 3×3 ring (8 on, centre off). Drives its net low.
-- **Transistor:** an on pixel with exactly three on orthogonal neighbours, outside any source. The two collinear arms are the channel (source/drain, interchangeable); the perpendicular arm is the gate. This is deterministic, unlike v1, which picked randomly when ambiguous. In the picture above, left and right are the channel and the top arm is the gate.
-- **Bridge:** an off pixel whose four orthogonal neighbours are on and four diagonal neighbours are off. Connects north to south and west to east, independently.
-- **Wire:** every other on pixel. A cross with its centre on is a plain 4-way junction; a 3-way split is drawn as a cross with one arm left as a one-pixel stub.
-
-A source connects to any on pixel orthogonally adjacent to its outer edge. A transistor arm may touch a source (the arm pixel is a wire pixel adjacent to the source's edge). A transistor centre directly adjacent to a source's edge always forms a 2×2 block with it and is `E_THICK`, except at a source corner.
-
-Because recognition is purely local, any 3×3 loop of wire is a low source, and a wire grid with a pitch of 2 pixels produces `E_RING_OVERLAP`. This is intended; the classification goldens include both cases and the user guide calls it out.
-
-### Recognition order
-
-The compiler classifies in this order so the patterns cannot steal pixels from each other:
-
-1. **Thick regions.** Find every 2×2 block of on pixels and union the overlapping ones into thick regions. Each thick region must be exactly a 3×3 square, which becomes a high source. Anything else is error `E_THICK` (for example a 3×4 block, or a wire running flush along a source's side).
-2. **Rings.** Every 3×3 window with 8 on pixels and an off centre is a low source. Overlapping rings, or a ring sharing pixels with a high source, is error `E_RING_OVERLAP`.
-3. **Transistors.** Among remaining on pixels, those with exactly 3 on orthogonal neighbours (counting source pixels as on).
-4. **Bridges.** Off pixels with 4 on orthogonal and 0 on diagonal neighbours. An off pixel with 4 on orthogonal neighbours and 1 to 3 on diagonals is error `E_GAP_AMBIGUOUS`, because the diagonal pixel would silently short two arms.
-5. **Wires.** Everything else that is on.
+Versions 1 and 2 of the file format used one-bit pixels in a pattern language (3×3 square = power, 3×3 ring = ground, T shape = transistor, gap between four wire ends = bridge). Such files are migrated on load, per definition, by `doc.MigratePatterns`; a pattern split across an instance edge is not recognised, so fix those by hand. `internal/tools/upgrade` rewrites files in the current version.
 
 ### Lint rules
 
-These keep the language unambiguous. Errors block simulation; warnings do not.
+Errors block simulation; warnings do not.
 
 | Code | Level | Condition |
 | --- | --- | --- |
-| `E_THICK` | error | A thick region that is not exactly 3×3 |
-| `E_RING_OVERLAP` | error | Rings overlapping each other or a high source |
-| `E_GAP_AMBIGUOUS` | error | Bridge-like gap with on diagonals |
-| `E_ADJ_TRANSISTOR` | error | A transistor arm is itself a transistor centre |
-| `E_BRIDGE_ARM` | error | A bridge arm pixel is a transistor centre. Unreachable in practice: such an arm needs both of its side neighbours on, and those are the gap's diagonals, so the pattern is `E_GAP_AMBIGUOUS` first. Kept as a defensive check |
-| `E_TOO_LARGE` | error | The circuit's bounding box is above 2^28 pixels in area (the compiler works on a dense grid over it). Usually a stray pixel far from the rest |
-| `E_LABEL_OFF_NET` | error | A label sits on an off pixel or a transistor centre (for example after the pixel under it was erased) |
+| `E_TRANSISTOR_ARMS` | error | A transistor without exactly three neighbours |
+| `E_BRIDGE_ARMS` | error | A bridge without exactly four neighbours |
+| `E_ADJ_TRANSISTOR` | error | Two transistors touch |
+| `E_BRIDGE_ARM` | error | A bridge touches a transistor or another bridge |
+| `E_TOO_LARGE` | error | The circuit's bounding box is above 2^28 cells in area (the compiler works on a dense grid over it). Usually a stray cell far from the rest |
+| `E_LABEL_OFF_NET` | error | A label is not on a wire, power or ground cell (for example after the cell under it was erased) |
 | `E_DUPLICATE_NAME` | error | The same full name labels two different nets, so looking it up would be ambiguous. Two labels with one name on the same net are fine |
-| `W_CHANNEL_SHORT` | warning | A transistor's two channel arms are already the same net |
+| `W_CHANNEL_SHORT` | warning | A transistor's two channel ends are already the same net |
 | `W_GATE_ON_CHANNEL` | warning | Gate net equals a channel net |
 | `W_FLOATING_GATE` | warning | Gate net has no source, no label and no transistor channel feeding it |
-| `W_DIAGONAL_TOUCH` | warning | Two on pixels in different nets touch only diagonally, unless both are arms of the same transistor or the same bridge |
-| `W_SOURCE_SHORT` | warning | One net contains both a high and a low source (it is permanently low) |
+| `W_DIAGONAL_TOUCH` | warning | Two cells of different nets touch only diagonally, unless both are arms of the same transistor or the same bridge |
+| `W_SOURCE_SHORT` | warning | One net contains both power and ground (it is permanently low) |
 | `W_LABEL_CONFLICT` | warning | One net carries two different labels from the same scope (both kept as aliases). Labels from different levels of the hierarchy, such as `a` in the parent and `g1.a` on an instance port, are the normal way to connect components and do not warn |
 
-**Two candidate rules, compared in M2; decided: thin wires.** The owner chose thin wires after the M2 comparison. The isolated-sources variant stays in the compiler as an option (`netlist.IsolatedSources`, `mipsim-run --isolated`) only so the comparison fixtures keep documenting the difference; the editor always uses thin wires. The rules above are derived from the owner's base ideas (3×3 square, 3×3 ring, T, cross without centre). Implement recognition behind a switch with two variants and pick one from fixtures:
-
-- **Thin wires (default):** `E_THICK` as above. Every wire is one pixel wide; simple and unambiguous.
-- **Isolated sources:** a source must have an empty one-pixel border, except for single-pixel wire attachments that are not adjacent to each other. Thick regions elsewhere are then legal wire, allowing wide buses for visual effect or more elegant components. In this variant, a pixel is only a transistor if neither it nor its three arms belong to a 2×2 block, and a thick region that matches a source shape but lacks the border is error `E_SOURCE_BORDER`.
-
-As implemented in M2, the isolated-sources variant also follows these rules:
-
-- The border is the 16 cells around the 3×3. The 4 corner cells must be off. The 12 side cells may hold attachments, but no two on border cells may touch, even diagonally (two attachments on either side of a corner would both touch the corner pixel).
-- Because two side-by-side attachments form a 2×2 block with the source, they make the whole region bigger than 3×3. It is then classified as thick wire, not as a source with an error. This is the variant's main hazard: a wire drawn flush along a source silently turns the source into wire.
-- A ring is only a low source if none of its pixels is in a 2×2 block; inside thick wire, a one-pixel hole is just a hole.
-
-The fixture set must include cases that the two variants classify differently (a 3×4 block, a wire flush along a source, a T on the edge of a thick wire), so the comparison is concrete. These are `thick_block`, `flush_wire`, `t_on_thick`, `ring_on_high` and `source_border` in `testdata/netlist`, each with goldens for both variants.
-
-Classification goldens print each pixel's role as one letter: `H` high source, `L` low source, `T` transistor centre, `B` bridge gap, `w` wire, `X` pixel of a malformed thick region (`E_THICK`), `.` off.
+Golden files print each cell's role as one letter: `w` wire, `H` power, `L` ground, `T` transistor, `B` bridge, `X` a transistor or bridge breaking its rule, `.` empty.
 
 ## Simulation model (spec)
 
@@ -77,7 +60,7 @@ The simulator runs on a compiled netlist, never on pixels. It keeps v1's breadth
 
 ### Netlist
 
-The compiler unions wire and source pixels by orthogonal adjacency into **nets**. Transistor centres do not join their neighbours. Bridge gaps join their north arm to their south arm and their west arm to their east arm. NetIDs are assigned canonically: nets are numbered in raster order (y, then x) of their first pixel, and transistors in raster order of their centre. The same bitmap always yields the same netlist, whatever order the chunks were stored or the pixels were visited in. The output is:
+The compiler unions wire, power and ground cells by orthogonal adjacency into **nets**. Transistor cells do not join their neighbours. Bridge cells join their north arm to their south arm and their west arm to their east arm. NetIDs are assigned canonically: nets are numbered in raster order (y, then x) of their first cell, and transistors in raster order of their cell. The same bitmap always yields the same netlist, whatever order the chunks were stored or the pixels were visited in. The output is:
 
 ```go
 type NetID int32
@@ -163,7 +146,7 @@ type Document struct {
 }
 ```
 
-**Orientation.** Instances can be rotated and mirrored from v2.0. An instance's placed rectangle is W×H, or H×W when `Rot` is odd. All five patterns are symmetric under every rotation and mirroring, so recognition needs no orientation logic: flatten applies the transform, and the compiler sees ordinary pixels. Orientations compose: a rotated instance inside a mirrored instance is transformed by both, applied from the innermost outward. All geometry (flatten, hit-testing, label positions, rectangle checks) goes through the `Orient` type in `doc` (`Then`, `Inverse`, `Size`) and the integer `Affine` maps built from it, tested exhaustively over all 8×8 pairs.
+**Orientation.** Instances can be rotated and mirrored from v2.0. An instance's placed rectangle is W×H, or H×W when `Rot` is odd. Cells have no orientation (a transistor's gate is found from its neighbours), so the compiler needs no orientation logic: flatten applies the transform, and the compiler sees ordinary cells. Orientations compose: a rotated instance inside a mirrored instance is transformed by both, applied from the innermost outward. All geometry (flatten, hit-testing, label positions, rectangle checks) goes through the `Orient` type in `doc` (`Then`, `Inverse`, `Size`) and the integer `Affine` maps built from it, tested exhaustively over all 8×8 pairs.
 
 **Invariants**, checked after every edit command and on load (rectangles are the placed, oriented ones):
 
@@ -178,7 +161,7 @@ type Document struct {
 
 Definitions with no instances stay in the document and the palette until the user deletes them from the palette.
 
-**Flattening.** For compilation and rendering, the document flattens into one world bitmap. The instance path behind a world pixel is not stored per pixel; it is found on demand by descending the instance tree, which is the same walk editing uses. Patterns spanning an instance boundary are legal and recognised normally, since recognition runs on the flat bitmap. A wire in the parent touching a child's edge pixel connects. Store the world bitmap in chunks (64×64 bits per chunk in a map keyed by chunk coordinate) so the canvas is unbounded and empty space costs nothing.
+**Flattening.** For compilation and rendering, the document flattens into one world bitmap. The instance path behind a world pixel is not stored per pixel; it is found on demand by descending the instance tree, which is the same walk editing uses. Cells touching across an instance boundary connect normally, since the compiler runs on the flat grid: a wire in the parent touching a child's edge cell connects, and a transistor's arms may lie in another definition. Store the world grid in chunks (64×64 cells per chunk in a map keyed by chunk coordinate, with kind bit-planes only in chunks holding a cell other than wire) so the canvas is unbounded and empty space costs nothing.
 
 **Editing.** Every editor action resolves a world coordinate to (definition, local coordinate) by descending to the deepest instance whose rectangle contains it, mapping through each instance's inverse orientation on the way down. A pixel edit therefore changes the definition (in its own unrotated frame), and every instance updates on the next flatten. Root-level pixels resolve to the root definition. Commands that would break an invariant are rejected with a status message.
 
@@ -267,12 +250,12 @@ In v2.0 the editor shows each memory as a hex panel, editable while paused.
 
 ## File format
 
-One JSON file per document, extension `.mip`, saved as indented JSON by Go's standard encoder, readable by an AI agent. Pixels are stored as rows of `#` and `.` strings within each definition's rectangle; the root stores its rows relative to `origin`, which save sets to the top-left of its pixels' bounding box, with x rounded down to a multiple of 16 (so drawing a little left of the circuit does not rewrite every row in a diff; the loader accepts any origin). Root labels and instance positions are in world coordinates, not relative to `origin`. A definition may have a display `name`, which defaults to its ID. The file version is not part of the in-memory document. This is verbose but compresses well and makes small circuits legible in a pull request. Empty `rows`, `labels` and `instances` may be omitted.
+One JSON file per document, extension `.mip`, saved as indented JSON by Go's standard encoder, readable by an AI agent. Cells are stored as rows of strings within each definition's rectangle, one character per cell (`.` empty, `#` wire, `H` power, `L` ground, `T` transistor, `B` bridge); the root stores its rows relative to `origin`, which save sets to the top-left of its pixels' bounding box, with x rounded down to a multiple of 16 (so drawing a little left of the circuit does not rewrite every row in a diff; the loader accepts any origin). Root labels and instance positions are in world coordinates, not relative to `origin`. A definition may have a display `name`, which defaults to its ID. The file version is not part of the in-memory document. This is verbose but compresses well and makes small circuits legible in a pull request. Empty `rows`, `labels` and `instances` may be omitted.
 
 ```json
 {
   "format": "mipsim",
-  "version": 2,
+  "version": 3,
   "note": "an optional description",
   "root": "top",
   "defs": {
@@ -304,7 +287,7 @@ Limits, so that a few kilobytes cannot describe an unbounded circuit (checked by
 
 Tests (optional, version 2): a script of steps run in order. Each step pins the nets and buses in `set`, settles, then checks the values in `expect`, and that at least one net in `any_unstable` is unstable (which net of an oscillating loop trips first depends on evaluation order). Values are `high`, `low`, `float` or `unstable` for a net, and an unsigned number for a bus (`name_0`, `name_1`, ...), as a JSON number or a string such as `"0xab"`. Pins persist from step to step, so sequential circuits can be tested. The document carries the script; the behaviour tests run it.
 
-Checks (optional, version 2): structural assertions used by the pattern tests: `diag` (the distinct diagnostic codes with thin wires, `[]` for a clean circuit), `diag_isolated` (the same for the isolated-sources variant), `nets` and `transistors` (counts with thin wires), `same` (each list of names is one net) and `differ` (the first name is a different net from each of the others).
+Checks (optional, version 2): structural assertions used by the pattern tests: `diag` (the distinct diagnostic codes, `[]` for a clean circuit), `nets` and `transistors` (counts), `same` (each list of names is one net) and `differ` (the first name is a different net from each of the others).
 
 Version 1 files, which have no note, tests or checks, load unchanged.
 

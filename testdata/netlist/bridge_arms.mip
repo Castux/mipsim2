@@ -1,7 +1,7 @@
 {
   "format": "mipsim",
-  "version": 2,
-  "note": "a ring sharing pixels with a high source",
+  "version": 3,
+  "note": "bridges need exactly four neighbours: this one has three",
   "root": "top",
   "defs": {
     "top": {
@@ -10,16 +10,14 @@
         0
       ],
       "rows": [
-        "#####",
-        "###.#",
-        "#####"
+        ".#",
+        "#B#"
       ]
     }
   },
   "checks": {
     "diag": [
-      "E_RING_OVERLAP",
-      "W_SOURCE_SHORT"
+      "E_BRIDGE_ARMS"
     ]
   }
 }

@@ -1,7 +1,7 @@
 {
   "format": "mipsim",
-  "version": 2,
-  "note": "two transistor centres side by side",
+  "version": 3,
+  "note": "two transistor cells side by side: an error",
   "root": "top",
   "defs": {
     "top": {
@@ -11,7 +11,7 @@
       ],
       "rows": [
         ".#",
-        "####",
+        "#TT#",
         "..#"
       ]
     }

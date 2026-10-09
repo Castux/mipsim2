@@ -1,6 +1,6 @@
 {
   "format": "mipsim",
-  "version": 2,
+  "version": 3,
   "note": "two nets touching only at a corner",
   "root": "top",
   "defs": {

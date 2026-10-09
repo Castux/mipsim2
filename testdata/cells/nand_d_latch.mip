@@ -1,0 +1,101 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "gated D latch from four NANDs: s = NAND(d,e), r = NAND(s,e), q = NAND(s,qn), qn = NAND(r,q); replaces nand_d_latch, which did not hold",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "....H######.H####",
+        "####T...#.##T...#",
+        "....#...#...#...#",
+        ".###T...#...T##.#",
+        ".#..L...#...L.#.#",
+        ".#......#.....#.#",
+        "##....##B##...#.#",
+        ".#....H.#.#.H##.#",
+        ".#....T##.##T...#",
+        ".#....#.....#...#",
+        ".#####T.....T####",
+        "......L.....L"
+      ],
+      "labels": [
+        {
+          "x": 0,
+          "y": 1,
+          "name": "d"
+        },
+        {
+          "x": 0,
+          "y": 6,
+          "name": "e"
+        },
+        {
+          "x": 15,
+          "y": 0,
+          "name": "q"
+        },
+        {
+          "x": 14,
+          "y": 5,
+          "name": "qn"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "set": {
+        "e": "high",
+        "d": "high"
+      },
+      "expect": {
+        "q": "high"
+      }
+    },
+    {
+      "set": {
+        "e": "low"
+      },
+      "expect": {
+        "q": "high"
+      }
+    },
+    {
+      "set": {
+        "d": "low"
+      },
+      "expect": {
+        "q": "high"
+      }
+    },
+    {
+      "set": {
+        "e": "high"
+      },
+      "expect": {
+        "q": "low"
+      }
+    },
+    {
+      "set": {
+        "e": "low"
+      },
+      "expect": {
+        "q": "low"
+      }
+    },
+    {
+      "set": {
+        "d": "high"
+      },
+      "expect": {
+        "q": "low"
+      }
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 {
   "format": "mipsim",
-  "version": 2,
-  "note": "a 4-way cross is a plain junction, not a transistor",
+  "version": 3,
+  "note": "a 4-way cross of wire is a plain junction",
   "root": "top",
   "defs": {
     "top": {

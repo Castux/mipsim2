@@ -1,0 +1,76 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "NAND: two transistors in series",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        ".H#",
+        "#T",
+        ".#",
+        "#T",
+        ".L"
+      ],
+      "labels": [
+        {
+          "x": 0,
+          "y": 1,
+          "name": "a"
+        },
+        {
+          "x": 0,
+          "y": 3,
+          "name": "b"
+        },
+        {
+          "x": 2,
+          "y": 0,
+          "name": "out"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "set": {
+        "a": "low",
+        "b": "low"
+      },
+      "expect": {
+        "out": "high"
+      }
+    },
+    {
+      "set": {
+        "a": "low",
+        "b": "high"
+      },
+      "expect": {
+        "out": "high"
+      }
+    },
+    {
+      "set": {
+        "a": "high",
+        "b": "low"
+      },
+      "expect": {
+        "out": "high"
+      }
+    },
+    {
+      "set": {
+        "a": "high",
+        "b": "high"
+      },
+      "expect": {
+        "out": "low"
+      }
+    }
+  ]
+}

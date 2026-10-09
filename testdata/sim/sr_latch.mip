@@ -1,6 +1,6 @@
 {
   "format": "mipsim",
-  "version": 2,
+  "version": 3,
   "note": "cross-coupled NOR gates, the second rotated 180 degrees",
   "root": "top",
   "defs": {
@@ -8,19 +8,19 @@
       "w": 9,
       "h": 13,
       "rows": [
-        "###",
-        "###",
-        "###",
+        "HHH",
+        "HHH",
+        "HHH",
         ".#...#",
         "#########",
         ".#...#",
-        "##...####",
+        "#T...T###",
         ".#.#.#",
         ".#####",
         "...#",
-        "..###",
-        "..#.#",
-        "..###"
+        "..LLL",
+        "..L.L",
+        "..LLL"
       ]
     },
     "top": {

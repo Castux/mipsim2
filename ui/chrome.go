@@ -111,6 +111,7 @@ func (a *app) computeLayout() layout {
 	}
 	if mode == editor.EditMode {
 		addCol(toolCol)
+		addCol(kindCol)
 		addCol(editCol)
 		addCol(compCol)
 	} else {
@@ -141,6 +142,8 @@ func (a *app) makeButton(r image.Rectangle, b binding) button {
 		bt.active = a.ed.Tool() == editor.Select
 	case editor.ActLabel:
 		bt.active = a.ed.Tool() == editor.LabelTool
+	case editor.ActWire, editor.ActPower, editor.ActGround, editor.ActTransistor, editor.ActBridge:
+		bt.active = editor.BrushAction(a.ed.Brush()) == b.action
 	case editor.ActRunPause:
 		if a.ed.Running() {
 			bt.label, bt.active = "Pause", true

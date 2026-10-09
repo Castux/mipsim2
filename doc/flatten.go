@@ -46,9 +46,9 @@ func (d *Document) flattenInto(f *Flat, def *Definition, toWorld Affine, path []
 		prefix = scope + "."
 	}
 
-	def.Pixels.ForEach(func(x, y int) {
+	def.Pixels.ForEachCell(func(x, y int, k bitmap.Kind) {
 		p := toWorld.Apply(image.Pt(x, y))
-		f.Pixels.Set(p.X, p.Y, true)
+		f.Pixels.Put(p.X, p.Y, k)
 	})
 	for _, l := range def.Labels {
 		f.Labels = append(f.Labels, FlatLabel{Pos: toWorld.Apply(l.Pos()), Name: prefix + l.Name, Scope: scope})

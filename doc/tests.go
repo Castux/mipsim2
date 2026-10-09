@@ -48,12 +48,11 @@ func (v Value) MarshalJSON() ([]byte, error) {
 }
 
 // Checks are structural assertions on the compiled netlist, used by the
-// pattern tests. Nil fields are not checked.
+// compiler tests. Nil fields are not checked.
 type Checks struct {
-	Diag         *[]string  `json:"diag,omitempty"`          // distinct diagnostic codes with thin wires; empty for a clean circuit
-	DiagIsolated *[]string  `json:"diag_isolated,omitempty"` // the same for the isolated-sources variant
-	Nets         *int       `json:"nets,omitempty"`          // number of nets (thin wires)
-	Transistors  *int       `json:"transistors,omitempty"`   // number of transistors (thin wires)
-	Same         [][]string `json:"same,omitempty"`          // each group of named nets is one net
-	Differ       [][]string `json:"differ,omitempty"`        // the first named net differs from each of the others
+	Diag        *[]string  `json:"diag,omitempty"`        // distinct diagnostic codes; empty for a clean circuit
+	Nets        *int       `json:"nets,omitempty"`        // number of nets
+	Transistors *int       `json:"transistors,omitempty"` // number of transistors
+	Same        [][]string `json:"same,omitempty"`        // each group of named nets is one net
+	Differ      [][]string `json:"differ,omitempty"`      // the first named net differs from each of the others
 }

@@ -1,7 +1,7 @@
 {
   "format": "mipsim",
-  "version": 2,
-  "note": "a 3x4 block is not a source",
+  "version": 3,
+  "note": "wires may be any shape: a thick blob and a 2-wide line are one net",
   "root": "top",
   "defs": {
     "top": {
@@ -12,15 +12,13 @@
       "rows": [
         "###",
         "###",
-        "###",
-        "###"
+        "########",
+        "########"
       ]
     }
   },
   "checks": {
-    "diag": [
-      "E_THICK"
-    ],
-    "diag_isolated": []
+    "diag": [],
+    "nets": 1
   }
 }

@@ -1,16 +1,7 @@
-== thin-wires
 ......
 ..w...
-.wTTw.
+.wXXw.
 ...w..
 ......
-nets 4, transistors 2
-2,1: error E_ADJ_TRANSISTOR: transistor centre touches another transistor centre
-== isolated-sources
-......
-..w...
-.wTTw.
-...w..
-......
-nets 4, transistors 2
-2,1: error E_ADJ_TRANSISTOR: transistor centre touches another transistor centre
+nets 4, transistors 0
+2,1: error E_ADJ_TRANSISTOR: two transistors touch; put a wire between them

@@ -1,0 +1,49 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "the smallest inverter: power, transistor and ground in a column, output from the power cell (several labels on one net warn)",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        ".H#",
+        "#T",
+        ".L"
+      ],
+      "labels": [
+        {
+          "x": 0,
+          "y": 1,
+          "name": "in"
+        },
+        {
+          "x": 2,
+          "y": 0,
+          "name": "out"
+        },
+        {
+          "x": 1,
+          "y": 0,
+          "name": "p"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "W_LABEL_CONFLICT"
+    ],
+    "nets": 3,
+    "transistors": 1,
+    "same": [
+      [
+        "out",
+        "p"
+      ]
+    ]
+  }
+}

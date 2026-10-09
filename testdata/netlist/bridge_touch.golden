@@ -1,0 +1,10 @@
+.........
+..w...w..
+.wXw.wXw.
+..X..wXw.
+..w...w..
+.........
+nets 8, transistors 0
+1,1: error E_BRIDGE_ARM: a bridge touches a transistor; put a wire between them
+1,2: error E_TRANSISTOR_ARMS: a transistor needs exactly 3 neighbours (gate and channel), it has 2
+5,2: error E_BRIDGE_ARM: two bridges touch; put a wire between them

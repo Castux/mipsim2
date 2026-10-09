@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Castux/mipsim2/bitmap"
 	"github.com/Castux/mipsim2/doc"
 	"github.com/Castux/mipsim2/internal/mipfile"
 	"github.com/Castux/mipsim2/netlist"
@@ -181,7 +182,7 @@ func wrap(d *doc.Document, o doc.Orient) *doc.Document {
 	n := d.Clone()
 	root := n.RootDef()
 	def := doc.NewDefinition("wrapped", r.Dx(), r.Dy())
-	root.Pixels.ForEach(func(x, y int) { def.Pixels.Set(x-r.Min.X, y-r.Min.Y, true) })
+	root.Pixels.ForEachCell(func(x, y int, k bitmap.Kind) { def.Pixels.Put(x-r.Min.X, y-r.Min.Y, k) })
 	for _, l := range root.Labels {
 		def.Labels = append(def.Labels, doc.Label{X: l.X - r.Min.X, Y: l.Y - r.Min.Y, Name: l.Name})
 	}
@@ -198,7 +199,7 @@ func wrap(d *doc.Document, o doc.Orient) *doc.Document {
 
 func TestBehaviour(t *testing.T) {
 	var files []string
-	for _, dir := range []string{"sim", "runner"} {
+	for _, dir := range []string{"sim", "runner", "cells"} {
 		fs, err := filepath.Glob(filepath.Join("..", "testdata", dir, "*.mip"))
 		if err != nil || len(fs) == 0 {
 			t.Fatalf("no fixtures in %s: %v", dir, err)
@@ -206,7 +207,7 @@ func TestBehaviour(t *testing.T) {
 		files = append(files, fs...)
 	}
 	for _, path := range files {
-		name := strings.TrimSuffix(filepath.Base(path), ".mip")
+		name := filepath.Base(filepath.Dir(path)) + "/" + strings.TrimSuffix(filepath.Base(path), ".mip")
 		d, err := mipfile.Load(path)
 		if err != nil {
 			t.Fatal(err)

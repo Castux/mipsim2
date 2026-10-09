@@ -29,6 +29,7 @@ const (
 	noButton   place = iota
 	topBar           // file and history, right of the top bar
 	toolCol          // edit mode, left column: tools
+	kindCol          // edit mode, left column: the pencil's cell kinds
 	editCol          // edit mode, left column: selection actions
 	simCol           // simulate mode, left column
 	compCol          // edit mode, left column: components
@@ -59,6 +60,12 @@ var keymap = []binding{
 	{key: ebiten.KeyD, keyName: "d", editOnly: true, action: editor.ActPencil, place: toolCol, label: "Draw"},
 	{key: ebiten.KeyS, keyName: "s", editOnly: true, action: editor.ActSelect, place: toolCol, label: "Select"},
 	{key: ebiten.KeyN, keyName: "n", editOnly: true, action: editor.ActLabel, place: toolCol, label: "Label"},
+
+	{key: ebiten.Key1, keyName: "1", editOnly: true, action: editor.ActWire, place: kindCol, label: "Wire"},
+	{key: ebiten.Key2, keyName: "2", editOnly: true, action: editor.ActPower, place: kindCol, label: "Power"},
+	{key: ebiten.Key3, keyName: "3", editOnly: true, action: editor.ActGround, place: kindCol, label: "Ground"},
+	{key: ebiten.Key4, keyName: "4", editOnly: true, action: editor.ActTransistor, place: kindCol, label: "Transistor"},
+	{key: ebiten.Key5, keyName: "5", editOnly: true, action: editor.ActBridge, place: kindCol, label: "Bridge"},
 
 	{key: ebiten.KeyC, keyName: "c", editOnly: true, action: editor.ActCopy, place: editCol, label: "Copy"},
 	{key: ebiten.KeyX, keyName: "x", editOnly: true, action: editor.ActCut, place: editCol, label: "Cut"},

@@ -1,6 +1,6 @@
 {
   "format": "mipsim",
-  "version": 2,
+  "version": 3,
   "note": "the gate loops round to a channel end",
   "root": "top",
   "defs": {
@@ -13,7 +13,7 @@
         "####",
         "#..#",
         "#..#",
-        "#####"
+        "###T#"
       ],
       "labels": [
         {

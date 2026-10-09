@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Castux/mipsim2/bitmap"
 	"github.com/Castux/mipsim2/doc"
 	"github.com/Castux/mipsim2/internal/mipfile"
 	"github.com/Castux/mipsim2/netlist"
@@ -130,12 +131,9 @@ func TestResetClearsPins(t *testing.T) {
 }
 
 func TestNewRejectsErrors(t *testing.T) {
-	d := doc.New() // a 3x4 block: a thick-region error
-	for y := range 4 {
-		for x := range 3 {
-			d.RootDef().Pixels.Set(x, y, true)
-		}
-	}
+	d := doc.New() // a transistor with one neighbour: E_TRANSISTOR_ARMS
+	d.RootDef().Pixels.Set(0, 0, true)
+	d.RootDef().Pixels.Put(1, 0, bitmap.Transistor)
 	nl := netlist.CompileDoc(d, netlist.Options{})
 	if _, err := New(nl, Options{}); err != ErrNetlistHasErrors {
 		t.Errorf("New on a netlist with errors: %v", err)

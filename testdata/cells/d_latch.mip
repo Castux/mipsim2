@@ -1,0 +1,100 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "D latch: an inverter and two pass transistors gated by gate drive the SR latch, as d_latch",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        -2
+      ],
+      "rows": [
+        "...............######",
+        "...............#....#",
+        "............###B##..#",
+        ".....H##....#..#.#..#",
+        "#####T.#...#H#.#.#.#H#",
+        ".#...L.#T##T.T##.##T.T##T##",
+        ".#......#..LLL.....LLL..#.#",
+        ".#......#...............#.#",
+        "#B#######################.#",
+        ".#........................#",
+        ".##########################"
+      ],
+      "labels": [
+        {
+          "x": 0,
+          "y": 2,
+          "name": "data"
+        },
+        {
+          "x": 0,
+          "y": 6,
+          "name": "gate"
+        },
+        {
+          "x": 13,
+          "y": 0,
+          "name": "q"
+        },
+        {
+          "x": 20,
+          "y": 0,
+          "name": "qn"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "set": {
+        "gate": "high",
+        "data": "high"
+      },
+      "expect": {
+        "q": "high"
+      }
+    },
+    {
+      "set": {
+        "gate": "low"
+      },
+      "expect": {
+        "q": "high"
+      }
+    },
+    {
+      "set": {
+        "data": "low"
+      },
+      "expect": {
+        "q": "high"
+      }
+    },
+    {
+      "set": {
+        "gate": "high"
+      },
+      "expect": {
+        "q": "low"
+      }
+    },
+    {
+      "set": {
+        "gate": "low"
+      },
+      "expect": {
+        "q": "low"
+      }
+    },
+    {
+      "set": {
+        "data": "high"
+      },
+      "expect": {
+        "q": "low"
+      }
+    }
+  ]
+}

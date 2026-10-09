@@ -1,24 +1,26 @@
 # MiPSim v2
 
-A switch-level n-MOS circuit simulator where circuits are drawn as one-bit pixel art. It is a Go rewrite of [MiPSim](https://github.com/Castux/mipsim), adding reusable components and attachable memory.
+A switch-level n-MOS circuit simulator where circuits are drawn as pixel art, one cell at a time. It is a Go rewrite of [MiPSim](https://github.com/Castux/mipsim), adding reusable components and attachable memory.
 
 ![A 4-bit adder in simulate mode: 11 + 6 + carry 1 gives sum 2 and carry out 1](docs/screenshot.png)
 
-Circuits are made of a single kind of pixel. What a pixel does comes from the pattern around it:
+A cell is a wire, power, ground, transistor or bridge:
 
 ```
-High source   Low source    Transistor    Bridge        Wire junction
-  ###           ###           .#.           .#.           .#.
-  ###           #.#           ###           #.#           ###
-  ###           ###           ...           .#.           .#.
+Inverter     NAND         NOR
+.H#  out     .H#  out     ..#    out
+#T   in      #T   a       .#H#
+.L           .#           #T.T#  a, b
+             #T   b       .LLL
+             .L
 ```
 
-A 3×3 square pulls its wire high, and a 3×3 ring pulls it low (low wins). A T shape is a transistor whose stem is the gate. A gap surrounded by four wire ends lets two wires cross. The full rules are in [docs/SPEC.md](docs/SPEC.md).
+`#` wire, `H` power, `L` ground, `T` transistor, `B` bridge. Wire, power and ground cells conduct to their orthogonal neighbours, in any shape; power pulls its net high and ground pulls it low (low wins). A transistor has exactly three neighbours: the two in line are its channel and the odd one is its gate. A bridge has exactly four and lets two wires cross. Breaking a rule is an error shown at the cell. The full rules are in [docs/SPEC.md](docs/SPEC.md).
 
 ## Features
 
-- **Drawing:** a pencil with an axis lock (alt), select, move, copy and paste, rotate and mirror, labels, and unlimited undo.
-- **Diagnostics:** malformed or ambiguous patterns are reported at their location and listed in a panel.
+- **Drawing:** a pencil that paints the chosen cell kind (keys 1 to 5), with an axis lock (alt), select, move, copy and paste, rotate and mirror, labels, and unlimited undo.
+- **Diagnostics:** transistors and bridges with the wrong neighbours, and other mistakes, are reported at their location and listed in a panel.
 - **Components:** make a component from a selection and place it anywhere, in any of 8 orientations. Every placement is a live view, so editing one edits them all. Net names are hierarchical (`alu.add3.sum_2`). Components can be imported from other documents, along with the components they use.
 - **Simulation:** click a wire to pin it high or low, then run a clock, tick, or step one propagation at a time. Labels ending in `_0`, `_1`, ... read as numbers in the Watch panel, where you can also type values.
 - **Memory:** RAM and ROM devices attach to labelled buses. Configure them in the Devices tab, load their contents from a binary file, and view or edit them as hex while simulating.
@@ -45,15 +47,15 @@ In the editor every action is a button showing its key, and the bottom line expl
 
 ## Files
 
-Documents are `.mip` files: deterministic, indented JSON in which pixels are rows of `#` and `.`, so circuits diff well in git. A document can also carry a test script (pins to set and values to expect) and structural checks; the test fixtures in `testdata/` are ordinary documents with these fields. The format is in [docs/SPEC.md](docs/SPEC.md).
+Documents are `.mip` files: deterministic, indented JSON in which cells are rows of characters (`.#HLTB`), so circuits diff well in git. Files from the earlier one-bit pattern language (format versions 1 and 2) are converted when opened; `go run ./internal/tools/upgrade FILE...` rewrites them. A document can also carry a test script (pins to set and values to expect) and structural checks; the test fixtures in `testdata/` are ordinary documents with these fields. The format is in [docs/SPEC.md](docs/SPEC.md).
 
 ## Layout
 
 | Path | Contents |
 | --- | --- |
-| `bitmap/` | Unbounded one-bit images |
+| `bitmap/` | Unbounded grids of typed cells |
 | `doc/` | Documents, components, orientations, `.mip` files |
-| `netlist/` | Pattern compiler: pixels to nets and transistors, with diagnostics |
+| `netlist/` | Compiler: cells to nets and transistors, with diagnostics |
 | `sim/` | Switch-level simulator |
 | `runner/`, `devices/` | Clocked runner, named nets and buses, memory devices |
 | `editor/` | Editor logic: tools, selection, components, undo (no graphics, unit-tested) |

@@ -62,7 +62,7 @@ func TestSaveFormatIsStable(t *testing.T) {
 	}
 	want := `{
   "format": "mipsim",
-  "version": 2,
+  "version": 3,
   "note": "the example from the spec",
   "root": "top",
   "defs": {
@@ -162,7 +162,7 @@ func TestSaveFormatIsStable(t *testing.T) {
 func TestLoadRejects(t *testing.T) {
 	cases := []struct{ name, edit, want string }{
 		{"bad format", `"format": "mipsim"|"format": "other"`, "format is"},
-		{"newer version", `"version": 1|"version": 3`, "newer"},
+		{"newer version", `"version": 1|"version": 4`, "newer"},
 		{"unknown field", `"root": "top",|"root": "top", "colour": 3,`, "unknown field"},
 		{"bad row char", `"rows": ["..."]|"rows": [".x."]`, "unexpected character"},
 		{"row too wide", `"rows": ["..."]|"rows": ["............"]`, "characters for width"},

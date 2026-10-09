@@ -6,6 +6,7 @@ package editor
 
 import (
 	"fmt"
+	"github.com/Castux/mipsim2/bitmap"
 	"image"
 	"strings"
 	"time"
@@ -86,7 +87,29 @@ const (
 	ActMakeComponent
 	ActExplode
 	ActRename // the selected instance
+	// The pencil's cell kind; each also selects the pencil.
+	ActWire
+	ActPower
+	ActGround
+	ActTransistor
+	ActBridge
 )
+
+// brushActions maps the kind actions to the kinds they select.
+var brushActions = map[Action]bitmap.Kind{
+	ActWire: bitmap.Wire, ActPower: bitmap.Power, ActGround: bitmap.Ground,
+	ActTransistor: bitmap.Transistor, ActBridge: bitmap.Bridge,
+}
+
+// BrushAction returns the action selecting kind k.
+func BrushAction(k bitmap.Kind) Action {
+	for a, b := range brushActions {
+		if b == k {
+			return a
+		}
+	}
+	return ActWire
+}
 
 // cheapCompile is the compile time below which strokes recompile on every
 // pointer move, so roles and nets update live; above it, only on release.
@@ -96,8 +119,9 @@ const cheapCompile = 8 * time.Millisecond
 type Editor struct {
 	Doc *doc.Document
 
-	mode Mode
-	tool Tool
+	mode  Mode
+	tool  Tool
+	brush bitmap.Kind // what the pencil paints
 
 	flat        *doc.Flat
 	nl          *netlist.Netlist
@@ -138,7 +162,7 @@ type Editor struct {
 }
 
 type stroke struct {
-	value  bool // what the stroke paints
+	value  bitmap.Kind // what the stroke paints (Empty: it erases)
 	start  image.Point
 	last   image.Point
 	axis   int // 0 free, 1 horizontal, 2 vertical (alt line lock)
@@ -175,7 +199,7 @@ type typing struct {
 
 // New returns an editor on d in edit mode.
 func New(d *doc.Document) *Editor {
-	e := &Editor{Doc: d, dirty: true, hz: 4}
+	e := &Editor{Doc: d, dirty: true, hz: 4, brush: bitmap.Wire}
 	e.Netlist()
 	return e
 }
@@ -220,9 +244,9 @@ func (e *Editor) Flat() *doc.Flat {
 
 // Stroke returns the pixels changed by the stroke in progress, in world
 // coordinates, so a renderer can show them before the next compile.
-func (e *Editor) Stroke() (cells []image.Point, value bool) {
+func (e *Editor) Stroke() (cells []image.Point, value bitmap.Kind) {
 	if e.stroke == nil {
-		return nil, false
+		return nil, bitmap.Empty
 	}
 	return e.stroke.cells, e.stroke.value
 }
@@ -255,6 +279,9 @@ func (e *Editor) Do(a Action) {
 	e.endGesture()
 	switch a {
 	case ActPencil:
+		e.setTool(Pencil)
+	case ActWire, ActPower, ActGround, ActTransistor, ActBridge:
+		e.brush = brushActions[a]
 		e.setTool(Pencil)
 	case ActSelect:
 		e.setTool(Select)
@@ -424,7 +451,12 @@ func (e *Editor) PointerDown(p image.Point, b Button, m Mods) {
 	switch e.tool {
 	case Pencil:
 		loc := e.Doc.Locate(p)
-		value := !e.Doc.Defs[loc.Def].Pixels.Get(loc.Local.X, loc.Local.Y)
+		// A stroke starting on a cell of the brush's kind erases; any other
+		// stroke paints the brush's kind, over whatever is there.
+		value := e.brush
+		if e.Doc.Defs[loc.Def].Pixels.At(loc.Local.X, loc.Local.Y) == e.brush {
+			value = bitmap.Empty
+		}
 		e.stroke = &stroke{value: value, start: p, last: p, edit: &pixelEdit{}, done: map[image.Point]bool{}}
 		e.paint(p)
 		e.afterPaint()
@@ -546,11 +578,11 @@ func (e *Editor) paint(p image.Point) {
 	}
 	loc := e.Doc.Locate(p)
 	px := e.Doc.Defs[loc.Def].Pixels
-	old := px.Get(loc.Local.X, loc.Local.Y)
+	old := px.At(loc.Local.X, loc.Local.Y)
 	if old == s.value {
 		return
 	}
-	px.Set(loc.Local.X, loc.Local.Y, s.value)
+	px.Put(loc.Local.X, loc.Local.Y, s.value)
 	s.cells = append(s.cells, p)
 	s.edit.changes = append(s.edit.changes, pixelChange{def: loc.Def, p: loc.Local, old: old, new: s.value})
 }

@@ -80,10 +80,10 @@ func TestCLIErrors(t *testing.T) {
 	}
 
 	bad := filepath.Join(t.TempDir(), "bad.mip")
-	os.WriteFile(bad, []byte(`{"format": "mipsim", "version": 2, "root": "top",
-		"defs": {"top": {"rows": ["###", "###", "###", "###"]}}}`), 0o644)
+	os.WriteFile(bad, []byte(`{"format": "mipsim", "version": 3, "root": "top",
+		"defs": {"top": {"rows": ["##T#"]}}}`), 0o644)
 	_, errOut, code := runCLI(t, bad)
-	if code != 1 || !strings.Contains(errOut, "E_THICK") {
+	if code != 1 || !strings.Contains(errOut, "E_TRANSISTOR_ARMS") {
 		t.Errorf("circuit with errors: exit %d, stderr %q", code, errOut)
 	}
 }

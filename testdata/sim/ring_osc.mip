@@ -1,6 +1,6 @@
 {
   "format": "mipsim",
-  "version": 2,
+  "version": 3,
   "note": "three inverters in a loop oscillate and go unstable",
   "root": "top",
   "defs": {
@@ -8,17 +8,17 @@
       "w": 9,
       "h": 11,
       "rows": [
-        "###",
-        "###",
-        "###",
+        "HHH",
+        "HHH",
+        "HHH",
         ".#",
         "#########",
         ".#",
-        "##",
+        "#T",
         ".#",
-        "###",
-        "#.#",
-        "###"
+        "LLL",
+        "L.L",
+        "LLL"
       ]
     },
     "top": {

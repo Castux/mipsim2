@@ -1,0 +1,68 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "sources conduct: wires leaving a power cell on four sides are one net, and two ground cells side by side are one net (several labels on one net warn)",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        ".#",
+        "#H#",
+        ".#",
+        "",
+        "#LL#"
+      ],
+      "labels": [
+        {
+          "x": 1,
+          "y": 0,
+          "name": "n"
+        },
+        {
+          "x": 2,
+          "y": 1,
+          "name": "e"
+        },
+        {
+          "x": 1,
+          "y": 2,
+          "name": "s"
+        },
+        {
+          "x": 0,
+          "y": 1,
+          "name": "w"
+        },
+        {
+          "x": 0,
+          "y": 4,
+          "name": "g"
+        }
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "W_LABEL_CONFLICT"
+    ],
+    "nets": 2,
+    "same": [
+      [
+        "n",
+        "e",
+        "s",
+        "w"
+      ]
+    ],
+    "differ": [
+      [
+        "n",
+        "g"
+      ]
+    ]
+  }
+}

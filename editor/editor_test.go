@@ -213,9 +213,10 @@ func TestSimulateInverter(t *testing.T) {
 func TestSimulateRefusesErrors(t *testing.T) {
 	e := New(doc.New())
 	drag(e, Mods{}, pt(0, 0), pt(3, 0))
-	drag(e, Mods{}, pt(0, 1), pt(3, 1)) // 2-pixel-thick wire: E_THICK
+	e.Do(ActTransistor)
+	drag(e, Mods{}, pt(4, 0)) // a transistor with one neighbour
 	e.Do(ActToggleSimulate)
-	if e.Mode() != EditMode || !strings.Contains(e.Status, "E_THICK") {
+	if e.Mode() != EditMode || !strings.Contains(e.Status, "E_TRANSISTOR_ARMS") {
 		t.Errorf("mode %v, status %q", e.Mode(), e.Status)
 	}
 }

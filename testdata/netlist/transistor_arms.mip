@@ -1,7 +1,7 @@
 {
   "format": "mipsim",
-  "version": 2,
-  "note": "a T whose arm is part of a thick region",
+  "version": 3,
+  "note": "transistors need exactly three neighbours: one with two, one with four",
   "root": "top",
   "defs": {
     "top": {
@@ -10,18 +10,18 @@
         0
       ],
       "rows": [
-        "##",
-        "####",
+        "#T#",
+        "",
         "..#",
+        ".#T#",
         "..#"
       ]
     }
   },
   "checks": {
     "diag": [
-      "E_THICK",
-      "W_FLOATING_GATE"
+      "E_TRANSISTOR_ARMS"
     ],
-    "diag_isolated": []
+    "transistors": 0
   }
 }

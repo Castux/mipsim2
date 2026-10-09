@@ -12,10 +12,13 @@ import (
 )
 
 // FormatName and FormatVersion identify .mip files. Version 2 added the
-// optional note, tests and checks; version 1 files load unchanged.
+// optional note, tests and checks. Version 3 made cells typed: rows use
+// '#' wire, 'H' power, 'L' ground, 'T' transistor and 'B' bridge. Version 1
+// and 2 rows are one-bit drawings in the old pattern language, migrated on
+// load (see migrate.go).
 const (
 	FormatName    = "mipsim"
-	FormatVersion = 2
+	FormatVersion = 3
 )
 
 type fileDoc struct {
@@ -128,8 +131,8 @@ func Load(data []byte) (*Document, error) {
 	case f.Version < 1:
 		return nil, fmt.Errorf("invalid file version %d", f.Version)
 	}
-	// Future versions: migrate f from f.Version up to FormatVersion here, one
-	// tested function per step.
+	// Migrations from older versions run per definition, after decoding.
+	legacy := f.Version < 3
 
 	d := &Document{Root: DefID(f.Root), Defs: map[DefID]*Definition{}, Note: f.Note, Tests: f.Tests, Checks: f.Checks}
 	var ps Problems
@@ -172,6 +175,11 @@ func Load(data []byte) (*Document, error) {
 		}
 		if err := def.Pixels.DecodeRows(fd.Rows, origin); err != nil {
 			add(where, "%v", err)
+		} else if legacy {
+			if hasKinds(def.Pixels) {
+				add(where, "version %d rows hold only '#' and '.'", f.Version)
+			}
+			def.Pixels = MigratePatterns(def.Pixels)
 		}
 		for _, l := range fd.Labels {
 			def.Labels = append(def.Labels, Label(l))

@@ -15,10 +15,9 @@ import (
 )
 
 func main() {
-	isolated := flag.Bool("isolated", false, "use the isolated-sources variant")
 	flag.Parse()
 	if flag.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: classify [-isolated] file.mip")
+		fmt.Fprintln(os.Stderr, "usage: classify file.mip")
 		os.Exit(2)
 	}
 	d, err := mipfile.Load(flag.Arg(0))
@@ -27,9 +26,6 @@ func main() {
 		os.Exit(1)
 	}
 	opts := netlist.Options{}
-	if *isolated {
-		opts.Variant = netlist.IsolatedSources
-	}
 	flat := d.Flatten()
 	nl := netlist.Compile(flat, opts)
 	r := flat.Pixels.Bounds().Inset(-1)

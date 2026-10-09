@@ -1,7 +1,7 @@
 {
   "format": "mipsim",
-  "version": 2,
-  "note": "labels on an off pixel and on a transistor centre",
+  "version": 3,
+  "note": "labels on an empty cell and on a transistor cell",
   "root": "top",
   "defs": {
     "top": {
@@ -11,7 +11,7 @@
       ],
       "rows": [
         ".#",
-        "###",
+        "#T#",
         "",
         "#.#"
       ],

@@ -1,6 +1,6 @@
 {
   "format": "mipsim",
-  "version": 2,
+  "version": 3,
   "note": "a 256-byte RAM on an 8-bit address bus and an 8-bit data bus. The data bus also feeds eight inverters, so the circuit sees what the memory drives: q_N is the inverse of data_N.",
   "root": "top",
   "defs": {
@@ -8,17 +8,17 @@
       "w": 9,
       "h": 11,
       "rows": [
-        "###",
-        "###",
-        "###",
+        "HHH",
+        "HHH",
+        "HHH",
         ".#",
         "#########",
         ".#",
-        "##",
+        "#T",
         ".#",
-        "###",
-        "#.#",
-        "###"
+        "LLL",
+        "L.L",
+        "LLL"
       ]
     },
     "top": {

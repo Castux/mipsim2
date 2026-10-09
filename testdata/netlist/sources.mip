@@ -1,7 +1,7 @@
 {
   "format": "mipsim",
-  "version": 2,
-  "note": "a high source and a low source, each with a labelled wire",
+  "version": 3,
+  "note": "a power block and a ground block, each with a labelled wire",
   "root": "top",
   "defs": {
     "top": {
@@ -10,9 +10,9 @@
         0
       ],
       "rows": [
-        "####...###",
-        "###....#.##",
-        "###....###"
+        "HHH#...LLL",
+        "HHH....L.L#",
+        "HHH....LLL"
       ],
       "labels": [
         {

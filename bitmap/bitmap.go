@@ -1,6 +1,6 @@
-// Package bitmap stores unbounded one-bit images in 64x64 chunks, with
-// rectangle operations and the row-string codec used by files, fixtures and
-// the clipboard.
+// Package bitmap stores unbounded grids of typed cells in 64x64 chunks, with
+// rectangle operations and the row-string codec used by files and the
+// clipboard. A cell is empty or one of the Kinds; "on" means not empty.
 //
 // Iteration is always deterministic: ForEach visits pixels in raster order
 // (y, then x), whatever order they were set in.
@@ -18,13 +18,86 @@ const (
 	chunkMask  = chunkSize - 1
 )
 
-// chunk holds 64 rows of 64 bits; bit x of rows[y] is pixel (x, y).
-type chunk [chunkSize]uint64
+// Kind is what a cell is.
+type Kind uint8
+
+const (
+	Empty Kind = iota
+	Wire
+	Power  // high source
+	Ground // low source
+	Transistor
+	Bridge
+	numKinds
+)
+
+// Kinds lists the non-empty kinds, in order.
+var Kinds = []Kind{Wire, Power, Ground, Transistor, Bridge}
+
+func (k Kind) String() string {
+	return [...]string{"empty", "wire", "power", "ground", "transistor", "bridge"}[k]
+}
+
+// kindBits is the number of planes coding a cell's kind minus one (Wire = 0).
+const kindBits = 3
+
+// chunk holds 64 rows of 64 cells. Bit x of on[y] is set when cell (x, y) is
+// not empty; its kind minus one is spread over the planes in k, which stay
+// nil while every cell of the chunk is a wire.
+type chunk struct {
+	on [chunkSize]uint64
+	k  *[kindBits][chunkSize]uint64
+}
 
 func (c *chunk) empty() bool {
-	for _, r := range c {
+	for _, r := range c.on {
 		if r != 0 {
 			return false
+		}
+	}
+	return true
+}
+
+func (c *chunk) kind(lx, ly int) Kind {
+	if c.on[ly]>>lx&1 == 0 {
+		return Empty
+	}
+	if c.k == nil {
+		return Wire
+	}
+	v := Kind(0)
+	for p := range kindBits {
+		v |= Kind(c.k[p][ly]>>lx&1) << p
+	}
+	return v + 1
+}
+
+func (c *chunk) clone() *chunk {
+	n := &chunk{on: c.on}
+	if c.k != nil {
+		k := *c.k
+		n.k = &k
+	}
+	return n
+}
+
+// equal compares cells, ignoring stale kind bits under empty cells.
+func (c *chunk) equal(o *chunk) bool {
+	if c.on != o.on {
+		return false
+	}
+	for ly, row := range c.on {
+		for p := range kindBits {
+			var a, b uint64
+			if c.k != nil {
+				a = c.k[p][ly]
+			}
+			if o.k != nil {
+				b = o.k[p][ly]
+			}
+			if (a^b)&row != 0 {
+				return false
+			}
 		}
 	}
 	return true
@@ -39,7 +112,7 @@ func (a key) cmp(b key) int {
 	return a.x - b.x
 }
 
-// Bitmap is an unbounded set of on pixels. The zero value is not usable; call New.
+// Bitmap is an unbounded grid of cells. The zero value is not usable; call New.
 type Bitmap struct {
 	chunks map[key]*chunk
 	keys   []key // every key in chunks; sorted when sorted is true
@@ -70,19 +143,38 @@ func (b *Bitmap) lookup(k key) *chunk {
 	return c
 }
 
-// Get reports whether pixel (x, y) is on.
+// Get reports whether cell (x, y) is not empty.
 func (b *Bitmap) Get(x, y int) bool {
 	k, lx, ly := split(x, y)
 	c := b.lookup(k)
-	return c != nil && c[ly]>>lx&1 != 0
+	return c != nil && c.on[ly]>>lx&1 != 0
 }
 
-// Set turns pixel (x, y) on or off.
-func (b *Bitmap) Set(x, y int, on bool) {
+// At returns the kind of cell (x, y).
+func (b *Bitmap) At(x, y int) Kind {
 	k, lx, ly := split(x, y)
 	c := b.lookup(k)
 	if c == nil {
-		if !on {
+		return Empty
+	}
+	return c.kind(lx, ly)
+}
+
+// Set makes cell (x, y) a wire, or empty.
+func (b *Bitmap) Set(x, y int, on bool) {
+	if on {
+		b.Put(x, y, Wire)
+	} else {
+		b.Put(x, y, Empty)
+	}
+}
+
+// Put sets the kind of cell (x, y).
+func (b *Bitmap) Put(x, y int, kind Kind) {
+	k, lx, ly := split(x, y)
+	c := b.lookup(k)
+	if c == nil {
+		if kind == Empty {
 			return
 		}
 		c = new(chunk)
@@ -93,10 +185,23 @@ func (b *Bitmap) Set(x, y int, on bool) {
 		b.keys = append(b.keys, k)
 		b.lastKey, b.lastChunk = k, c
 	}
-	if on {
-		c[ly] |= 1 << lx
-	} else {
-		c[ly] &^= 1 << lx
+	if kind == Empty {
+		c.on[ly] &^= 1 << lx
+		return
+	}
+	c.on[ly] |= 1 << lx
+	v := kind - 1
+	if v != 0 && c.k == nil {
+		c.k = new([kindBits][chunkSize]uint64)
+	}
+	if c.k != nil {
+		for p := range kindBits {
+			if v>>p&1 != 0 {
+				c.k[p][ly] |= 1 << lx
+			} else {
+				c.k[p][ly] &^= 1 << lx
+			}
+		}
 	}
 }
 
@@ -126,7 +231,7 @@ func (b *Bitmap) Compact() {
 func (b *Bitmap) Count() int {
 	n := 0
 	for _, k := range b.keys {
-		for _, r := range b.chunks[k] {
+		for _, r := range b.chunks[k].on {
 			n += bits.OnesCount64(r)
 		}
 	}
@@ -152,7 +257,7 @@ func (b *Bitmap) Bounds() image.Rectangle {
 		c := b.chunks[k]
 		var or uint64
 		minY, maxY := -1, -1
-		for y, row := range c {
+		for y, row := range c.on {
 			if row != 0 {
 				if minY < 0 {
 					minY = y
@@ -179,9 +284,14 @@ func (b *Bitmap) Bounds() image.Rectangle {
 	return r
 }
 
-// ForEach calls fn for every on pixel in raster order: increasing y, then
-// increasing x. fn must not modify the bitmap.
+// ForEach calls fn for every non-empty cell in raster order: increasing y,
+// then increasing x. fn must not modify the bitmap.
 func (b *Bitmap) ForEach(fn func(x, y int)) {
+	b.ForEachCell(func(x, y int, _ Kind) { fn(x, y) })
+}
+
+// ForEachCell is ForEach with each cell's kind.
+func (b *Bitmap) ForEachCell(fn func(x, y int, k Kind)) {
 	keys := b.sortedKeys()
 	for i := 0; i < len(keys); {
 		// keys[i:j] is one row of chunks, sorted by x.
@@ -203,11 +313,11 @@ func (b *Bitmap) ForEach(fn func(x, y int)) {
 		y0 := keys[i].y << chunkShift
 		for ly := range chunkSize {
 			for _, e := range cs {
-				w := e.c[ly]
+				w := e.c.on[ly]
 				for w != 0 {
 					lx := bits.TrailingZeros64(w)
 					w &= w - 1
-					fn(e.x0+lx, y0+ly)
+					fn(e.x0+lx, y0+ly, e.c.kind(lx, ly))
 				}
 			}
 		}
@@ -215,12 +325,17 @@ func (b *Bitmap) ForEach(fn func(x, y int)) {
 	}
 }
 
-// ForEachIn is ForEach restricted to pixels inside r.
+// ForEachIn is ForEach restricted to cells inside r.
 func (b *Bitmap) ForEachIn(r image.Rectangle, fn func(x, y int)) {
+	b.ForEachCellIn(r, func(x, y int, _ Kind) { fn(x, y) })
+}
+
+// ForEachCellIn is ForEachCell restricted to cells inside r.
+func (b *Bitmap) ForEachCellIn(r image.Rectangle, fn func(x, y int, k Kind)) {
 	// Simple and correct; callers that need speed on huge bitmaps use Dense.
-	b.ForEach(func(x, y int) {
+	b.ForEachCell(func(x, y int, k Kind) {
 		if image.Pt(x, y).In(r) {
-			fn(x, y)
+			fn(x, y, k)
 		}
 	})
 }
@@ -230,13 +345,12 @@ func (b *Bitmap) Clone() *Bitmap {
 	n := &Bitmap{chunks: make(map[key]*chunk, len(b.chunks)), sorted: b.sorted}
 	n.keys = slices.Clone(b.keys)
 	for _, k := range b.keys {
-		c := *b.chunks[k]
-		n.chunks[k] = &c
+		n.chunks[k] = b.chunks[k].clone()
 	}
 	return n
 }
 
-// Equal reports whether both bitmaps have exactly the same on pixels.
+// Equal reports whether both bitmaps have exactly the same cells.
 func (b *Bitmap) Equal(o *Bitmap) bool {
 	for _, k := range b.keys {
 		c, oc := b.chunks[k], o.chunks[k]
@@ -244,7 +358,7 @@ func (b *Bitmap) Equal(o *Bitmap) bool {
 			if !c.empty() {
 				return false
 			}
-		} else if *c != *oc {
+		} else if !c.equal(oc) {
 			return false
 		}
 	}
@@ -256,18 +370,18 @@ func (b *Bitmap) Equal(o *Bitmap) bool {
 	return true
 }
 
-// Or turns on every pixel of src, translated by (dx, dy).
+// Or copies every non-empty cell of src, translated by (dx, dy), over b.
 func (b *Bitmap) Or(src *Bitmap, dx, dy int) {
 	if src == b {
 		src = b.Clone() // ForEach forbids changing the bitmap it walks
 	}
-	src.ForEach(func(x, y int) { b.Set(x+dx, y+dy, true) })
+	src.ForEachCell(func(x, y int, k Kind) { b.Put(x+dx, y+dy, k) })
 }
 
-// Crop returns the pixels inside r, at their original coordinates.
+// Crop returns the cells inside r, at their original coordinates.
 func (b *Bitmap) Crop(r image.Rectangle) *Bitmap {
 	n := New()
-	b.ForEachIn(r, func(x, y int) { n.Set(x, y, true) })
+	b.ForEachCellIn(r, func(x, y int, k Kind) { n.Put(x, y, k) })
 	return n
 }
 
@@ -293,7 +407,7 @@ func (b *Bitmap) AnyIn(r image.Rectangle) bool {
 			continue
 		}
 		c := b.chunks[k]
-		for ly, row := range c {
+		for ly, row := range c.on {
 			if row == 0 {
 				continue
 			}

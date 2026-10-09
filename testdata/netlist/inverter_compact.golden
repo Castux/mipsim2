@@ -1,0 +1,7 @@
+.....
+..Hw.
+.wT..
+..L..
+.....
+nets 3, transistors 1
+1,0: warning W_LABEL_CONFLICT: net is labelled both "out" and "p"

@@ -1,0 +1,26 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "a bridge cannot touch a transistor or another bridge",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        ".#...#",
+        "#B#.#B#",
+        ".T..#B#",
+        ".#...#"
+      ]
+    }
+  },
+  "checks": {
+    "diag": [
+      "E_BRIDGE_ARM",
+      "E_TRANSISTOR_ARMS"
+    ]
+  }
+}

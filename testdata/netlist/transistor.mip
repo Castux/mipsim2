@@ -1,7 +1,7 @@
 {
   "format": "mipsim",
-  "version": 2,
-  "note": "a T is a transistor; the arm opposite the missing side is the gate",
+  "version": 3,
+  "note": "a transistor cell with three neighbours; the odd one (top) is the gate",
   "root": "top",
   "defs": {
     "top": {
@@ -11,7 +11,7 @@
       ],
       "rows": [
         ".#",
-        "###"
+        "#T#"
       ],
       "labels": [
         {

@@ -1,6 +1,6 @@
 {
   "format": "mipsim",
-  "version": 2,
+  "version": 3,
   "note": "four NAND instances, n = NAND(a,b), out = NAND(NAND(a,n), NAND(n,b))",
   "root": "top",
   "defs": {
@@ -8,19 +8,19 @@
       "w": 9,
       "h": 13,
       "rows": [
-        "###",
-        "###",
-        "###",
+        "HHH",
+        "HHH",
+        "HHH",
         ".#",
         "#########",
         ".#",
-        "##",
+        "#T",
         ".#",
-        "##",
+        "#T",
         ".#",
-        "###",
-        "#.#",
-        "###"
+        "LLL",
+        "L.L",
+        "LLL"
       ]
     },
     "top": {

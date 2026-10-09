@@ -1,6 +1,6 @@
 {
   "format": "mipsim",
-  "version": 2,
+  "version": 3,
   "note": "a gate stub with no source, label or driver",
   "root": "top",
   "defs": {
@@ -11,7 +11,7 @@
       ],
       "rows": [
         ".#",
-        "###"
+        "#T#"
       ],
       "labels": [
         {

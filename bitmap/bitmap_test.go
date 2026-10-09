@@ -263,3 +263,48 @@ func TestOrWithItself(t *testing.T) {
 		t.Errorf("b | b shifted: %v", got)
 	}
 }
+
+func TestKinds(t *testing.T) {
+	b := New()
+	b.Put(1, 1, Transistor)
+	b.Put(70, -3, Power) // another chunk
+	b.Set(2, 1, true)
+	for _, c := range []struct {
+		x, y int
+		want Kind
+	}{{1, 1, Transistor}, {70, -3, Power}, {2, 1, Wire}, {0, 0, Empty}} {
+		if got := b.At(c.x, c.y); got != c.want {
+			t.Errorf("At(%d,%d) = %v, want %v", c.x, c.y, got, c.want)
+		}
+	}
+	// Overwriting and erasing.
+	b.Put(1, 1, Ground)
+	b.Put(2, 1, Bridge)
+	b.Put(2, 1, Wire)
+	if b.At(1, 1) != Ground || b.At(2, 1) != Wire {
+		t.Errorf("after overwrite: %v %v", b.At(1, 1), b.At(2, 1))
+	}
+	c := b.Clone()
+	c.Put(1, 1, Power)
+	if b.At(1, 1) != Ground || b.Equal(c) || c.Equal(b) {
+		t.Error("clone shares kinds, or Equal ignores them")
+	}
+	// Erasing a typed cell then setting a wire there must not resurrect the type.
+	b.Put(1, 1, Empty)
+	b.Set(1, 1, true)
+	if b.At(1, 1) != Wire {
+		t.Errorf("re-set cell is %v", b.At(1, 1))
+	}
+	// Rows round trip with every kind.
+	r := MustFromRows(".#HLTB", "B..#")
+	if got := strings.Join(r.EncodeRows(r.Bounds().Union(image.Rect(0, 0, 1, 1))), "|"); got != ".#HLTB|B..#" {
+		t.Errorf("rows %q", got)
+	}
+	d := r.ToDense(r.Bounds())
+	if d.At(4, 0) != Transistor || d.Kind(d.Index(0, 1)) != Bridge || d.At(1, 1) != Empty {
+		t.Error("dense kinds wrong")
+	}
+	if _, err := FromRows("#x"); err == nil {
+		t.Error("bad character accepted")
+	}
+}

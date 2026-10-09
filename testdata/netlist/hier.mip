@@ -1,33 +1,33 @@
 {
   "format": "mipsim",
-  "version": 2,
-  "note": "nested, rotated instances and a source spanning an instance edge",
+  "version": 3,
+  "note": "nested, rotated instances, and power cells spanning an instance edge (they join like any cells)",
   "root": "top",
   "defs": {
     "half": {
       "w": 2,
       "h": 3,
       "rows": [
-        "##",
-        "##",
-        "##"
+        "HH",
+        "HH",
+        "HH"
       ]
     },
     "inv": {
       "w": 9,
       "h": 11,
       "rows": [
-        "###",
-        "###",
-        "###",
+        "HHH",
+        "HHH",
+        "HHH",
         ".#",
         "#########",
         ".#",
-        "##",
+        "#T",
         ".#",
-        "###",
-        "#.#",
-        "###"
+        "LLL",
+        "L.L",
+        "LLL"
       ],
       "labels": [
         {
@@ -77,9 +77,9 @@
         0
       ],
       "rows": [
-        "..........#",
-        "..........##",
-        "..........#"
+        "..........H",
+        "..........H#",
+        "..........H"
       ],
       "labels": [
         {

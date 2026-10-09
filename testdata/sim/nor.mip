@@ -1,6 +1,6 @@
 {
   "format": "mipsim",
-  "version": 2,
+  "version": 3,
   "note": "two pull-down transistors in parallel; inputs on both edges",
   "root": "top",
   "defs": {
@@ -10,19 +10,19 @@
         0
       ],
       "rows": [
-        "###",
-        "###",
-        "###",
+        "HHH",
+        "HHH",
+        "HHH",
         ".#...#",
         "#########",
         ".#...#",
-        "##...####",
+        "#T...T###",
         ".#.#.#",
         ".#####",
         "...#",
-        "..###",
-        "..#.#",
-        "..###"
+        "..LLL",
+        "..L.L",
+        "..LLL"
       ],
       "labels": [
         {

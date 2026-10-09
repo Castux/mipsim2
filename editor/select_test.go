@@ -312,3 +312,35 @@ func TestASCIIClipboard(t *testing.T) {
 		t.Error("bad ASCII accepted")
 	}
 }
+
+// TestBrushKinds checks that the pencil paints the chosen kind, erases a
+// cell of that kind, overwrites other kinds, and that undo, copy, paste and
+// rotate keep kinds.
+func TestBrushKinds(t *testing.T) {
+	e := withRows("#")
+	e.Do(ActPower)
+	if e.Tool() != Pencil || e.Brush() != bitmap.Power {
+		t.Fatalf("tool %v brush %v", e.Tool(), e.Brush())
+	}
+	drag(e, Mods{}, pt(1, 0)) // paint power
+	e.Do(ActTransistor)
+	drag(e, Mods{}, pt(0, 0)) // overwrite the wire
+	before := e.Doc.Clone()
+	drag(e, Mods{}, pt(2, 0)) // paint a transistor
+	if got := rows(e); got != "THT" {
+		t.Fatalf("after painting %q", got)
+	}
+	checkUndoRedo(t, e, before)
+	drag(e, Mods{}, pt(2, 0)) // a transistor brush on a transistor erases it
+	if got := rows(e); got != "TH" {
+		t.Fatalf("after erasing %q", got)
+	}
+	selectRect(e, pt(0, 0), pt(1, 0))
+	e.Do(ActCopy)
+	e.Do(ActPaste)
+	e.Do(ActRotate)
+	e.PointerDown(pt(4, 0), Left, Mods{})
+	if got := rows(e); got != "TH..T|....H" {
+		t.Errorf("after rotated paste %q", got)
+	}
+}

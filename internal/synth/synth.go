@@ -9,7 +9,8 @@ import (
 	"github.com/Castux/mipsim2/doc"
 )
 
-// Inverter is the plan's inverter: input at (0,6), output at (8,4).
+// Inverter is the plan's inverter in the old pattern language (migrated to
+// typed cells when used): input at (0,6), output at (8,4).
 var Inverter = []string{
 	"###......",
 	"###......",
@@ -38,7 +39,7 @@ const (
 func InverterChains(rows, cols int) *doc.Document {
 	d := doc.New()
 	inv := doc.NewDefinition("inv", 9, 11)
-	inv.Pixels = bitmap.MustFromRows(Inverter...)
+	inv.Pixels = doc.MigratePatterns(bitmap.MustFromRows(Inverter...))
 	d.Defs["inv"] = inv
 
 	root := d.RootDef()

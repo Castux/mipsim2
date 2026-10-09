@@ -10,30 +10,20 @@ import (
 	"github.com/Castux/mipsim2/doc"
 )
 
-// compiler holds per-pixel working data, indexed by the grid's raster index.
+// compiler holds per-cell working data, indexed by the grid's raster index.
 type compiler struct {
 	opts  Options
 	g     *bitmap.Dense
 	n     int
 	xs    []int32
 	ys    []int32
+	kind  []bitmap.Kind
 	diags []Diagnostic
 
-	northOf, southOf []int32 // vertical neighbour indices, -1 if off
+	northOf, southOf []int32 // vertical neighbour indices, -1 if empty
 
-	region  []int32 // thick region of each pixel, or -1
-	regions []thickRegion
-	source  []Role // RoleHigh, RoleLow or RoleOff for each pixel
-	ringOf  []int32
-	rings   []image.Point // top-left of each ring
-	centre  []bool        // transistor centre
-	thick   []bool        // pixel of an E_THICK region (thin-wires variant)
-}
-
-type thickRegion struct {
-	rect   image.Rectangle // covered pixels
-	blocks int
-	source bool // a valid 3×3 high source
+	conducts []bool // wire, power or ground: part of a net
+	invalid  []bool // a transistor or bridge breaking its neighbour rule
 }
 
 type transistorPx struct {
@@ -41,10 +31,7 @@ type transistorPx struct {
 }
 
 type bridgePx struct {
-	pos            image.Point
-	n, e, s, w     int // grid indices of the arms
-	armIsCentre    bool
-	nsJoin, weJoin bool
+	n, e, s, w int // grid indices of the arms
 }
 
 // CompileDoc flattens and compiles a document.
@@ -52,27 +39,35 @@ func CompileDoc(d *doc.Document, opts Options) *Netlist {
 	return Compile(d.Flatten(), opts)
 }
 
-// MaxArea bounds the bounding box of a compiled circuit, in pixels (about
+// MaxArea bounds the bounding box of a compiled circuit, in cells (about
 // 50 MB of compiler grids). 16384 x 16384 is far beyond a processor.
 const MaxArea = 1 << 28
 
-// Compile classifies the flat document's pixels and builds the netlist.
+// Compile checks the flat document's cells and builds the netlist.
 func Compile(flat *doc.Flat, opts Options) *Netlist {
 	// A margin of 2 keeps every neighbour lookup inside the grid.
 	r := flat.Pixels.Bounds().Inset(-2)
 	if area := int64(r.Dx()) * int64(r.Dy()); area > MaxArea {
 		// The compiler works on a dense grid over the bounding box; two
-		// pixels far apart would need gigabytes. Refuse instead.
+		// cells far apart would need gigabytes. Refuse instead.
 		nl := Compile(&doc.Flat{Pixels: bitmap.New()}, opts)
 		nl.Diagnostics = append(nl.Diagnostics, Diagnostic{Code: "E_TOO_LARGE", Level: Error, Pos: r.Min,
-			Msg: fmt.Sprintf("the circuit spans %dx%d pixels, above the limit of %d pixels in area; move far-off pixels closer", r.Dx(), r.Dy(), MaxArea)})
+			Msg: fmt.Sprintf("the circuit spans %dx%d cells, above the limit of %d cells in area; move far-off cells closer", r.Dx(), r.Dy(), MaxArea)})
 		return nl
 	}
 	c := &compiler{opts: opts, g: flat.Pixels.ToDense(r)}
 	c.n = c.g.Count()
 	c.xs = make([]int32, c.n)
 	c.ys = make([]int32, c.n)
-	c.g.ForEach(func(i, x, y int) { c.xs[i], c.ys[i] = int32(x), int32(y) })
+	c.kind = make([]bitmap.Kind, c.n)
+	c.conducts = make([]bool, c.n)
+	c.invalid = make([]bool, c.n)
+	c.g.ForEach(func(i, x, y int) {
+		c.xs[i], c.ys[i] = int32(x), int32(y)
+		c.kind[i] = c.g.Kind(i)
+		k := c.kind[i]
+		c.conducts[i] = k == bitmap.Wire || k == bitmap.Power || k == bitmap.Ground
+	})
 	// Vertical neighbours, computed once: rank lookups dominate otherwise.
 	c.southOf = make([]int32, c.n)
 	c.northOf = make([]int32, c.n)
@@ -87,23 +82,18 @@ func Compile(flat *doc.Flat, opts Options) *Netlist {
 		}
 	}
 
-	c.findThickRegions()
-	c.findRings()
-	if opts.Variant == IsolatedSources {
-		c.checkSourceBorders()
-	}
 	ts := c.findTransistors()
 	bs := c.findBridges()
 	return c.build(flat, ts, bs)
 }
 
-func (c *compiler) on(x, y int) bool     { return c.g.Get(x, y) }
 func (c *compiler) idx(x, y int) int     { return c.g.Index(x, y) }
 func (c *compiler) pos(i int) (int, int) { return int(c.xs[i]), int(c.ys[i]) }
+func (c *compiler) at(i int) image.Point { return image.Pt(c.pos(i)) }
 
-// Neighbour indices of pixel i, or -1 if that neighbour is off. They accept
-// -1 and return -1, so they chain: c.south(c.east(i)) is the pixel at (+1,+1)
-// if (+1,0) is on. East and west are adjacent in raster order.
+// Neighbour indices of cell i, or -1 if that neighbour is empty. They accept
+// -1 and return -1, so they chain: c.south(c.east(i)) is the cell at (+1,+1)
+// if (+1,0) is not empty. East and west are adjacent in raster order.
 func (c *compiler) east(i int) int {
 	if i >= 0 && i+1 < c.n && c.ys[i+1] == c.ys[i] && c.xs[i+1] == c.xs[i]+1 {
 		return i + 1
@@ -141,229 +131,60 @@ func (c *compiler) diag(code string, level Level, p image.Point, format string, 
 	c.diags = append(c.diags, Diagnostic{Code: code, Level: level, Pos: p, Msg: fmt.Sprintf(format, args...)})
 }
 
-// Step 1: union overlapping 2×2 blocks into thick regions.
-func (c *compiler) findThickRegions() {
-	parent := make(unionFind, c.n) // over block top-left pixels; -1 if not a block
-	for i := range parent {
-		parent[i] = -1
-	}
-	find, union := parent.find, parent.union
-
-	var blocks []int32
-	for i := range c.n {
-		if c.east(i) < 0 || c.south(c.east(i)) < 0 || c.south(i) < 0 {
-			continue
-		}
-		parent[i] = int32(i)
-		blocks = append(blocks, int32(i))
-		// Earlier blocks (in raster order) that overlap this one, by their
-		// top-left pixel: (-1,-1), (0,-1), (+1,-1), (-1,0). Each such block
-		// contains a pixel adjacent to this one, so the chains find it.
-		n := c.north(i)
-		for _, j := range [4]int{c.west(n), n, c.north(c.east(i)), c.west(i)} {
-			if j >= 0 && parent[j] >= 0 {
-				union(int32(i), int32(j))
+// armsOK reports whether every arm conducts, reporting the ones that do not:
+// a transistor or bridge cannot touch another transistor or bridge.
+func (c *compiler) armsOK(i int, arms []int) bool {
+	ok := true
+	for _, a := range arms {
+		switch c.kind[a] {
+		case bitmap.Transistor:
+			if c.kind[i] == bitmap.Transistor {
+				if a > i { // report each pair once
+					c.diag("E_ADJ_TRANSISTOR", Error, c.at(a), "two transistors touch; put a wire between them")
+				}
+			} else {
+				c.diag("E_BRIDGE_ARM", Error, c.at(i), "a bridge touches a transistor; put a wire between them")
 			}
-		}
-	}
-
-	c.region = make([]int32, c.n)
-	for i := range c.region {
-		c.region[i] = -1
-	}
-	regionOfRoot := make([]int32, c.n) // region ID + 1, by union-find root; 0 = none yet
-	for _, b := range blocks {
-		root := find(b)
-		id := regionOfRoot[root] - 1
-		if id < 0 {
-			id = int32(len(c.regions))
-			regionOfRoot[root] = id + 1
-			x, y := c.pos(int(b))
-			c.regions = append(c.regions, thickRegion{rect: image.Rect(x, y, x+2, y+2)})
-		}
-		reg := &c.regions[id]
-		x, y := c.pos(int(b))
-		reg.rect = reg.rect.Union(image.Rect(x, y, x+2, y+2))
-		reg.blocks++
-		s := c.south(int(b))
-		for _, p := range [4]int{int(b), c.east(int(b)), s, c.east(s)} {
-			c.region[p] = id
-		}
-	}
-
-	c.source = make([]Role, c.n)
-	c.thick = make([]bool, c.n)
-	for id := range c.regions {
-		reg := &c.regions[id]
-		reg.source = reg.rect.Dx() == 3 && reg.rect.Dy() == 3 && reg.blocks == 4
-		if !reg.source && c.opts.Variant == ThinWires {
-			c.diag("E_THICK", Error, reg.rect.Min,
-				"thick region %dx%d is not a 3×3 high source; wires must be one pixel wide", reg.rect.Dx(), reg.rect.Dy())
-		}
-	}
-	for i := range c.n {
-		id := c.region[i]
-		if id < 0 {
-			continue
-		}
-		if c.regions[id].source {
-			c.source[i] = RoleHigh
-		} else if c.opts.Variant == ThinWires {
-			c.thick[i] = true
-		}
-	}
-}
-
-// Step 2: 3×3 rings with an off centre are low sources.
-func (c *compiler) findRings() {
-	c.ringOf = make([]int32, c.n)
-	for i := range c.ringOf {
-		c.ringOf[i] = -1
-	}
-	ring := int32(0)
-	for i := range c.n {
-		// i is the candidate top-left; walk the ring through neighbours.
-		top1 := c.east(i)
-		top2 := c.east(top1)
-		if top2 < 0 || c.south(top1) >= 0 { // centre must be off
-			continue
-		}
-		mid0, mid2 := c.south(i), c.south(top2)
-		bot0 := c.south(mid0)
-		bot1 := c.east(bot0)
-		bot2 := c.east(bot1)
-		if mid2 < 0 || bot2 < 0 {
-			continue
-		}
-		px := [8]int{i, top1, top2, mid0, mid2, bot0, bot1, bot2}
-		x, y := c.pos(i)
-		if c.opts.Variant == IsolatedSources {
-			// Inside thick wire, a 3×3 hole is just a hole.
-			inThick := false
-			for _, p := range px {
-				if c.region[p] >= 0 {
-					inThick = true
+			ok = false
+		case bitmap.Bridge:
+			if c.kind[i] == bitmap.Bridge {
+				if a > i {
+					c.diag("E_BRIDGE_ARM", Error, c.at(a), "two bridges touch; put a wire between them")
 				}
 			}
-			if inThick {
-				continue
-			}
+			ok = false
 		}
-		centre := image.Pt(x+1, y+1)
-		overlap := false
-		for _, p := range px {
-			if c.ringOf[p] >= 0 || c.source[p] == RoleHigh {
-				overlap = true
-			}
-		}
-		if overlap {
-			c.diag("E_RING_OVERLAP", Error, centre, "low source ring overlaps another ring or a high source")
-		}
-		for _, p := range px {
-			c.ringOf[p] = ring
-			if c.source[p] != RoleHigh {
-				c.source[p] = RoleLow
-			}
-		}
-		c.rings = append(c.rings, image.Pt(x, y))
-		ring++
 	}
+	return ok
 }
 
-// borderCells lists the 16 cells around a 3×3 square at offset (0,0), in
-// cyclic order starting at the top-left corner (-1,-1).
-var borderCells = func() []image.Point {
-	var cells []image.Point
-	for x := -1; x <= 3; x++ {
-		cells = append(cells, image.Pt(x, -1))
-	}
-	for y := 0; y <= 3; y++ {
-		cells = append(cells, image.Pt(3, y))
-	}
-	for x := 2; x >= -1; x-- {
-		cells = append(cells, image.Pt(x, 3))
-	}
-	for y := 2; y >= 0; y-- {
-		cells = append(cells, image.Pt(-1, y))
-	}
-	return cells
-}()
-
-// checkSourceBorders implements the isolated-sources variant: the cells
-// around a source are off except single-pixel attachments on its sides, and
-// no two attachments touch, even diagonally.
-func (c *compiler) checkSourceBorders() {
-	check := func(tl image.Point, kind string) {
-		var on []image.Point
-		bad := false
-		for _, d := range borderCells {
-			p := tl.Add(d)
-			if !c.on(p.X, p.Y) {
-				continue
-			}
-			corner := (d.X == -1 || d.X == 3) && (d.Y == -1 || d.Y == 3)
-			if corner {
-				bad = true
-			}
-			for _, q := range on {
-				if abs(q.X-p.X) <= 1 && abs(q.Y-p.Y) <= 1 {
-					bad = true
-				}
-			}
-			on = append(on, p)
-		}
-		if bad {
-			c.diag("E_SOURCE_BORDER", Error, tl,
-				"%s source needs an empty border except single, separate wire attachments", kind)
-		}
-	}
-	for _, reg := range c.regions {
-		if reg.source {
-			check(reg.rect.Min, "high")
-		}
-	}
-	for _, tl := range c.rings {
-		check(tl, "low")
-	}
-}
-
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-
-// Step 3: on pixels with exactly three on orthogonal neighbours.
+// Transistor cells need exactly three non-empty orthogonal neighbours: the
+// two collinear ones are the channel, the odd one is the gate.
 func (c *compiler) findTransistors() []transistorPx {
-	c.centre = make([]bool, c.n)
 	var ts []transistorPx
 	for i := range c.n {
-		if c.source[i] != RoleOff || c.region[i] >= 0 {
+		if c.kind[i] != bitmap.Transistor {
 			continue
 		}
 		arm := c.neighbours(i)
 		count, missing := 0, -1
+		var arms []int
 		for k := range arm {
 			if arm[k] >= 0 {
 				count++
+				arms = append(arms, arm[k])
 			} else {
 				missing = k
 			}
 		}
 		if count != 3 {
+			c.invalid[i] = true
+			c.diag("E_TRANSISTOR_ARMS", Error, c.at(i), "a transistor needs exactly 3 neighbours (gate and channel), it has %d", count)
 			continue
 		}
-		if c.opts.Variant == IsolatedSources {
-			thickArm := false
-			for _, a := range arm {
-				if a >= 0 && c.region[a] >= 0 {
-					thickArm = true
-				}
-			}
-			if thickArm {
-				continue
-			}
+		if !c.armsOK(i, arms) {
+			c.invalid[i] = true
+			continue
 		}
 		gate := (missing + 2) % 4
 		// Channel ends perpendicular to the gate axis, in raster order:
@@ -374,90 +195,66 @@ func (c *compiler) findTransistors() []transistorPx {
 		} else {
 			a, b = arm[0], arm[2]
 		}
-		c.centre[i] = true
 		ts = append(ts, transistorPx{centre: i, gate: arm[gate], a: a, b: b})
-	}
-	for _, t := range ts {
-		for _, a := range [3]int{t.gate, t.a, t.b} {
-			if c.centre[a] && a > t.centre {
-				x, y := c.pos(a)
-				c.diag("E_ADJ_TRANSISTOR", Error, image.Pt(x, y), "transistor centre touches another transistor centre")
-			}
-		}
 	}
 	return ts
 }
 
-// Step 4: off pixels with four on orthogonal and no on diagonal neighbours.
+// Bridge cells need exactly four non-empty orthogonal neighbours; they join
+// north to south and west to east.
 func (c *compiler) findBridges() []bridgePx {
 	var bs []bridgePx
 	for i := range c.n {
-		if c.south(i) >= 0 { // i is a candidate north arm; the gap below must be off
+		if c.kind[i] != bitmap.Bridge {
 			continue
 		}
-		x, y := c.pos(i)
-		gx, gy := x, y+1
-		s, w, e := c.idx(gx, gy+1), c.idx(gx-1, gy), c.idx(gx+1, gy)
-		if s < 0 || w < 0 || e < 0 {
+		arm := c.neighbours(i)
+		count := 0
+		var arms []int
+		for _, a := range arm {
+			if a >= 0 {
+				count++
+				arms = append(arms, a)
+			}
+		}
+		if count != 4 {
+			c.invalid[i] = true
+			c.diag("E_BRIDGE_ARMS", Error, c.at(i), "a bridge needs exactly 4 neighbours, it has %d", count)
 			continue
 		}
-		diagonals := 0
-		for _, d := range [4]image.Point{{-1, -1}, {1, -1}, {-1, 1}, {1, 1}} {
-			if c.on(gx+d.X, gy+d.Y) {
-				diagonals++
-			}
+		if !c.armsOK(i, arms) {
+			c.invalid[i] = true
+			continue
 		}
-		gap := image.Pt(gx, gy)
-		switch diagonals {
-		case 0:
-			b := bridgePx{pos: gap, n: i, e: e, s: s, w: w, nsJoin: true, weJoin: true}
-			for _, a := range [4]int{i, e, s, w} {
-				if c.centre[a] {
-					b.armIsCentre = true
-				}
-			}
-			if b.armIsCentre {
-				c.diag("E_BRIDGE_ARM", Error, gap, "a bridge arm is a transistor centre")
-				b.nsJoin = !c.centre[i] && !c.centre[s]
-				b.weJoin = !c.centre[w] && !c.centre[e]
-			}
-			bs = append(bs, b)
-		case 4:
-			// The centre of a low source ring.
-		default:
-			c.diag("E_GAP_AMBIGUOUS", Error, gap,
-				"bridge-like gap with %d on diagonal pixel(s), which would short its arms", diagonals)
-		}
+		bs = append(bs, bridgePx{n: arm[0], e: arm[1], s: arm[2], w: arm[3]})
 	}
 	return bs
 }
 
-// build unions pixels into nets, names them and runs the remaining lint rules.
+// build unions cells into nets, names them and runs the remaining lint rules.
+// Wire, power and ground cells conduct to each other; transistor and bridge
+// cells belong to no net.
 func (c *compiler) build(flat *doc.Flat, ts []transistorPx, bs []bridgePx) *Netlist {
 	parent := newUnionFind(c.n)
 	find := parent.find
 	union := func(a, b int) { parent.union(int32(a), int32(b)) }
 	for i := range c.n {
-		if c.centre[i] {
+		if !c.conducts[i] {
 			continue
 		}
-		if j := c.east(i); j >= 0 && !c.centre[j] {
+		if j := c.east(i); j >= 0 && c.conducts[j] {
 			union(i, j)
 		}
-		if j := c.south(i); j >= 0 && !c.centre[j] {
+		if j := c.south(i); j >= 0 && c.conducts[j] {
 			union(i, j)
 		}
 	}
 	for _, b := range bs {
-		if b.nsJoin {
-			union(b.n, b.s)
-		}
-		if b.weJoin {
-			union(b.w, b.e)
-		}
+		union(b.n, b.s)
+		union(b.w, b.e)
 	}
 
-	nl := &Netlist{names: map[string]NetID{}, grid: c.g, bridges: bitmap.New()}
+	nl := &Netlist{names: map[string]NetID{}, grid: c.g}
 	nl.roles = make([]Role, c.n)
 	nl.pixNet = make([]NetID, c.n)
 	netOfRoot := make([]NetID, c.n)
@@ -466,17 +263,12 @@ func (c *compiler) build(flat *doc.Flat, ts []transistorPx, bs []bridgePx) *Netl
 	}
 	hasHigh, hasLow := []bool{}, []bool{}
 	for i := range c.n {
-		switch {
-		case c.centre[i]:
-			nl.roles[i] = RoleTransistor
-		case c.source[i] != RoleOff:
-			nl.roles[i] = c.source[i]
-		case c.thick[i]:
-			nl.roles[i] = RoleThick
-		default:
-			nl.roles[i] = RoleWire
+		nl.roles[i] = [...]Role{bitmap.Wire: RoleWire, bitmap.Power: RoleHigh, bitmap.Ground: RoleLow,
+			bitmap.Transistor: RoleTransistor, bitmap.Bridge: RoleBridge}[c.kind[i]]
+		if c.invalid[i] {
+			nl.roles[i] = RoleInvalid
 		}
-		if c.centre[i] {
+		if !c.conducts[i] {
 			nl.pixNet[i] = NoNet
 			continue
 		}
@@ -490,10 +282,10 @@ func (c *compiler) build(flat *doc.Flat, ts []transistorPx, bs []bridgePx) *Netl
 			hasHigh, hasLow = append(hasHigh, false), append(hasLow, false)
 		}
 		nl.pixNet[i] = id
-		switch c.source[i] {
-		case RoleHigh:
+		switch c.kind[i] {
+		case bitmap.Power:
 			hasHigh[id] = true
-		case RoleLow:
+		case bitmap.Ground:
 			hasLow[id] = true
 		}
 	}
@@ -508,15 +300,10 @@ func (c *compiler) build(flat *doc.Flat, ts []transistorPx, bs []bridgePx) *Netl
 			nl.Nets[id].Drive = DriveHigh
 		}
 	}
-	for _, b := range bs {
-		nl.bridges.Set(b.pos.X, b.pos.Y, true)
-	}
-
 	nl.GatedBy = make([][]int32, len(nl.Nets))
 	nl.ChannelOf = make([][]int32, len(nl.Nets))
 	for k, t := range ts {
-		x, y := c.pos(t.centre)
-		tr := Transistor{Gate: nl.pixNet[t.gate], A: nl.pixNet[t.a], B: nl.pixNet[t.b], Pos: image.Pt(x, y)}
+		tr := Transistor{Gate: nl.pixNet[t.gate], A: nl.pixNet[t.a], B: nl.pixNet[t.b], Pos: c.at(t.centre)}
 		nl.Transistors = append(nl.Transistors, tr)
 		if tr.Gate != NoNet {
 			nl.GatedBy[tr.Gate] = append(nl.GatedBy[tr.Gate], int32(k))
@@ -548,8 +335,8 @@ func (c *compiler) applyLabels(nl *Netlist, flat *doc.Flat) {
 	warned := map[scoped]bool{}
 	for _, l := range flat.Labels {
 		i := c.g.Index(l.Pos.X, l.Pos.Y)
-		if i < 0 || c.centre[i] {
-			c.diag("E_LABEL_OFF_NET", Error, l.Pos, "label %q is not on a wire or source pixel", l.Name)
+		if i < 0 || !c.conducts[i] {
+			c.diag("E_LABEL_OFF_NET", Error, l.Pos, "label %q is not on a wire, power or ground cell", l.Name)
 			continue
 		}
 		net := nl.pixNet[i]
@@ -589,49 +376,29 @@ func (c *compiler) transistorLints(nl *Netlist) {
 	}
 }
 
-// diagonalLint warns about on pixels of different nets that touch only at a
+// diagonalLint warns about cells of different nets that touch only at a
 // corner, except arms of one transistor or one bridge, which always do.
 func (c *compiler) diagonalLint(nl *Netlist) {
 	for i := range c.n {
-		if c.centre[i] {
+		if !c.conducts[i] {
 			continue
 		}
 		x, y := c.pos(i)
 		for _, dx := range [2]int{-1, 1} {
-			// The diagonal pixel, reached through an on neighbour when there
-			// is one; otherwise both shared cells are off and a lookup is needed.
-			side, j := c.east(i), -1
-			if dx < 0 {
-				side = c.west(i)
-			}
-			if side >= 0 {
-				j = c.south(side)
-			} else if s := c.south(i); s >= 0 {
-				if dx < 0 {
-					j = c.west(s)
-				} else {
-					j = c.east(s)
-				}
-			} else {
-				j = c.idx(x+dx, y+1)
-			}
-			if j < 0 || c.centre[j] || nl.pixNet[i] == nl.pixNet[j] {
+			j := c.idx(x+dx, y+1)
+			if j < 0 || !c.conducts[j] || nl.pixNet[i] == nl.pixNet[j] {
 				continue
 			}
-			// The two cells orthogonally adjacent to both pixels.
-			c1, c2 := image.Pt(x+dx, y), image.Pt(x, y+1)
+			// The two cells orthogonally adjacent to both.
 			exempt := false
-			for _, p := range [2]image.Point{c1, c2} {
-				if k := c.idx(p.X, p.Y); k >= 0 && c.centre[k] {
-					exempt = true
-				}
-				if nl.bridges.Get(p.X, p.Y) {
+			for _, p := range [2]image.Point{{x + dx, y}, {x, y + 1}} {
+				if k := c.idx(p.X, p.Y); k >= 0 && (c.kind[k] == bitmap.Transistor || c.kind[k] == bitmap.Bridge) {
 					exempt = true
 				}
 			}
 			if !exempt {
 				c.diag("W_DIAGONAL_TOUCH", Warning, image.Pt(x, y),
-					"pixel touches pixel %d,%d of another net only diagonally; diagonals never connect", x+dx, y+1)
+					"cell touches cell %d,%d of another net only diagonally; diagonals never connect", x+dx, y+1)
 			}
 		}
 	}

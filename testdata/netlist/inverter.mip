@@ -1,6 +1,7 @@
 {
   "format": "mipsim",
-  "version": 2,
+  "version": 3,
+  "note": "the plan's inverter, migrated from the 3x3 pattern language",
   "root": "top",
   "defs": {
     "top": {
@@ -9,17 +10,17 @@
         0
       ],
       "rows": [
-        "###",
-        "###",
-        "###",
+        "HHH",
+        "HHH",
+        "HHH",
         ".#",
         "#########",
         ".#",
-        "##",
+        "#T",
         ".#",
-        "###",
-        "#.#",
-        "###"
+        "LLL",
+        "L.L",
+        "LLL"
       ],
       "labels": [
         {

@@ -1,0 +1,85 @@
+{
+  "format": "mipsim",
+  "version": 3,
+  "note": "XOR from four NANDs, as xor2 and xor3; fanouts are plain T junctions",
+  "root": "top",
+  "defs": {
+    "top": {
+      "origin": [
+        0,
+        0
+      ],
+      "rows": [
+        "..........H###",
+        ".#########T..#",
+        ".#........#..#",
+        ".#.....###T..#",
+        ".#..H###..L..#..H###",
+        "####T..#.....###T",
+        "....#..#........#",
+        "####T..#.....###T",
+        ".#..L..#..H###..L",
+        ".#.....###T",
+        ".#........#",
+        ".#......##T",
+        ".#......#.L",
+        ".########"
+      ],
+      "labels": [
+        {
+          "x": 0,
+          "y": 5,
+          "name": "a"
+        },
+        {
+          "x": 0,
+          "y": 7,
+          "name": "b"
+        },
+        {
+          "x": 19,
+          "y": 4,
+          "name": "out"
+        }
+      ]
+    }
+  },
+  "tests": [
+    {
+      "set": {
+        "a": "low",
+        "b": "low"
+      },
+      "expect": {
+        "out": "low"
+      }
+    },
+    {
+      "set": {
+        "a": "low",
+        "b": "high"
+      },
+      "expect": {
+        "out": "high"
+      }
+    },
+    {
+      "set": {
+        "a": "high",
+        "b": "low"
+      },
+      "expect": {
+        "out": "high"
+      }
+    },
+    {
+      "set": {
+        "a": "high",
+        "b": "high"
+      },
+      "expect": {
+        "out": "low"
+      }
+    }
+  ]
+}

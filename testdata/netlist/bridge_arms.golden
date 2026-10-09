@@ -1,0 +1,6 @@
+.....
+..w..
+.wXw.
+.....
+nets 3, transistors 0
+1,1: error E_BRIDGE_ARMS: a bridge needs exactly 4 neighbours, it has 3

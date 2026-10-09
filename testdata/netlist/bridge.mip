@@ -1,7 +1,7 @@
 {
   "format": "mipsim",
-  "version": 2,
-  "note": "crossing wires through a bridge gap stay separate",
+  "version": 3,
+  "note": "wires crossing through a bridge cell stay separate",
   "root": "top",
   "defs": {
     "top": {
@@ -12,7 +12,7 @@
       "rows": [
         "..#",
         "..#",
-        "##.##",
+        "##B##",
         "..#",
         "..#"
       ],

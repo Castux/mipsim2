@@ -1,6 +1,6 @@
 {
   "format": "mipsim",
-  "version": 2,
+  "version": 3,
   "note": "one net with two names from the same scope",
   "root": "top",
   "defs": {
