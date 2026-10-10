@@ -4,12 +4,13 @@ A 16 bit processor to implement with mipsim. Very minimalist by design to simpli
 
 Specs:
 
-- Memory: 16 bit address space, 64 kB of memory, used for both program and data (convention up to developer)
+- Memory: 16 bit address space, each addresses a 16 bit word, ie. 128 kB of memory, for data (convention up to developer)
+- Program: 16 bit program counter, each instruction is always 3 bytes, even if argument is unused
 - Registers: A, B, X, Y. All 16 bits. A and B are ALU inputs, X and Y ALU outputs. Y is also the address register for memory access.
 - PC is a separate register, not addressable (only jump instruction)
-- Instructions: variable length, 1 to 3 bytes
+- Instructions: fixed length, 3 bytes
   - Op is one byte: 4 bits to select op, and two modifiers u and v each two bits. Often source/destination registers (0: A, 1: B, 2: X, 3: Y). src is always u and dest always v to be able to reuse the decoder.
-  - Argument is one or two bytes
+  - Argument is two bytes, not always used
 - No stack pointer, this is handled in software (assembler/compiler can use own convention since this runs single programs)
 
 ## Instructions
@@ -20,8 +21,6 @@ Memory:
 | --- | --- | --- |---|
 | load | - | dest | retrieve word at address Y and store in register dest |
 | store | src | - | store word in register src to address Y |
-
-Possible modifier: store/load high byte or low byte instead of 16 bits word
 
 Registers:
 
@@ -40,7 +39,7 @@ ALU:
 | or | mode | dest | A or B. u0: A/not A, u1: B/not B. dest: X or Y |
 | xor | mode | dest | A xor B. u0: A/not A, u1: B/not B. dest: X or Y |
 
-For all ALU ops, v0 selects dest (X or Y) and v1 selects the second operand: 0 = register B (1 byte instruction), 1 = 16 bits argument in place of B (3 bytes instruction). Modes apply to the argument the same way, so A - k is `add` with carry in 1 and not B.
+Carry: a one bit cell, written by add and shift only, left unchanged by every other instruction. add stores its carry out. shift stores the last bit shifted out of A (0 if B is 0).
 
 Assembler can provide aliases for some modes, like sub, not, nand, nor, nxor, shl, shr, etc.
 
@@ -49,7 +48,8 @@ Control:
 | Op | u | v | Meaning |
 | --- | --- | --- |---|
 | jump | src | mode | set PC to 16 bit argument. mode: unconditional, if src is 0, if src is non 0, if src is negative (bit 15 set). src: any register A, B, X, Y |
-| jumpr | src | - | set PC to address in register src (no argument, 1 byte) |
+| jumpr | src | - | set PC to address in register src (argument unused) |
+| jumpc | - | mode | set PC to 16 bit argument according to the carry bit out of the ALU. mode: unconditional, if zero, if non zero |
 | halt | - | - | stop execution |
 
-Assembler can alias jumpz jumpnz jumpn
+Assembler can alias jumpz jumpnz jumpn jumpcz jumpcnz
