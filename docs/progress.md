@@ -462,8 +462,9 @@ Circuits are no longer limited to 8192 pixels in either direction (the known lim
 
 - The canvas texture is split into 2048×2048 tiles aligned on world multiples of 2048. Only tiles that hold circuit pixels get a texture, so sparse layouts cost what they draw.
 - Each tile's texture also holds a 20-pixel apron of its neighbours. The shader reads around the pixel it colours (outlines and transistor arms one or two cells away, and the zoomed-out footprint, at most 12 pixels either side of a pixel centre at 1/32), so tiles meet without seams. Tile quads have fractional screen edges when zoomed out, so each screen pixel is drawn by the tile holding its centre.
-- A background pass with a blank 1×1 image draws the white background and the zoom grid; tiles in view are drawn on top, one quad each.
-- Checked by screenshots of a 2000-register test file (`coolproc/reg16x2k.mip`, 341×99,996 pixels, 484,000 nets), including a register crossing a tile edge at 2× and 1/6×.
+- A background pass with a blank 1×1 image draws the white background and the zoom grid; tiles in view are drawn on top, one quad each. A tile with no neighbour on a side also draws its apron there, since a zoomed-out screen pixel just outside the circuit can still cover part of it.
+- Zoomed-out samples are offset by a quarter texel. At 1/8, 1/12 and 1/32 they used to land exactly on texel edges, so float rounding picked the texel: the single texture happened to round one way everywhere, but tile quads, with different vertices, rounded differently from pixel to pixel and showed a staircase of colour. With the offset, tiled drawing matches one quad over the whole canvas pixel for pixel (checked on a one-tile circuit at 1/4 to 1/32).
+- Checked by screenshots of a 2000-register test file (341×99,996 pixels, 484,000 nets), including a register crossing a tile edge at 2× and 1/6×, and of `coolproc/reg16x8k.mip`: 8192 registers in a 64×128 grid, 1,982,464 nets, close to the 2^21 net limit of the texture encoding (65,536 registers would need 15.9M nets and 2.4M instances, past both that limit and the 2^20 instance limit). Loading it takes about 10 seconds.
 
 ## Memory with read and write enables (owner request)
 
