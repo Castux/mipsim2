@@ -443,6 +443,19 @@ The one-bit pattern language made circuits bulky (an inverter was 3×11) and eve
 - **The gated NAND D latch** in `coolproc` (`nand_d_latch`) did not hold: with the gate low its pass transistors leave the NAND inputs floating, which a NAND reads as low. `testdata/cells/nand_d_latch.mip` is the textbook four-NAND circuit, which holds.
 - **Conversion removed:** once every `.mip` in the repository was version 3 (the `coolproc` branch's drawings and the stash on it included), `doc.MigratePatterns` and `internal/tools/upgrade` were deleted. Loading a version 1 or 2 file is an error that names commit 35584bd, whose upgrade tool converts it. In the `coolproc` stash, two transistors and one bridge sat across an instance edge: the transistors were set by hand, and the bridge cannot be expressed (the same gap has three arms in the other placement of `part1`), so it was left empty. `internal/synth` draws its benchmark inverter in typed cells with the old footprint; the 1M-cell compile benchmark went from about 60 ms to 29 ms without pattern recognition.
 
+## Watch panel: folding tree (owner request)
+
+With real components the flat Watch list held thousands of rows. It is now a tree:
+
+- Hierarchical names fold under their instance path: `alu.add3.sum` is `sum` under `add3` under `alu`. Groups start folded, so the top level shows the root's own labels and one row per top-level instance.
+- A bus's bits (`name_0`, `name_1`, ...) fold under the bus's number row, in bit order.
+- Siblings list watched names first, then instance groups, in natural order (`fa2` before `fa10`).
+- Clicking a row's name folds or unfolds it; right click does the same to everything below it. A bus's number box still edits it, and middle click still releases it.
+- Folding is kept by name, so it survives leaving and re-entering simulate mode.
+- The tree is built once per runner, and the visible rows are listed again only when folding changes, so drawing costs only the rows on screen.
+
+**Not verified by the agent:** clicking in the running app. The tree is tested (`ui/watchtree_test.go`) and checked by screenshots.
+
 ## Memory with read and write enables (owner request)
 
 The memory device now has the same interface as the registers in the `coolproc` design: a `read` enable, a `write` enable, the address bus and the data bus, modelled as gated D latches. Read high drives the data bus from the next settle; write high stores the data bus at every settle while it stays high and keeps the last value when it drops (level-sensitive). Both high is a short, silently allowed: the memory drives the word and stores what the bus settles to (low wins, so the word is ANDed with what the circuit drives). Floating enables mean idle; unstable enables, and floating address or data bits while needed, are errors. The `select` field is gone; a configuration that still has it is rejected with a message pointing to `read`. `testdata/runner/ram.mip` uses `re` and `we`, the Devices tab's default names.

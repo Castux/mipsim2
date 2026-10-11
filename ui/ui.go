@@ -84,6 +84,7 @@ type app struct {
 	imp         *importDialog        // the import checklist, when shown
 	tab         panelTab
 	panelScroll int
+	watch       watchState
 	lastFrame   time.Time
 
 	shotPath string // save the next frame at or after shotAt here
