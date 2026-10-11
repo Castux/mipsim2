@@ -295,7 +295,10 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	for i := 0; i < 4; i++ {
 		for j := 0; j < 4; j++ {
 			if float(i) < Samples && float(j) < Samples {
-				off := (vec2(float(i), float(j)) + 0.5) / Samples * foot - foot/2
+				// The quarter texel keeps samples off texel edges: at
+				// 1/8, 1/12 or 1/32 they would land exactly on them, and
+				// rounding would pick the texel.
+				off := (vec2(float(i), float(j)) + 0.5) / Samples * foot - foot/2 + 0.25
 				c := colorAt(floor(srcPos + off) + 0.5, false, vec2(0.5))
 				if c.a > 0.5 {
 					sum += c.rgb
@@ -336,6 +339,7 @@ const stateWidth = 1024
 
 // tile is one texture of the circuit.
 type tile struct {
+	key  image.Point     // position in tiles
 	core image.Rectangle // the world pixels it draws
 	tex  image.Rectangle // the world pixels its texture holds: core and apron
 	img  *ebiten.Image
@@ -347,6 +351,7 @@ type canvas struct {
 
 	compiles int // editor compile count the textures were built from
 	tiles    []*tile
+	tileAt   map[image.Point]*tile
 	empty    *ebiten.Image // 1×1 and blank: draws the background and grid
 
 	states   *ebiten.Image
@@ -394,6 +399,7 @@ func (c *canvas) buildIDs(nl *netlist.Netlist) {
 	// First the tiles that hold pixels, then the pixels, each written to
 	// its own tile and to the aprons of the tiles around it.
 	index := map[image.Point]*tile{}
+	c.tileAt = index
 	var last *tile
 	var lastKey image.Point
 	at := func(k image.Point) *tile {
@@ -410,7 +416,7 @@ func (c *canvas) buildIDs(nl *netlist.Netlist) {
 		}
 		core := image.Rect(k.X*tileSize, k.Y*tileSize, (k.X+1)*tileSize, (k.Y+1)*tileSize).Intersect(bounds)
 		tex := core.Inset(-tileApron).Intersect(bounds)
-		t := &tile{core: core, tex: tex, pix: make([]byte, 4*tex.Dx()*tex.Dy())}
+		t := &tile{key: k, core: core, tex: tex, pix: make([]byte, 4*tex.Dx()*tex.Dy())}
 		index[k], last = t, t
 		c.tiles = append(c.tiles, t)
 	})
@@ -511,8 +517,24 @@ func (c *canvas) draw(dst *ebiten.Image, area image.Rectangle, v *editor.View, h
 	ax0, ay0, ax1, ay1 := float64(area.Min.X), float64(area.Min.Y), float64(area.Max.X), float64(area.Max.Y)
 	quad(ax0, ay0, ax1, ay1, c.empty, v.ToWorld(ax0, ay0))
 	for _, t := range c.tiles {
-		x0, y0 := v.ToScreen(t.core.Min)
-		x1, y1 := v.ToScreen(t.core.Max)
+		// Zoomed out, a screen pixel just outside the circuit can still
+		// cover some of it, so a tile with no neighbour on a side draws its
+		// apron there too.
+		r := t.core
+		if c.tileAt[t.key.Add(image.Pt(-1, 0))] == nil {
+			r.Min.X -= tileApron
+		}
+		if c.tileAt[t.key.Add(image.Pt(1, 0))] == nil {
+			r.Max.X += tileApron
+		}
+		if c.tileAt[t.key.Add(image.Pt(0, -1))] == nil {
+			r.Min.Y -= tileApron
+		}
+		if c.tileAt[t.key.Add(image.Pt(0, 1))] == nil {
+			r.Max.Y += tileApron
+		}
+		x0, y0 := v.ToScreen(r.Min)
+		x1, y1 := v.ToScreen(r.Max)
 		x0, y0, x1, y1 = max(x0, ax0), max(y0, ay0), min(x1, ax1), min(y1, ay1)
 		if x0 < x1 && y0 < y1 {
 			quad(x0, y0, x1, y1, t.img, t.tex.Min)
