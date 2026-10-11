@@ -12,13 +12,15 @@ import (
 
 	"github.com/Castux/mipsim2/editor"
 	"github.com/Castux/mipsim2/netlist"
+	"github.com/Castux/mipsim2/runner"
 	"github.com/Castux/mipsim2/sim"
 )
 
 // The right panel has tabs. Edit mode: Components (the palette) and Devices
 // (memory configuration). Simulate mode: Watch (every labelled net and bus
-// with its value) and Memory (contents of memory devices). Both: Diagnostics
-// (compile errors and warnings), when there are any.
+// with its value, folded by instance) and Memory (contents of memory
+// devices). Both: Diagnostics (compile errors and warnings), when there are
+// any.
 
 type panelTab int
 
@@ -123,14 +125,22 @@ func (a *app) panelClick(l layout, p image.Point, mb ebiten.MouseButton) {
 		}
 	case tabWatch:
 		r := a.ed.Runner()
-		if r == nil {
+		rows := a.watchRows()
+		if r == nil || i < 0 || i >= len(rows) {
 			return
 		}
-		names := r.Names()
-		if i < 0 || i >= len(names) {
+		n := rows[i].node
+		inValue := float64(p.X) >= a.watchValueX(a.panelBody(l))-5*a.scale
+		if len(n.children) > 0 && (n.name == "" || !inValue) && mb != ebiten.MouseButtonMiddle {
+			// Left folds the row, right folds everything below it too.
+			setExpanded(a.watch.expanded, n, !a.watch.expanded[n.key], mb == ebiten.MouseButtonRight)
+			a.watch.rows = nil
 			return
 		}
-		name := names[i]
+		name := n.name
+		if name == "" {
+			return
+		}
 		if _, isNet := r.Netlist().Lookup(name); isNet {
 			// Same buttons as on the canvas.
 			v := map[ebiten.MouseButton]string{ebiten.MouseButtonLeft: "high", ebiten.MouseButtonRight: "low", ebiten.MouseButtonMiddle: "float"}[mb]
@@ -216,17 +226,30 @@ func (a *app) drawPanel(screen *ebiten.Image, l layout) {
 		if r == nil {
 			return
 		}
-		names := r.Names()
-		a.panelScroll = max(0, min(a.panelScroll, len(names)-1))
-		if len(names) == 0 {
+		rows := a.watchRows()
+		a.panelScroll = max(0, min(a.panelScroll, len(rows)-1))
+		if len(rows) == 0 {
 			a.drawText(bodyImg, "no labelled nets: label wires with n", x, y, 0, chromeDim)
 		}
-		valueX := float64(body.Max.X) - 90*a.scale
-		for _, name := range names[a.panelScroll:] {
+		valueX := a.watchValueX(body)
+		arrow := a.lineHeight() * 0.8
+		for _, row := range rows[a.panelScroll:] {
 			if y > float64(body.Max.Y) {
 				break
 			}
-			a.drawText(bodyImg, a.fitText(name, valueX-x-10*a.scale), x, y+5*a.scale, 0, chromeText)
+			n := row.node
+			nx := x + float64(row.depth)*arrow
+			if len(n.children) > 0 {
+				a.drawFoldArrow(bodyImg, nx, y+5*a.scale, arrow, a.watch.expanded[n.key])
+			}
+			nx += arrow
+			if n.name == "" {
+				a.drawText(bodyImg, a.fitText(n.label, float64(body.Max.X)-nx-10*a.scale), nx, y+5*a.scale, 0, chromeDim)
+				y += a.rowHeight()
+				continue
+			}
+			name := n.name
+			a.drawText(bodyImg, a.fitText(n.label, valueX-nx-10*a.scale), nx, y+5*a.scale, 0, chromeText)
 			if _, isBus := r.Bus(name); isBus {
 				a.drawWatchField(bodyImg, name, valueX, y, float64(body.Max.X)-34*a.scale)
 			} else {
@@ -245,6 +268,65 @@ func (a *app) drawPanel(screen *ebiten.Image, l layout) {
 			y += a.rowHeight()
 		}
 	}
+}
+
+// watchState is the Watch tab's tree: built once per runner, with the rows
+// of expanded nodes listed only when the folding changes. Expansion is kept
+// by name, so it survives rebuilding the runner.
+type watchState struct {
+	run      *runner.Runner // the runner the tree was built for
+	roots    []*watchNode
+	rows     []watchRow // nil when they need listing again
+	expanded map[string]bool
+}
+
+// watchRows returns the visible Watch rows.
+func (a *app) watchRows() []watchRow {
+	w, r := &a.watch, a.ed.Runner()
+	if w.expanded == nil {
+		w.expanded = map[string]bool{}
+	}
+	if r != w.run {
+		w.run, w.roots, w.rows = r, nil, nil
+		if r != nil {
+			w.roots = buildWatchTree(r.Names(), func(name string) int {
+				if _, isNet := r.Netlist().Lookup(name); isNet {
+					return 0
+				}
+				bits, _ := r.Bus(name)
+				return len(bits)
+			})
+		}
+	}
+	if w.rows == nil {
+		w.rows = visibleWatchRows(w.roots, w.expanded)
+	}
+	return w.rows
+}
+
+// watchValueX is where the Watch tab's values start.
+func (a *app) watchValueX(body image.Rectangle) float64 {
+	return float64(body.Max.X) - 90*a.scale
+}
+
+// drawFoldArrow draws a small triangle in a size×size box at (x, y):
+// pointing right when folded, down when open.
+func (a *app) drawFoldArrow(dst *ebiten.Image, x, y, size float64, open bool) {
+	s, c := float32(size*0.55), [2]float32{float32(x + size*0.4), float32(y + a.lineHeight()/2)}
+	var p vector.Path
+	if open {
+		p.MoveTo(c[0]-s/2, c[1]-s/3)
+		p.LineTo(c[0]+s/2, c[1]-s/3)
+		p.LineTo(c[0], c[1]+s/2)
+	} else {
+		p.MoveTo(c[0]-s/3, c[1]-s/2)
+		p.LineTo(c[0]+s/2, c[1])
+		p.LineTo(c[0]-s/3, c[1]+s/2)
+	}
+	p.Close()
+	op := &vector.DrawPathOptions{AntiAlias: true}
+	op.ColorScale.ScaleWithColor(chromeDim)
+	vector.FillPath(dst, &p, nil, op)
 }
 
 // valueColor shows a net's level in v1's colours (darkened for text).
@@ -310,7 +392,7 @@ func (a *app) panelHint(l layout, p image.Point) string {
 		}
 		return "left click place a copy · right click rename · middle click delete (only if unused) · wheel scroll"
 	case tabWatch:
-		return "wire: left pin high · right pin low · middle release · number box: click and type a value (up/down steps), middle click releases · wheel scroll"
+		return "name with arrow: left fold · right fold all below · wire: left pin high · right pin low · middle release · number box: click and type a value (up/down steps), middle click releases · wheel scroll"
 	case tabDiagnostics:
 		return "click show it on the canvas · wheel scroll"
 	}
