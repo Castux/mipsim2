@@ -58,7 +58,8 @@ func (a *app) drawOverlay(dst *ebiten.Image, o editor.Overlay) {
 }
 
 // drawLabels writes label names next to their pixels when zoomed in enough.
-func (a *app) drawLabels(dst *ebiten.Image) {
+// A label being retyped is left out: the overlay shows the text typed so far.
+func (a *app) drawLabels(dst *ebiten.Image, o editor.Overlay) {
 	if a.view.Scale < 6 {
 		return
 	}
@@ -66,7 +67,7 @@ func (a *app) drawLabels(dst *ebiten.Image) {
 	n := 0
 	for _, l := range a.ed.Flat().Labels {
 		x, y := a.view.ToScreen(l.Pos)
-		if !image.Pt(int(x), int(y)).In(bounds) {
+		if !image.Pt(int(x), int(y)).In(bounds) || o.Typing && l.Pos == o.Label {
 			continue
 		}
 		if n++; n > 400 {
