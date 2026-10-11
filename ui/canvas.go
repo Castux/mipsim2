@@ -320,19 +320,34 @@ func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 }
 `
 
-// maxCanvasTexture is the largest circuit extent drawn in one texture.
-// Tiling larger circuits is future work (see progress.md).
-const maxCanvasTexture = 8192
+// The circuit is split into tiles of tileSize×tileSize world pixels, aligned
+// on multiples of tileSize, so that no texture exceeds what a GPU (or WebGL)
+// allows. The shader reads around the pixel it colours (neighbours for
+// outlines and transistor arms, and the footprint of a screen pixel when
+// zoomed out: up to 16 pixels either side at 1/32), so each tile's texture
+// also holds a tileApron-pixel margin of its neighbours, and tiles meet
+// without seams. Only tiles holding circuit pixels get a texture.
+const (
+	tileSize  = 2048
+	tileApron = 20
+)
 
 const stateWidth = 1024
+
+// tile is one texture of the circuit.
+type tile struct {
+	core image.Rectangle // the world pixels it draws
+	tex  image.Rectangle // the world pixels its texture holds: core and apron
+	img  *ebiten.Image
+	pix  []byte // while building
+}
 
 type canvas struct {
 	shader *ebiten.Shader
 
 	compiles int // editor compile count the textures were built from
-	texRect  image.Rectangle
-	ids      *ebiten.Image
-	tooBig   bool
+	tiles    []*tile
+	empty    *ebiten.Image // 1×1 and blank: draws the background and grid
 
 	states   *ebiten.Image
 	statePix []byte
@@ -346,7 +361,7 @@ func newCanvas() (*canvas, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &canvas{shader: sh, compiles: -1, filter: 1}, nil
+	return &canvas{shader: sh, compiles: -1, filter: 1, empty: ebiten.NewImage(1, 1)}, nil
 }
 
 // sync rebuilds the textures after a compile and refreshes net states.
@@ -360,34 +375,73 @@ func (c *canvas) sync(e *editor.Editor) {
 	c.updateStates(e, nl)
 }
 
+// floorDiv divides rounding towards minus infinity.
+func floorDiv(a, b int) int {
+	q := a / b
+	if a%b != 0 && a < 0 {
+		q--
+	}
+	return q
+}
+
 func (c *canvas) buildIDs(nl *netlist.Netlist) {
-	r := nl.Bounds()
-	if r.Empty() {
-		r = image.Rect(0, 0, 1, 1)
+	for _, t := range c.tiles {
+		t.img.Deallocate()
 	}
-	c.tooBig = r.Dx() > maxCanvasTexture || r.Dy() > maxCanvasTexture
-	if c.tooBig {
-		return
-	}
-	if c.ids == nil || c.texRect.Size() != r.Size() {
-		if c.ids != nil {
-			c.ids.Deallocate()
+	c.tiles = nil
+	bounds := nl.Bounds()
+
+	// First the tiles that hold pixels, then the pixels, each written to
+	// its own tile and to the aprons of the tiles around it.
+	index := map[image.Point]*tile{}
+	var last *tile
+	var lastKey image.Point
+	at := func(k image.Point) *tile {
+		if last != nil && k == lastKey {
+			return last
 		}
-		c.ids = ebiten.NewImage(r.Dx(), r.Dy())
+		last, lastKey = index[k], k
+		return last
 	}
-	c.texRect = r
-	w := r.Dx()
-	pix := make([]byte, 4*r.Dx()*r.Dy())
+	nl.ForEachPixel(func(x, y int, _ netlist.Role, _ netlist.NetID) {
+		k := image.Pt(floorDiv(x, tileSize), floorDiv(y, tileSize))
+		if at(k) != nil {
+			return
+		}
+		core := image.Rect(k.X*tileSize, k.Y*tileSize, (k.X+1)*tileSize, (k.Y+1)*tileSize).Intersect(bounds)
+		tex := core.Inset(-tileApron).Intersect(bounds)
+		t := &tile{core: core, tex: tex, pix: make([]byte, 4*tex.Dx()*tex.Dy())}
+		index[k], last = t, t
+		c.tiles = append(c.tiles, t)
+	})
+	write := func(t *tile, x, y int, v uint32) {
+		i := 4 * ((y-t.tex.Min.Y)*t.tex.Dx() + (x - t.tex.Min.X))
+		t.pix[i], t.pix[i+1], t.pix[i+2], t.pix[i+3] = byte(v), byte(v>>8), byte(v>>16), 255
+	}
 	put := func(x, y int, role netlist.Role, net netlist.NetID) {
 		v := uint32(role)<<21 | uint32(net+1)
-		i := 4 * ((y-r.Min.Y)*w + (x - r.Min.X))
-		pix[i], pix[i+1], pix[i+2], pix[i+3] = byte(v), byte(v>>8), byte(v>>16), 255
+		kx, ky := floorDiv(x, tileSize), floorDiv(y, tileSize)
+		if lx, ly := x-kx*tileSize, y-ky*tileSize; lx >= tileApron && lx < tileSize-tileApron && ly >= tileApron && ly < tileSize-tileApron {
+			write(at(image.Pt(kx, ky)), x, y, v)
+			return
+		}
+		for ty := floorDiv(y-tileApron, tileSize); ty <= floorDiv(y+tileApron, tileSize); ty++ {
+			for tx := floorDiv(x-tileApron, tileSize); tx <= floorDiv(x+tileApron, tileSize); tx++ {
+				if t := at(image.Pt(tx, ty)); t != nil {
+					write(t, x, y, v)
+				}
+			}
+		}
 	}
 	nl.ForEachPixel(put)
 	for _, t := range nl.Transistors {
 		put(t.Pos.X, t.Pos.Y, netlist.RoleTransistor, t.Gate)
 	}
-	c.ids.WritePixels(pix)
+	for _, t := range c.tiles {
+		t.img = ebiten.NewImage(t.tex.Dx(), t.tex.Dy())
+		t.img.WritePixels(t.pix)
+		t.pix = nil
+	}
 }
 
 func (c *canvas) buildStates(nets int) {
@@ -417,24 +471,9 @@ func (c *canvas) updateStates(e *editor.Editor, nl *netlist.Netlist) {
 	c.states.WritePixels(c.statePix)
 }
 
-// draw renders the circuit into area of dst.
+// draw renders the circuit into area of dst: the background and grid, then
+// each tile in view.
 func (c *canvas) draw(dst *ebiten.Image, area image.Rectangle, v *editor.View, hover netlist.NetID, simulating bool) {
-	if c.tooBig || c.ids == nil {
-		dst.Fill(color.RGBA{60, 20, 20, 255})
-		return
-	}
-	// Screen corner -> texture coordinates: world - texRect.Min.
-	toTex := func(sx, sy float64) (float32, float32) {
-		wx := (sx-v.Offset[0])/v.Scale - float64(c.texRect.Min.X)
-		wy := (sy-v.Offset[1])/v.Scale - float64(c.texRect.Min.Y)
-		return float32(wx), float32(wy)
-	}
-	x0, y0, x1, y1 := float64(area.Min.X), float64(area.Min.Y), float64(area.Max.X), float64(area.Max.Y)
-	vs := make([]ebiten.Vertex, 4)
-	for i, p := range [4][2]float64{{x0, y0}, {x1, y0}, {x0, y1}, {x1, y1}} {
-		sx, sy := toTex(p[0], p[1])
-		vs[i] = ebiten.Vertex{DstX: float32(p[0]), DstY: float32(p[1]), SrcX: sx, SrcY: sy, ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1}
-	}
 	samples := 1.0
 	if v.Scale < 1 {
 		samples = min(4, 1/v.Scale)
@@ -444,7 +483,6 @@ func (c *canvas) draw(dst *ebiten.Image, area image.Rectangle, v *editor.View, h
 		sim = 1
 	}
 	op := &ebiten.DrawTrianglesShaderOptions{}
-	op.Images[0] = c.ids
 	op.Images[1] = c.states
 	op.Uniforms = map[string]any{
 		"Scale":      float32(v.Scale),
@@ -454,7 +492,32 @@ func (c *canvas) draw(dst *ebiten.Image, area image.Rectangle, v *editor.View, h
 		"Filter":     float32(c.filter),
 		"StateWidth": float32(stateWidth),
 	}
-	dst.DrawTrianglesShader(vs, []uint16{0, 1, 2, 1, 2, 3}, c.shader, op)
+	// quad draws the screen rectangle from (x0, y0) to (x1, y1) from img,
+	// whose top-left texel is world pixel origin. Tiles meet on fractional
+	// edges when zoomed out; each screen pixel goes to the tile holding its
+	// centre, so its footprint stays within that tile's apron.
+	quad := func(x0, y0, x1, y1 float64, img *ebiten.Image, origin image.Point) {
+		vs := make([]ebiten.Vertex, 4)
+		for i, p := range [4][2]float64{{x0, y0}, {x1, y0}, {x0, y1}, {x1, y1}} {
+			wx := (p[0]-v.Offset[0])/v.Scale - float64(origin.X)
+			wy := (p[1]-v.Offset[1])/v.Scale - float64(origin.Y)
+			vs[i] = ebiten.Vertex{DstX: float32(p[0]), DstY: float32(p[1]), SrcX: float32(wx), SrcY: float32(wy), ColorR: 1, ColorG: 1, ColorB: 1, ColorA: 1}
+		}
+		op.Images[0] = img
+		dst.DrawTrianglesShader(vs, []uint16{0, 1, 2, 1, 2, 3}, c.shader, op)
+	}
+	// The blank image reads as empty everywhere; its origin only keeps the
+	// grid aligned and the coordinates small.
+	ax0, ay0, ax1, ay1 := float64(area.Min.X), float64(area.Min.Y), float64(area.Max.X), float64(area.Max.Y)
+	quad(ax0, ay0, ax1, ay1, c.empty, v.ToWorld(ax0, ay0))
+	for _, t := range c.tiles {
+		x0, y0 := v.ToScreen(t.core.Min)
+		x1, y1 := v.ToScreen(t.core.Max)
+		x0, y0, x1, y1 = max(x0, ax0), max(y0, ay0), min(x1, ax1), min(y1, ay1)
+		if x0 < x1 && y0 < y1 {
+			quad(x0, y0, x1, y1, t.img, t.tex.Min)
+		}
+	}
 }
 
 // drawStroke shows pixels changed by a stroke that has not been compiled yet.

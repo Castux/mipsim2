@@ -456,6 +456,15 @@ With real components the flat Watch list held thousands of rows. It is now a tre
 
 **Not verified by the agent:** clicking in the running app. The tree is tested (`ui/watchtree_test.go`) and checked by screenshots.
 
+## Canvas tiles (owner request)
+
+Circuits are no longer limited to 8192 pixels in either direction (the known limit from M5).
+
+- The canvas texture is split into 2048×2048 tiles aligned on world multiples of 2048. Only tiles that hold circuit pixels get a texture, so sparse layouts cost what they draw.
+- Each tile's texture also holds a 20-pixel apron of its neighbours. The shader reads around the pixel it colours (outlines and transistor arms one or two cells away, and the zoomed-out footprint, at most 12 pixels either side of a pixel centre at 1/32), so tiles meet without seams. Tile quads have fractional screen edges when zoomed out, so each screen pixel is drawn by the tile holding its centre.
+- A background pass with a blank 1×1 image draws the white background and the zoom grid; tiles in view are drawn on top, one quad each.
+- Checked by screenshots of a 2000-register test file (`coolproc/reg16x2k.mip`, 341×99,996 pixels, 484,000 nets), including a register crossing a tile edge at 2× and 1/6×.
+
 ## Memory with read and write enables (owner request)
 
 The memory device now has the same interface as the registers in the `coolproc` design: a `read` enable, a `write` enable, the address bus and the data bus, modelled as gated D latches. Read high drives the data bus from the next settle; write high stores the data bus at every settle while it stays high and keeps the last value when it drops (level-sensitive). Both high is a short, silently allowed: the memory drives the word and stores what the bus settles to (low wins, so the word is ANDed with what the circuit drives). Floating enables mean idle; unstable enables, and floating address or data bits while needed, are errors. The `select` field is gone; a configuration that still has it is rejected with a message pointing to `read`. `testdata/runner/ram.mip` uses `re` and `we`, the Devices tab's default names.
