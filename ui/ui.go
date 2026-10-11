@@ -439,9 +439,10 @@ func (a *app) Draw(screen *ebiten.Image) {
 		drawStroke(canvasImg, &a.view, cells, value)
 	}
 	a.drawInstances(canvasImg)
-	a.drawLabels(canvasImg)
+	o := a.ed.Overlay()
+	a.drawLabels(canvasImg, o)
 	a.drawDiagnosticMarkers(canvasImg, nl)
-	a.drawOverlay(canvasImg, a.ed.Overlay())
+	a.drawOverlay(canvasImg, o)
 	a.drawChrome(screen, l)
 	a.drawPanel(screen, l)
 	if a.fb != nil {
