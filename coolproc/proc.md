@@ -10,7 +10,7 @@ Specs:
   - A and B are ALU inputs, X and Y ALU outputs, with their own wiring to the ALU.
   - Y is the address register: it is wired directly to the memory address and is the target of jumps.
   - C and D are general purpose.
-  - All registers are connected to a common data bus, also used by memory data and the instruction argument.
+  - All registers are connected to a common data bus, also accessible by memory data and the instruction argument.
 - PC is a separate register, not addressable (only jump instructions)
 - No stack pointer, this is handled in software (assembler/compiler can use own convention since this runs single programs)
 
@@ -33,8 +33,8 @@ src is always the high nibble and dest always the low nibble, to be able to reus
 | `0000 0001` | move |
 | `0000 0010` | load |
 | `0000 0011` | store |
-| `0001 0 mm` | jump, mm: condition |
-| `0001 1 mm` | jumpc, mm: condition |
+| `0001 0 x mm` | jump, mm: condition |
+| `0001 1 x mm` | jumpc, mm: condition |
 | `01 ooo mm d` | ALU, ooo: operation, mm: mode, d: dest (0: X, 1: Y) |
 | `1 h 000 ddd` | set, h: low/high byte, ddd: dest register |
 
@@ -63,7 +63,7 @@ ALU (src and dest nibbles unused):
 | ooo | Operation | Meaning |
 | --- | --- | --- |
 | 000 | add | add A and B. m0: carry in 0/1, m1: B/not B. Gives A+B, A+B+1, A-B-1, A-B |
-| 001 | shift | shift A by B positions. m0: left/right, m1 reserved |
+| 001 | shift | shift A by B[3:0] positions (B mod 16). m0: left/right, m1 reserved |
 | 010 | and | A and B. m0: A/not A, m1: B/not B |
 | 011 | or | A or B. m0: A/not A, m1: B/not B |
 | 100 | xor | A xor B. m0: A/not A, m1: B/not B |
@@ -86,3 +86,23 @@ Assembler can alias jumpz jumpnz jumpn jumpcz jumpcnz, and provide `jump label` 
 Registers are gated D latches, so an instruction must not write a register its own result depends on while the write is enabled:
 
 - `load Y`: the loaded value would change the address it is loaded from. Use `load` into another register and `move` it to Y.
+
+## Implementation
+
+`coolproc/gen` generates the processor as `coolproc/cpu.mip` (`go run ./coolproc/gen`), with the program `coolproc/demo.asm` assembled into `coolproc/prog.bin` for the ROM. Its tests run programs on the generated circuit in the headless simulator (`go test ./coolproc/gen`).
+
+- **Gates:** everything is NOR gates (a pull-up power cell and one pull-down transistor per input), laid out as a gate matrix: signals are vertical lines, gates are horizontal rows, crossings are bridges. Data only drives transistor gates, never channels, so "low wins" never corrupts a value.
+- **Layout:** the control block (instruction register, sequencer, decoder) on top, then 16 bit slices, bit 15 first. Each register bit is a gated D latch of four NOR gates.
+- **Bus:** one NOR gate per bit, pulled up, with a pull-down per driver, so it reads all ones when nothing drives it. The ALU result goes to X or Y over the bus (the bus is free during ALU instructions), not over separate wiring.
+- **ALU:** A and B each go through an inverter and mux (the not A and not B modes), then nand, nor and xor gates and a ripple-carry adder. `and` is the nor of the inverted operands, `or` the nand, so the instruction set is unchanged. The shifter is a barrel shifter over positions -1 to 16, so the last bit shifted out lands in position 16 (left) or -1 (right) for the carry.
+- **Instruction word:** the opcode is the high byte. The ROM init file holds little-endian 16-bit words.
+- **Timing:** a Johnson counter of 6 master-slave flip-flops gives 12 states, so an instruction takes 12 clock ticks, in 4 steps of 3 states (route, route and write, route):
+  - fetch: the ROM word into IR
+  - PC + 1 into TMP
+  - execute
+  - TMP into PC, or Y for a taken jump (the jump condition is latched during execute)
+- **Reset:** pin `reset` high for a tick, then release it. It clears every register, PC and the sequencer.
+- **Halt:** stops the sequencer (the clock keeps running) and raises `halted`.
+- **Memories:** `rom` (64K words of 16 bits, read only) on `pc` and `rom`; `ram` (64K words) on `y` and `bus`, with `mem_read` and `mem_write`.
+
+The assembler (`coolproc/gen/asm.go`) takes `move src, dest`, `load dest`, `store src`, `setl r, n`, `seth r, n`, `set r, n` (two instructions), ALU instructions with their destination and modes (`add x`, `sub y`, `and x na nb`, `shl x`...), the jumps, `goto label` and labels.
