@@ -48,8 +48,7 @@ func TestRAMReadWrite(t *testing.T) {
 	must(t, err)
 	value := func(i int) uint64 { return uint64(i*37+11) & 0xFF }
 
-	must(t, r.Set("sel", "high"))
-	must(t, r.Set("we", "high"))
+	must(t, r.Set("we", "high")) // write: set address and data, raise write
 	for i := range 256 {
 		must(t, r.Set("addr", strconv.Itoa(i)))
 		must(t, r.Set("data", strconv.FormatUint(value(i), 10)))
@@ -57,6 +56,7 @@ func TestRAMReadWrite(t *testing.T) {
 	}
 	must(t, r.Set("we", "low"))
 	must(t, r.Set("data", "float"))
+	must(t, r.Set("re", "high")) // read: the memory drives data
 	for i := range 256 {
 		must(t, r.Set("addr", strconv.Itoa(i)))
 		must(t, r.Settle())
@@ -83,15 +83,15 @@ func TestPinLayers(t *testing.T) {
 	// The user pins data_0 high; the memory reads 0 at address 0 and drives
 	// it low: low wins while both pin.
 	must(t, r.Set("data_0", "high"))
-	must(t, r.Set("sel", "high"))
+	must(t, r.Set("re", "high"))
 	must(t, r.Set("we", "low"))
 	must(t, r.Set("addr", "0"))
 	must(t, r.Settle())
 	if r.Sim().Value(d0) != sim.Low {
 		t.Fatalf("data_0 = %v, want low (memory drives 0, low wins)", r.Sim().Value(d0))
 	}
-	// Deselecting releases the memory's pin; the user's pin is still there.
-	must(t, r.Set("sel", "low"))
+	// Lowering read releases the memory's pin; the user's pin is still there.
+	must(t, r.Set("re", "low"))
 	must(t, r.Settle())
 	if r.Sim().Value(d0) != sim.High || r.UserPin(d0) != sim.High {
 		t.Errorf("after release: data_0 = %v, user pin %v", r.Sim().Value(d0), r.UserPin(d0))
@@ -107,17 +107,17 @@ func TestDeviceErrors(t *testing.T) {
 		d.Devices = append(d.Devices, c)
 	})
 	must(t, err)
-	must(t, r.Set("sel", "high"))
+	must(t, r.Set("re", "high"))
 	must(t, r.Set("we", "low"))
 	must(t, r.Set("addr", "5"))
 	if err := r.Settle(); err == nil || !strings.Contains(err.Error(), "both drive") {
 		t.Errorf("two drivers: %v", err)
 	}
 
-	// A floating address bit while selected.
+	// A floating address bit while reading.
 	r, err = ramRunner(t, nil)
 	must(t, err)
-	must(t, r.Set("sel", "high"))
+	must(t, r.Set("re", "high"))
 	must(t, r.Set("we", "low"))
 	if err := r.Settle(); err == nil || !strings.Contains(err.Error(), "address addr_0 is floating") {
 		t.Errorf("floating address: %v", err)

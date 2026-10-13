@@ -285,7 +285,7 @@ Each has a default the agent implements until the owner decides.
 | Do instances need rotation and mirroring? | Decided: yes, all 8 orientations, in the data model from M1 |
 | New repo (`mipsim2`) or a `v2/` directory in `mipsim`? | New repo, linked from the v1 README |
 | Memory writes: level-sensitive at each settle or on a strobe edge? | Level-sensitive, as v1 |
-| Memory reading a `Floating` or `Unstable` bit? | Decided: runtime error, except that a floating `select` means idle (SPEC: Memory devices and buses) |
+| Memory reading a `Floating` or `Unstable` bit? | Decided: runtime error, except that floating `read` and `write` enables mean idle (SPEC: Memory devices and buses) |
 | Clock net name: fixed `clock` or per document? | Per document, defaulting to `clock` |
 | Which processor is the M9 workload? | A full 8-bit processor, built from the ground up by the owner; no prepared component library |
 | Flip threshold for `Unstable` | 20, configurable; trips when a count goes above it, as in v1 |

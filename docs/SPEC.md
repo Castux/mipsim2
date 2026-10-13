@@ -215,7 +215,7 @@ The package `devices` imports no other module package; the runner adapts its net
   "name": "data_ram",
   "addr": "port_addr",
   "data": "port_data",
-  "select": "port_sel_mem",
+  "read": "port_read",
   "write": "port_write",
   "words": 256,
   "width": 8,
@@ -226,11 +226,18 @@ The package `devices` imports no other module package; the runner adapts its net
 
 `words` is 1 to 2^24, `width` 1 to 64. `init` is optional: a binary file read little-endian, ceil(width/8) bytes per word, from address 0; a shorter file leaves the rest zero. Unknown fields are rejected.
 
-Semantics, matching v1's BF host: if `select` is not high, the device unpins `data`. If `select` is high and `write` is low, it pins `data` to the word at `addr`. If both are high, it writes in two phases: if it is still pinning `data`, it unpins and returns `changed=true` without storing, so the runner settles with the circuit alone driving the bus; on the next service it reads `data` and stores it. Writes are level-sensitive, taken at each settle point. Several devices may share a bus; two devices driving the same bus at once is a runtime error reported by the runner.
+Semantics: the memory behaves like gated D latches, with a read enable and a write enable, the same interface as registers built in the circuit.
 
-On load, the runner checks that the nets `addr_0` to `addr_{k-1}` exist with k = ceil(log2(words)) (none for a 1-word memory), that `data_0` to `data_{width-1}` exist, and that `select` and `write` exist (all names with their configured prefixes). A missing net rejects the configuration with an error naming it.
+- **Read** (`read` high, `write` low): it pins `data` to the word at `addr`, from the next settle.
+- **Write** (`write` high, `read` low): set `addr` and `data`, raise `write`, lower it. While `write` is high the word at `addr` follows `data` at each settle point (level-sensitive, not edge-triggered); lowering `write` keeps the last value. If the device was still pinning `data` (read just went low), it first unpins and returns `changed=true` without storing, so the runner settles with the circuit alone driving the bus.
+- **Neither**: it unpins `data`.
+- **Both** (a short, silently allowed): it pins `data` to the word and stores what the bus settles to. Low wins, so the result is the word ANDed with whatever the circuit drives.
 
-A memory device only reads bits it needs: `addr` while `select` is high, and `data` on the store phase of a write. If any bit it needs is `Floating` or `Unstable`, the runner stops with an error naming the device, the net and the tick; the editor pauses and shows it in the status bar. This is stricter than v1, which read anything not high as 0. An `Unstable` `select` is the same error, and so is a `Floating` or `Unstable` `write` while selected. A `Floating` `select` counts as not selected, so a memory whose select line is not yet driven sits idle (owner-approved relaxation of the M0 rule). An address at or beyond `words` is an error, and so is a write to a `readonly` memory.
+Several devices may share a bus; two devices driving the same bus at once is a runtime error reported by the runner. A configuration with the former `select` field is rejected with a message saying it was replaced by `read`.
+
+On load, the runner checks that the nets `addr_0` to `addr_{k-1}` exist with k = ceil(log2(words)) (none for a 1-word memory), that `data_0` to `data_{width-1}` exist, and that `read` and `write` exist (all names with their configured prefixes). A missing net rejects the configuration with an error naming it.
+
+A memory device only reads bits it needs: `addr` while `read` or `write` is high, and `data` when storing. If any bit it needs is `Floating` or `Unstable`, the runner stops with an error naming the device, the net and the tick; the editor pauses and shows it in the status bar. This is stricter than v1, which read anything not high as 0. A `Floating` `read` or `write` counts as low, so a memory whose enables are not yet driven sits idle; an `Unstable` one is an error. An address at or beyond `words` is an error, and so is a write to a `readonly` memory.
 
 **Settle loop** in the runner: settle; service every device in declaration order; if any reported a change, settle again; give up after 16 rounds with an error naming the devices involved. `runner.New` attaches devices but does not service them; the first `Settle()` does.
 

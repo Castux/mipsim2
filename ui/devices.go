@@ -50,8 +50,8 @@ func fieldValue(c *devices.MemoryConfig, field string) string {
 		return c.Addr
 	case "data":
 		return c.Data
-	case "select":
-		return c.Select
+	case "read":
+		return c.Read
 	case "write":
 		return c.Write
 	case "words":
@@ -70,7 +70,7 @@ func fieldValue(c *devices.MemoryConfig, field string) string {
 }
 
 var fieldLabels = map[string]string{
-	"name": "name", "addr": "address bus", "data": "data bus", "select": "select net",
+	"name": "name", "addr": "address bus", "data": "data bus", "read": "read net",
 	"write": "write net", "words": "words", "width": "bits per word", "readonly": "read-only", "init": "init file",
 }
 

@@ -50,25 +50,25 @@ func TestRAMInEditor(t *testing.T) {
 	mem := e.Runner().Devices()[0].(*devices.Memory)
 
 	set("addr", "200")
-	click("we", Left)
-	click("sel", Left)
 	set("data", "0x5c")
+	click("we", Left) // raise write: the memory stores the data bus
 	if mem.Words()[200] != 0x5c || e.Runner().Format("q") != "163" {
 		t.Fatalf("write: word %#x, q=%s, status %q", mem.Words()[200], e.Runner().Format("q"), e.Status)
 	}
 
-	click("we", Right)
+	click("we", Right) // lower write, then read
 	set("data", "float")
+	click("re", Left)
 	if got := e.Runner().Format("data"); got != "92" {
 		t.Errorf("read back data=%s, status %q", got, e.Status)
 	}
 	nl := e.Netlist()
-	sel, _ := nl.Lookup("sel")
-	if e.Value(sel) != sim.High {
-		t.Errorf("sel = %v", e.Value(sel))
+	re, _ := nl.Lookup("re")
+	if e.Value(re) != sim.High {
+		t.Errorf("re = %v", e.Value(re))
 	}
 
-	// Releasing an address bit while selected is a device error.
+	// Releasing an address bit while reading is a device error.
 	x, y := at("addr_3")
 	e.PointerDown(pt(x, y), Middle, Mods{})
 	if !strings.Contains(e.Status, "stopped") || !strings.Contains(e.Status, "floating") {
@@ -103,17 +103,17 @@ func TestDeviceEditing(t *testing.T) {
 	// ram1 drives the same bus as ram: allowed, the runner reports it only if
 	// both drive at once. Delete it anyway.
 	e.DeleteDevice(1)
-	if !e.SetMemoryField(0, "select", "cs") {
-		t.Fatalf("set select: %s", e.Status)
+	if !e.SetMemoryField(0, "read", "cs") {
+		t.Fatalf("set read: %s", e.Status)
 	}
 	if p := e.Devices()[0].Problem; !strings.Contains(p, "cs") || strings.Contains(p, "addr") {
 		t.Errorf("problem %q", p)
 	}
-	if !e.SetMemoryField(0, "select", "sel") {
-		t.Fatalf("set select: %s", e.Status)
+	if !e.SetMemoryField(0, "read", "re") {
+		t.Fatalf("set read: %s", e.Status)
 	}
 	if info := e.Devices()[0]; info.Problem != "" || !strings.Contains(info.Summary, "addr_0..7") {
-		t.Errorf("after fixing select: %+v", info)
+		t.Errorf("after fixing read: %+v", info)
 	}
 
 	for _, bad := range [][2]string{{"words", "0"}, {"width", "65"}, {"addr", ""}, {"readonly", "maybe"}, {"colour", "red"}} {

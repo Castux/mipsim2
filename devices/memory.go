@@ -12,26 +12,34 @@ import (
 type MemoryConfig struct {
 	Kind     string `json:"kind"`
 	Name     string `json:"name"`
-	Addr     string `json:"addr"`   // bus base name: addr_0 ... addr_{k-1}
-	Data     string `json:"data"`   // bus base name: data_0 ... data_{width-1}
-	Select   string `json:"select"` // net name
-	Write    string `json:"write"`  // net name
+	Addr     string `json:"addr"`  // bus base name: addr_0 ... addr_{k-1}
+	Data     string `json:"data"`  // bus base name: data_0 ... data_{width-1}
+	Read     string `json:"read"`  // net name
+	Write    string `json:"write"` // net name
 	Words    int    `json:"words"`
 	Width    int    `json:"width"`
 	Init     string `json:"init,omitempty"` // raw binary file, little-endian words of ceil(width/8) bytes
 	ReadOnly bool   `json:"readonly,omitempty"`
 }
 
-// Memory is a RAM or ROM attached to address, data, select and write nets.
+// Memory is a RAM or ROM attached to address, data, read and write nets,
+// modelled as gated D latches:
 //
-// When select is not high, it releases the data bus. When select is high and
-// write is low, it pins data to the word at addr. When both are high it
-// writes in two phases: if it is still pinning data it releases it and asks
-// the runner to settle again, so the circuit alone drives the bus; on the
-// next service it reads data and stores it. Writes are level-sensitive, taken
-// at each settle point. A floating select counts as not selected; any other
-// bit it needs that is floating or unstable is an error, as is writing a
-// read-only memory.
+//   - read high, write low: it pins data to the word at addr;
+//   - write high, read low: it stores data at addr, at each settle point
+//     while write stays high (level-sensitive), and keeps the value when
+//     write goes low. If it was still pinning data (read just went low), it
+//     releases the bus first and stores on the next service, so the circuit
+//     alone drives the value;
+//   - neither: it releases the data bus;
+//   - both: a short, silently allowed. It pins data to the word and stores
+//     what the bus settles to; since low wins, that is the word ANDed with
+//     whatever the circuit drives.
+//
+// Floating read and write count as low, so an undriven memory is idle. An
+// unstable read or write is an error, and so is any address or data bit it
+// needs that is floating or unstable, an address out of range, or a write to
+// a read-only memory.
 type Memory struct {
 	cfg   MemoryConfig
 	addr  []string // bit names, LSB first
@@ -45,6 +53,12 @@ type Memory struct {
 }
 
 func parseMemory(raw json.RawMessage, read ReadFile) (*Memory, error) {
+	var old struct {
+		Select *string `json:"select"`
+	}
+	if json.Unmarshal(raw, &old) == nil && old.Select != nil {
+		return nil, fmt.Errorf("memory: \"select\" was replaced by \"read\" (read high drives the data bus, write high stores it)")
+	}
 	var c MemoryConfig
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
@@ -64,8 +78,8 @@ func NewMemory(c MemoryConfig, read ReadFile) (*Memory, error) {
 		return nil, fmt.Errorf("%s: words %d out of range 1..%d", where, c.Words, 1<<24)
 	case c.Width < 1 || c.Width > 64:
 		return nil, fmt.Errorf("%s: width %d out of range 1..64", where, c.Width)
-	case c.Addr == "" || c.Data == "" || c.Select == "" || c.Write == "":
-		return nil, fmt.Errorf("%s: needs addr, data, select and write", where)
+	case c.Addr == "" || c.Data == "" || c.Read == "" || c.Write == "":
+		return nil, fmt.Errorf("%s: needs addr, data, read and write", where)
 	}
 	m := &Memory{cfg: c, words: make([]uint64, c.Words), Last: -1}
 	k := bits.Len(uint(c.Words - 1)) // a 1-word memory has no address bits
@@ -129,10 +143,10 @@ func (m *Memory) Load(b []byte) {
 	}
 }
 
-// Attach checks that the address, data, select and write nets exist.
+// Attach checks that the address, data, read and write nets exist.
 func (m *Memory) Attach(bus Bus) error {
 	var missing []string
-	for _, n := range append(append(append([]string{}, m.addr...), m.data...), m.cfg.Select, m.cfg.Write) {
+	for _, n := range append(append(append([]string{}, m.addr...), m.data...), m.cfg.Read, m.cfg.Write) {
 		if !bus.Has(n) {
 			missing = append(missing, n)
 		}
@@ -185,47 +199,19 @@ func (m *Memory) release(bus Bus) bool {
 	return true
 }
 
-// Service implements Device.
-func (m *Memory) Service(bus Bus) (bool, error) {
-	// A floating select means the bus is idle (nothing drives it yet): only an
-	// unstable select is an error.
-	sel := bus.Value(m.cfg.Select)
-	if sel == Unstable {
-		return false, fmt.Errorf("memory %q: select %s is unstable", m.cfg.Name, m.cfg.Select)
+// control reads a read or write line: floating counts as low.
+func (m *Memory) control(bus Bus, name, role string) (bool, error) {
+	switch bus.Value(name) {
+	case High:
+		return true, nil
+	case Unstable:
+		return false, fmt.Errorf("memory %q: %s %s is unstable", m.cfg.Name, role, name)
 	}
-	if sel != High {
-		return m.release(bus), nil
-	}
-	write, err := m.level(bus, m.cfg.Write, "write")
-	if err != nil {
-		return false, err
-	}
-	addr, err := m.number(bus, m.addr, "address")
-	if err != nil {
-		return false, err
-	}
-	if addr >= uint64(len(m.words)) {
-		return false, fmt.Errorf("memory %q: address %d out of range (%d words)", m.cfg.Name, addr, len(m.words))
-	}
+	return false, nil
+}
 
-	m.Last, m.LastWrite = int(addr), write == High
-	if write == High {
-		if m.cfg.ReadOnly {
-			return false, fmt.Errorf("memory %q: write to read-only memory at address %d", m.cfg.Name, addr)
-		}
-		if m.release(bus) {
-			return true, nil // phase 1: let the circuit alone drive the bus
-		}
-		v, err := m.number(bus, m.data, "data")
-		if err != nil {
-			return false, err
-		}
-		m.words[addr] = v
-		return false, nil
-	}
-
-	// Read: pin data to the word.
-	v := m.words[addr]
+// pin drives data to v and reports whether any pin changed.
+func (m *Memory) pin(bus Bus, v uint64) bool {
 	changed := false
 	for i, n := range m.data {
 		want := Low
@@ -237,5 +223,55 @@ func (m *Memory) Service(bus Bus) (bool, error) {
 			changed = true
 		}
 	}
-	return changed, nil
+	return changed
+}
+
+// Service implements Device.
+func (m *Memory) Service(bus Bus) (bool, error) {
+	read, err := m.control(bus, m.cfg.Read, "read")
+	if err != nil {
+		return false, err
+	}
+	write, err := m.control(bus, m.cfg.Write, "write")
+	if err != nil {
+		return false, err
+	}
+	if !read && !write {
+		return m.release(bus), nil
+	}
+	addr, err := m.number(bus, m.addr, "address")
+	if err != nil {
+		return false, err
+	}
+	if addr >= uint64(len(m.words)) {
+		return false, fmt.Errorf("memory %q: address %d out of range (%d words)", m.cfg.Name, addr, len(m.words))
+	}
+	m.Last, m.LastWrite = int(addr), write
+	if write && m.cfg.ReadOnly {
+		return false, fmt.Errorf("memory %q: write to read-only memory at address %d", m.cfg.Name, addr)
+	}
+
+	switch {
+	case read && write:
+		// The short: store what the bus settled to, then drive it.
+		if m.pinning(bus) {
+			v, err := m.number(bus, m.data, "data")
+			if err != nil {
+				return false, err
+			}
+			m.words[addr] = v
+		}
+		return m.pin(bus, m.words[addr]), nil
+	case write:
+		if m.release(bus) {
+			return true, nil // let the circuit alone drive the bus first
+		}
+		v, err := m.number(bus, m.data, "data")
+		if err != nil {
+			return false, err
+		}
+		m.words[addr] = v
+		return false, nil
+	}
+	return m.pin(bus, m.words[addr]), nil
 }

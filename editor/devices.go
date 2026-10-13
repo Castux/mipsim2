@@ -108,7 +108,7 @@ func (e *Editor) Devices() []DeviceInfo {
 				if m.AddrBits() > 0 {
 					addr = fmt.Sprintf("%s_0..%d", c.Addr, m.AddrBits()-1)
 				}
-				info.Summary = fmt.Sprintf("%s, %s_0..%d, %s, %s", addr, c.Data, c.Width-1, c.Select, c.Write)
+				info.Summary = fmt.Sprintf("%s, %s_0..%d, %s, %s", addr, c.Data, c.Width-1, c.Read, c.Write)
 			}
 		}
 		info.Problem = strings.Join(problems, "; ")
@@ -125,7 +125,7 @@ func (e *Editor) AddMemory() {
 	for i := 1; slices.ContainsFunc(e.Doc.Devices, func(d doc.DeviceConfig) bool { return d.Name == name }); i++ {
 		name = fmt.Sprintf("ram%d", i)
 	}
-	c := devices.MemoryConfig{Kind: "memory", Name: name, Addr: "addr", Data: "data", Select: "sel", Write: "we", Words: 256, Width: 8}
+	c := devices.MemoryConfig{Kind: "memory", Name: name, Addr: "addr", Data: "data", Read: "re", Write: "we", Words: 256, Width: 8}
 	raw, _ := json.Marshal(c)
 	dc, _ := doc.NewDeviceConfig(raw)
 	e.setDevices("add memory "+name, append(cloneDevices(e.Doc.Devices), dc))
@@ -141,7 +141,7 @@ func (e *Editor) DeleteDevice(i int) {
 }
 
 // MemoryFields are the editable fields of a memory, in display order.
-var MemoryFields = []string{"name", "addr", "data", "select", "write", "words", "width", "readonly", "init"}
+var MemoryFields = []string{"name", "addr", "data", "read", "write", "words", "width", "readonly", "init"}
 
 // SetMemoryField changes one field of the i-th device, a memory. Numbers
 // accept 0x and 0b prefixes; readonly takes yes or no; an empty init means
@@ -165,11 +165,11 @@ func (e *Editor) SetMemoryField(i int, field, value string) bool {
 		return int(n), err == nil
 	}
 	switch field {
-	case "name", "addr", "data", "select", "write":
+	case "name", "addr", "data", "read", "write":
 		if value == "" || strings.ContainsAny(value, " \t") {
 			return fail("needs a name without spaces")
 		}
-		*map[string]*string{"name": &c.Name, "addr": &c.Addr, "data": &c.Data, "select": &c.Select, "write": &c.Write}[field] = value
+		*map[string]*string{"name": &c.Name, "addr": &c.Addr, "data": &c.Data, "read": &c.Read, "write": &c.Write}[field] = value
 		if field == "name" && slices.ContainsFunc(e.Doc.Devices, func(d doc.DeviceConfig) bool { return d.Name == value }) && value != e.Doc.Devices[i].Name {
 			return fail("another device is named %q", value)
 		}
