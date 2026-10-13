@@ -93,7 +93,7 @@ func TestCLIErrors(t *testing.T) {
 // contents loaded from an init file next to the document.
 func TestRAMFromCLI(t *testing.T) {
 	ram := filepath.Join("..", "..", "testdata", "runner", "ram.mip")
-	out, errOut, code := runCLI(t, ram, "--set", "sel=1,we=1,addr=17,data=0xab", "--watch", "data,q", "--dump", "ram")
+	out, errOut, code := runCLI(t, ram, "--set", "we=1,addr=17,data=0xab", "--watch", "data,q", "--dump", "ram")
 	if code != 0 {
 		t.Fatalf("write: exit %d: %s", code, errOut)
 	}
@@ -121,7 +121,7 @@ func TestRAMFromCLI(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(dir, "ram.bin"), init, 0o644)
 	for _, addr := range []int{0, 5, 200, 255} {
-		out, errOut, code := runCLI(t, mip, "--set", fmt.Sprintf("sel=1,we=0,addr=%d", addr), "--watch", "data")
+		out, errOut, code := runCLI(t, mip, "--set", fmt.Sprintf("re=1,we=0,addr=%d", addr), "--watch", "data")
 		if code != 0 {
 			t.Fatalf("read %d: exit %d: %s", addr, code, errOut)
 		}
@@ -131,7 +131,7 @@ func TestRAMFromCLI(t *testing.T) {
 	}
 
 	// A device error stops the run with a message.
-	_, errOut, code = runCLI(t, ram, "--set", "sel=1,we=0")
+	_, errOut, code = runCLI(t, ram, "--set", "re=1,we=0")
 	if code != 1 || !strings.Contains(errOut, "floating") {
 		t.Errorf("floating address: exit %d, %q", code, errOut)
 	}

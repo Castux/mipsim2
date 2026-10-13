@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// fakeBus is a circuit of named nets whose value is the device's pin if it
-// has one, else what the "circuit" drives.
+// fakeBus is a circuit of named nets whose value combines the device's pin
+// and what the "circuit" drives, low winning, as in the simulator.
 type fakeBus struct {
 	drive map[string]Level // what the circuit drives
 	pins  map[string]Level // the device's pins
@@ -23,10 +23,14 @@ func newFakeBus(names ...string) *fakeBus {
 
 func (b *fakeBus) Has(name string) bool { _, ok := b.drive[name]; return ok }
 func (b *fakeBus) Value(name string) Level {
-	if p := b.pins[name]; p != Floating {
-		return p
+	p, d := b.pins[name], b.drive[name]
+	switch {
+	case p == Low || d == Low:
+		return Low
+	case p == High || d == High:
+		return High
 	}
-	return b.drive[name]
+	return d
 }
 func (b *fakeBus) Pin(name string, l Level) { b.pins[name] = l }
 func (b *fakeBus) Unpin(name string)        { delete(b.pins, name) }
@@ -62,11 +66,11 @@ func memBus() *fakeBus {
 	for i := range 8 {
 		names = append(names, bit("d", i))
 	}
-	return newFakeBus(append(names, "sel", "we")...)
+	return newFakeBus(append(names, "re", "we")...)
 }
 
 func memConfig() MemoryConfig {
-	return MemoryConfig{Kind: "memory", Name: "m", Addr: "a", Data: "d", Select: "sel", Write: "we", Words: 16, Width: 8}
+	return MemoryConfig{Kind: "memory", Name: "m", Addr: "a", Data: "d", Read: "re", Write: "we", Words: 16, Width: 8}
 }
 
 // settle services the device until it stops changing, like the runner.
@@ -82,7 +86,14 @@ func settle(t *testing.T, m *Memory, b *fakeBus) error {
 	return nil
 }
 
-func TestMemoryWriteThenRead(t *testing.T) {
+// floatData stops the circuit driving the data bus.
+func floatData(b *fakeBus) {
+	for i := range 8 {
+		b.drive[bit("d", i)] = Floating
+	}
+}
+
+func TestMemoryReadWrite(t *testing.T) {
 	m, err := NewMemory(memConfig(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -91,13 +102,13 @@ func TestMemoryWriteThenRead(t *testing.T) {
 	if err := m.Attach(b); err != nil {
 		t.Fatal(err)
 	}
-	// Idle: select floating counts as not selected.
+	// Idle: floating read and write count as low.
 	if err := settle(t, m, b); err != nil {
 		t.Fatalf("idle: %v", err)
 	}
 
-	// Read address 3 (0): the memory drives data.
-	b.drive["sel"], b.drive["we"] = High, Low
+	// Read address 3 (0): the memory drives data at once.
+	b.drive["re"], b.drive["we"] = High, Low
 	b.set("a", 4, 3)
 	if err := settle(t, m, b); err != nil {
 		t.Fatal(err)
@@ -106,34 +117,60 @@ func TestMemoryWriteThenRead(t *testing.T) {
 		t.Fatalf("read 0: data %d, pinned %v", got, b.Pinned("d_0"))
 	}
 
-	// Write 0xA5: first the memory releases the bus, then it stores.
-	b.drive["we"] = High
+	// Write 0xA5: lower read, raise write. The memory releases the bus
+	// first, then stores what the circuit drives.
+	b.drive["re"], b.drive["we"] = Low, High
 	b.set("d", 8, 0xA5)
 	changed, err := m.Service(b)
 	if err != nil || !changed || b.Pinned("d_0") != Floating {
-		t.Fatalf("phase 1: changed %v err %v", changed, err)
+		t.Fatalf("release: changed %v err %v", changed, err)
 	}
 	if changed, err := m.Service(b); err != nil || changed || m.Words()[3] != 0xA5 {
-		t.Fatalf("phase 2: changed %v err %v word %#x", changed, err, m.Words()[3])
+		t.Fatalf("store: changed %v err %v word %#x", changed, err, m.Words()[3])
+	}
+	// Level-sensitive: while write is high the word follows the data bus.
+	b.set("d", 8, 0x3C)
+	if err := settle(t, m, b); err != nil || m.Words()[3] != 0x3C {
+		t.Fatalf("follow: err %v word %#x", err, m.Words()[3])
+	}
+	// Lowering write keeps the last value, whatever the bus does next.
+	b.drive["we"] = Low
+	floatData(b)
+	if err := settle(t, m, b); err != nil || m.Words()[3] != 0x3C {
+		t.Fatalf("hold: err %v word %#x", err, m.Words()[3])
 	}
 
-	// Read it back with the circuit no longer driving data.
-	b.drive["we"] = Low
-	b.set("d", 8, 0)
-	for i := range 8 {
-		b.drive[bit("d", i)] = Floating
+	// Read it back.
+	b.drive["re"] = High
+	if err := settle(t, m, b); err != nil || b.read("d", 8) != 0x3C {
+		t.Errorf("read back: err %v data %#x", err, b.read("d", 8))
 	}
+	// Lowering read releases the bus.
+	b.drive["re"] = Low
+	if err := settle(t, m, b); err != nil || b.Pinned("d_0") != Floating {
+		t.Errorf("release: err %v, still pinned %v", err, b.Pinned("d_0"))
+	}
+}
+
+// TestMemoryShort: read and write both high is allowed silently. The memory
+// drives the word and stores what the bus settles to: low wins, so bits the
+// circuit pulls low are cleared.
+func TestMemoryShort(t *testing.T) {
+	m, err := NewMemory(memConfig(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := memBus()
+	m.Words()[5] = 0xF0
+	b.set("a", 4, 5)
+	b.drive["re"], b.drive["we"] = High, High
+	floatData(b)
+	b.drive["d_4"], b.drive["d_7"] = Low, High // the circuit pulls bit 4 low
 	if err := settle(t, m, b); err != nil {
 		t.Fatal(err)
 	}
-	if got := b.read("d", 8); got != 0xA5 {
-		t.Errorf("read back %#x", got)
-	}
-
-	// Deselecting releases the bus.
-	b.drive["sel"] = Low
-	if err := settle(t, m, b); err != nil || b.Pinned("d_0") != Floating {
-		t.Errorf("deselect: err %v, still pinned %v", err, b.Pinned("d_0"))
+	if m.Words()[5] != 0xE0 || b.read("d", 8) != 0xE0 {
+		t.Errorf("word %#x, bus %#x, want 0xe0", m.Words()[5], b.read("d", 8))
 	}
 }
 
@@ -144,23 +181,23 @@ func TestMemoryErrors(t *testing.T) {
 		cfg   func(c *MemoryConfig)
 		want  string
 	}{
-		{"unstable select", func(b *fakeBus) { b.drive["sel"] = Unstable }, nil, "select"},
-		{"floating write", func(b *fakeBus) { b.drive["sel"] = High }, nil, "write"},
+		{"unstable read", func(b *fakeBus) { b.drive["re"] = Unstable }, nil, "read re is unstable"},
+		{"unstable write", func(b *fakeBus) { b.drive["we"] = Unstable }, nil, "write we is unstable"},
 		{"floating address bit", func(b *fakeBus) {
-			b.drive["sel"], b.drive["we"] = High, Low
+			b.drive["re"] = High
 			b.set("a", 4, 1)
 			b.drive["a_2"] = Floating
 		}, nil, "address a_2 is floating"},
 		{"floating data on write", func(b *fakeBus) {
-			b.drive["sel"], b.drive["we"] = High, High
+			b.drive["we"] = High
 			b.set("a", 4, 1)
 		}, nil, "data d_0 is floating"},
 		{"address out of range", func(b *fakeBus) {
-			b.drive["sel"], b.drive["we"] = High, Low
+			b.drive["re"] = High
 			b.set("a", 4, 12)
 		}, func(c *MemoryConfig) { c.Words = 10 }, "out of range"},
 		{"write to ROM", func(b *fakeBus) {
-			b.drive["sel"], b.drive["we"] = High, High
+			b.drive["we"] = High
 			b.set("a", 4, 1)
 			b.set("d", 8, 1)
 		}, func(c *MemoryConfig) { c.ReadOnly = true }, "read-only"},
@@ -186,7 +223,7 @@ func TestMemoryErrors(t *testing.T) {
 }
 
 func TestMemoryConfigAndInit(t *testing.T) {
-	raw := json.RawMessage(`{"kind": "memory", "name": "rom", "addr": "a", "data": "d", "select": "sel", "write": "we", "words": 4, "width": 12, "init": "rom.bin", "readonly": true}`)
+	raw := json.RawMessage(`{"kind": "memory", "name": "rom", "addr": "a", "data": "d", "read": "re", "write": "we", "words": 4, "width": 12, "init": "rom.bin", "readonly": true}`)
 	read := func(name string) ([]byte, error) {
 		if name != "rom.bin" {
 			t.Errorf("init file %q", name)
@@ -201,17 +238,22 @@ func TestMemoryConfigAndInit(t *testing.T) {
 	if got := m.Words(); got[0] != 0x234 || got[1] != 0xFFF || got[2] != 0x001 || got[3] != 0 {
 		t.Errorf("words %#x", got)
 	}
-	if err := m.Attach(newFakeBus("a_0", "sel", "we")); err == nil || !strings.Contains(err.Error(), "a_1") {
+	if err := m.Attach(newFakeBus("a_0", "re", "we")); err == nil || !strings.Contains(err.Error(), "a_1") {
 		t.Errorf("missing nets not reported: %v", err)
 	}
 	for _, bad := range []string{
 		`{"kind": "memory", "name": "x"}`,
-		`{"kind": "memory", "name": "x", "addr": "a", "data": "d", "select": "s", "write": "w", "words": 0, "width": 8}`,
-		`{"kind": "memory", "name": "x", "addr": "a", "data": "d", "select": "s", "write": "w", "words": 4, "width": 8, "colour": 1}`,
+		`{"kind": "memory", "name": "x", "addr": "a", "data": "d", "read": "s", "write": "w", "words": 0, "width": 8}`,
+		`{"kind": "memory", "name": "x", "addr": "a", "data": "d", "read": "s", "write": "w", "words": 4, "width": 8, "colour": 1}`,
+		`{"kind": "memory", "name": "x", "addr": "a", "data": "d", "select": "s", "write": "w", "words": 4, "width": 8}`,
 	} {
 		if _, err := Parse("memory", json.RawMessage(bad), nil); err == nil {
 			t.Errorf("accepted %s", bad)
 		}
+	}
+	old := `{"kind": "memory", "name": "x", "addr": "a", "data": "d", "select": "s", "write": "w", "words": 4, "width": 8}`
+	if _, err := Parse("memory", json.RawMessage(old), nil); err == nil || !strings.Contains(err.Error(), "replaced by") {
+		t.Errorf("old select configuration: %v", err)
 	}
 	if _, err := Parse("console", nil, nil); err == nil {
 		t.Error("unknown kind accepted")
@@ -225,11 +267,11 @@ func TestOneWordMemoryHasNoAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := newFakeBus("sel", "we", "d_0", "d_1", "d_2", "d_3", "d_4", "d_5", "d_6", "d_7")
+	b := newFakeBus("re", "we", "d_0", "d_1", "d_2", "d_3", "d_4", "d_5", "d_6", "d_7")
 	if err := m.Attach(b); err != nil {
 		t.Fatalf("attach without address nets: %v", err)
 	}
-	b.drive["sel"], b.drive["we"] = High, Low
+	b.drive["re"], b.drive["we"] = High, Low
 	m.Words()[0] = 0x5a
 	if err := settle(t, m, b); err != nil || b.read("d", 8) != 0x5a {
 		t.Errorf("read: %v %#x", err, b.read("d", 8))
