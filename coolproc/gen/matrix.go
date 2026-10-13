@@ -48,6 +48,15 @@ type Sig struct {
 	hi    int   // last block of the line
 	order int   // creation order, for stable layouts
 	extra []int // more blocks the line must reach
+	// A signal read in other units gets a tap in each: a line in that unit
+	// joined to the driver's output row, which is extended to reach it.
+	parent *Sig
+	taps   []*Sig
+	fold   bool // local to a folded block: its line runs only between its gates
+	first  int  // in a folded block, the slots of its first and last gates
+	last   int
+	uses   int
+	done   int
 }
 
 // Gate is a NOR gate. With no inputs it is a constant high.
@@ -55,8 +64,10 @@ type Gate struct {
 	Out   *Sig
 	In    []*Sig
 	Block int
-	row   int // gate row within the block (2 per slot)
-	xl    int // footprint in cells, inclusive
+	tin   []*Sig // the inputs as read: the signals or their taps
+	order int    // creation order
+	row   int    // gate row within the block (2 per slot)
+	xl    int    // footprint in cells, inclusive
 	xr    int
 }
 
@@ -68,10 +79,12 @@ type Design struct {
 	units  []string // left to right
 	unitOf map[string]int
 	blocks []string // top to bottom
+	folded map[int]bool
+	notap  map[string]bool
 }
 
 func NewDesign() *Design {
-	return &Design{byName: map[string]*Sig{}, unitOf: map[string]int{}}
+	return &Design{byName: map[string]*Sig{}, unitOf: map[string]int{}, folded: map[int]bool{}, notap: map[string]bool{}}
 }
 
 // Unit declares a column group; units are laid out left to right in
@@ -91,6 +104,16 @@ func (d *Design) Block(name string) int {
 	return len(d.blocks) - 1
 }
 
+// Fold lays a block out as irregular logic: its gates are placed by a sweep
+// from the top, and a line used only in the block runs just from its first
+// gate to its last, so lines share tracks. Its slots have two spacer rows,
+// one where lines end and one where they start, so line ends never touch.
+func (d *Design) Fold(block int) { d.folded[block] = true }
+
+// NoTap makes the gates of a unit read other units' signals directly,
+// without taps (for a unit of irregular logic in a folded block).
+func (d *Design) NoTap(unit string) { d.notap[unit] = true }
+
 // S returns the signal called name, creating it.
 func (d *Design) S(name string) *Sig {
 	if s, ok := d.byName[name]; ok {
@@ -108,11 +131,10 @@ func (d *Design) Has(name string) bool {
 	return ok
 }
 
-// Ext declares an input driven from outside, with its line in unit and
-// reaching block.
-func (d *Design) Ext(name, unit string, block int) *Sig {
+// Ext declares an input driven from outside, with its line in unit.
+func (d *Design) Ext(name, unit string) *Sig {
 	s := d.S(name)
-	s.Ext, s.Unit, s.Block = true, unit, block
+	s.Ext, s.Unit = true, unit
 	return s
 }
 
@@ -132,7 +154,7 @@ func (d *Design) NOR(block int, unit, out string, ins ...string) *Sig {
 	if _, ok := d.unitOf[unit]; !ok && unit != "" {
 		panic("unknown unit " + unit)
 	}
-	g := &Gate{Out: o, Block: block}
+	g := &Gate{Out: o, Block: block, order: len(d.gates)}
 	seen := map[string]bool{}
 	for _, in := range ins {
 		if in == out {
@@ -174,6 +196,7 @@ type Layout struct {
 	Tracks int
 	rowY   [][]int // per block, the y of each gate row
 	lineY  [][2]int
+	slotY  [][]int // per block, the y of each slot's first row
 }
 
 const (
@@ -188,8 +211,36 @@ func (d *Design) Lay() (*Layout, error) {
 	if err := d.Check(); err != nil {
 		return nil, err
 	}
-	// Block ranges of lines.
+	// Taps: a gate reads a signal of another unit from a tap in its own.
+	all := append([]*Sig(nil), d.sigs...)
 	for _, s := range d.sigs {
+		s.taps = nil
+	}
+	readers := map[*Sig][]*Gate{}
+	for _, g := range d.gates {
+		g.tin = make([]*Sig, len(g.In))
+		u := g.Out.Unit
+		for i, s := range g.In {
+			g.tin[i] = s
+			if u != "" && !d.notap[u] && s.Unit != "" && s.Unit != u && s.drv != nil {
+				var t *Sig
+				for _, o := range s.taps {
+					if o.Unit == u {
+						t = o
+					}
+				}
+				if t == nil {
+					t = &Sig{Name: s.Name + "@" + u, Unit: u, parent: s, order: s.order, Block: -1}
+					s.taps = append(s.taps, t)
+					all = append(all, t)
+				}
+				g.tin[i] = t
+			}
+			readers[g.tin[i]] = append(readers[g.tin[i]], g)
+		}
+	}
+	// Block ranges of lines.
+	for _, s := range all {
 		s.lo, s.hi = 1<<30, -1
 		use := func(b int) {
 			s.lo, s.hi = min(s.lo, b), max(s.hi, b)
@@ -197,10 +248,13 @@ func (d *Design) Lay() (*Layout, error) {
 		if s.drv != nil {
 			use(s.drv.Block)
 		}
+		if s.parent != nil {
+			use(s.parent.drv.Block)
+		}
 		if s.Block >= 0 {
 			use(s.Block)
 		}
-		for _, g := range s.users {
+		for _, g := range readers[s] {
 			use(g.Block)
 		}
 		for _, b := range s.extra {
@@ -209,14 +263,15 @@ func (d *Design) Lay() (*Layout, error) {
 		if s.hi < 0 {
 			return nil, fmt.Errorf("signal %s is not used anywhere", s.Name)
 		}
+		s.fold = s.parent == nil && s.lo == s.hi && d.folded[s.lo]
 	}
 
 	// Tracks: unit by unit, left-edge packing on block ranges.
 	tracks := 0
 	for _, u := range d.units {
 		var ss []*Sig
-		for _, s := range d.sigs {
-			if s.Unit == u {
+		for _, s := range all {
+			if s.Unit == u && !s.fold {
 				ss = append(ss, s)
 			}
 		}
@@ -248,8 +303,8 @@ func (d *Design) Lay() (*Layout, error) {
 	// connect to (those already placed), so their gates stay short.
 	used := make([][][2]int, tracks)
 	placed := map[*Sig]bool{}
-	for _, s := range d.sigs {
-		if s.Unit != "" {
+	for _, s := range all {
+		if s.Unit != "" && !s.fold {
 			used[s.col] = append(used[s.col], [2]int{s.lo, s.hi})
 			placed[s] = true
 		}
@@ -263,7 +318,7 @@ func (d *Design) Lay() (*Layout, error) {
 		return true
 	}
 	for _, s := range d.sigs {
-		if s.Unit != "" {
+		if s.Unit != "" || s.fold {
 			continue
 		}
 		sum, n := 0, 0
@@ -306,25 +361,29 @@ func (d *Design) Lay() (*Layout, error) {
 	}
 	tracks = len(used)
 
-	// Gate footprints in cells: the power cell at x = 3*tmin-1, to the
-	// rightmost transistor (3t+1) or the output junction (3t).
-	for _, g := range d.gates {
-		tmin, xr := g.Out.col, trackX(g.Out.col)
-		for _, s := range g.In {
-			tmin = min(tmin, s.col)
-			xr = max(xr, trackX(s.col)+1)
-		}
-		g.xl, g.xr = trackX(tmin)-1, xr
-	}
-
-	// Rows: first fit, per block, gates sorted by their left end.
-	lay := &Layout{Cells: map[image.Point]bitmap.Kind{}, Labels: map[image.Point]string{}, Tracks: tracks}
-	nrows := make([]int, len(d.blocks))
 	byBlock := make([][]*Gate, len(d.blocks))
 	for _, g := range d.gates {
 		byBlock[g.Block] = append(byBlock[g.Block], g)
 	}
+	nrows := make([]int, len(d.blocks))
+	for b := range d.blocks {
+		if d.folded[b] {
+			nrows[b] = d.sweep(b, byBlock[b], all)
+		}
+	}
+	for _, s := range all {
+		tracks = max(tracks, s.col+1)
+	}
+	for _, g := range d.gates {
+		g.xl, g.xr = g.footprint(func(s *Sig) int { return s.col })
+	}
+
+	// Rows: first fit, per block, gates sorted by their left end.
+	lay := &Layout{Cells: map[image.Point]bitmap.Kind{}, Labels: map[image.Point]string{}, Tracks: tracks}
 	for b, gs := range byBlock {
+		if d.folded[b] {
+			continue
+		}
 		sort.SliceStable(gs, func(i, j int) bool { return gs[i].xl < gs[j].xl })
 		var rows [][][2]int
 		for _, g := range gs {
@@ -356,19 +415,27 @@ func (d *Design) Lay() (*Layout, error) {
 	// Block geometry: line top row, slots, then one empty row.
 	lay.rowY = make([][]int, len(d.blocks))
 	lay.lineY = make([][2]int, len(d.blocks))
+	lay.slotY = make([][]int, len(d.blocks))
 	y := 0
 	for b := range d.blocks {
+		period := slotRows
+		if d.folded[b] {
+			period++ // a second spacer row
+		}
 		top := y
 		slots := (nrows[b] + 1) / 2
 		y0 := top + 1
+		for j := range slots {
+			lay.slotY[b] = append(lay.slotY[b], y0+period*j)
+		}
 		for r := range nrows[b] {
-			ry := y0 + slotRows*(r/2)
+			ry := y0 + period*(r/2)
 			if r%2 == 1 {
 				ry += 4
 			}
 			lay.rowY[b] = append(lay.rowY[b], ry)
 		}
-		bot := top + slotRows*slots // the last spacer row (or top, if empty)
+		bot := top + period*slots // the last spacer row (or top, if empty)
 		lay.lineY[b] = [2]int{top, bot}
 		y = bot + 2
 	}
@@ -376,19 +443,23 @@ func (d *Design) Lay() (*Layout, error) {
 	put := func(x, y int, k bitmap.Kind) { lay.Cells[image.Pt(x, y)] = k }
 	isLine := map[image.Point]bool{}
 	// Lines.
-	for _, s := range d.sigs {
+	for _, s := range all {
 		x := trackX(s.col)
-		for yy := lay.lineY[s.lo][0]; yy <= lay.lineY[s.hi][1]; yy++ {
+		y0, y1 := lay.lineY[s.lo][0], lay.lineY[s.hi][1]
+		if s.fold {
+			y0, y1 = lay.slotY[s.lo][s.first]-1, lay.slotY[s.lo][s.last]+5
+		}
+		for yy := y0; yy <= y1; yy++ {
 			put(x, yy, bitmap.Wire)
 			isLine[image.Pt(x, yy)] = true
 		}
 	}
 	// hrow draws a horizontal run, bridging the lines it crosses except
-	// at the junction column (-1 for none).
-	hrow := func(x0, x1, y, junction int) {
+	// at its junctions.
+	hrow := func(x0, x1, y int, junction map[int]bool) {
 		for x := x0; x <= x1; x++ {
 			p := image.Pt(x, y)
-			if isLine[p] && x != junction {
+			if isLine[p] && !junction[x] {
 				if x == x0 || x == x1 {
 					panic(fmt.Sprintf("row ends on a line at %v", p))
 				}
@@ -404,13 +475,17 @@ func (d *Design) Lay() (*Layout, error) {
 		grounds := map[int]*span{}
 		for _, g := range byBlock[b] {
 			ry := lay.rowY[b][g.row]
-			hrow(g.xl, g.xr, ry, trackX(g.Out.col))
+			junctions := map[int]bool{trackX(g.Out.col): true}
+			for _, t := range g.Out.taps {
+				junctions[trackX(t.col)] = true
+			}
+			hrow(g.xl, g.xr, ry, junctions)
 			put(g.xl, ry, bitmap.Power)
 			ty, gy := ry+1, ry+2
 			if g.row%2 == 1 {
 				ty, gy = ry-1, ry-2
 			}
-			for _, s := range g.In {
+			for _, s := range g.tin {
 				x := trackX(s.col) + 1
 				put(x, ty, bitmap.Transistor)
 				sp := grounds[gy]
@@ -424,18 +499,186 @@ func (d *Design) Lay() (*Layout, error) {
 		}
 		for gy, sp := range grounds {
 			x0 := sp.lo - 2 // one cell left of the leftmost transistor's line
-			hrow(x0, sp.hi, gy, -1)
+			hrow(x0, sp.hi, gy, nil)
 			put(x0, gy, bitmap.Ground)
 		}
 	}
 	// Labels of external signals: at the top of their line.
 	for _, s := range d.sigs {
 		if s.Ext {
-			lay.Labels[image.Pt(trackX(s.col), lay.lineY[s.lo][0])] = s.Name
+			y := lay.lineY[s.lo][0]
+			if s.fold {
+				y = lay.slotY[s.lo][s.first] - 1
+			}
+			lay.Labels[image.Pt(trackX(s.col), y)] = s.Name
 		}
 	}
 	for p := range lay.Cells {
 		lay.Bounds = lay.Bounds.Union(image.Rectangle{Min: p, Max: p.Add(image.Pt(1, 1))})
 	}
 	return lay, nil
+}
+
+// footprint is the gate's extent in cells, given the tracks of its lines:
+// from its power cell, left of the leftmost line, to its rightmost
+// transistor (3t+1) or output junction (3t).
+func (g *Gate) footprint(col func(*Sig) int) (int, int) {
+	tmin, xr := col(g.Out), trackX(col(g.Out))
+	for _, t := range g.Out.taps {
+		tmin, xr = min(tmin, col(t)), max(xr, trackX(col(t)))
+	}
+	for _, s := range g.tin {
+		tmin = min(tmin, col(s))
+		xr = max(xr, trackX(col(s))+1)
+	}
+	return trackX(tmin) - 1, xr
+}
+
+// sweep places the gates of folded block b, slot by slot from the top, and
+// gives tracks to its local lines, sharing a track between lines whose
+// slots are at least one slot apart. It returns the number of gate rows.
+func (d *Design) sweep(b int, gates []*Gate, all []*Sig) int {
+	pinned := map[int]bool{} // tracks of lines passing through the block
+	for _, s := range all {
+		if !s.fold && s.lo <= b && b <= s.hi {
+			pinned[s.col] = true
+		}
+	}
+	for _, s := range all {
+		if s.fold && s.lo == b {
+			s.col, s.first, s.last, s.uses, s.done = -1, -1, -1, 0, 0
+		}
+	}
+	sigs := func(g *Gate) []*Sig { return append([]*Sig{g.Out}, g.tin...) }
+	for _, g := range gates {
+		for _, s := range sigs(g) {
+			if s.fold {
+				s.uses++
+			}
+		}
+	}
+	holder := map[int]*Sig{}
+	freeFrom := map[int]int{}
+	cursor := 0
+	// Stay within the width of the lines laid out already when possible.
+	width := 0
+	for _, s := range all {
+		if !s.fold {
+			width = max(width, s.col+1)
+		}
+	}
+	pool := append([]*Gate(nil), gates...)
+	slot := 0
+	for len(pool) > 0 {
+		// Gates that finish running lines first, then the design's order.
+		score := func(g *Gate) int {
+			n := 0
+			for _, s := range sigs(g) {
+				if s.fold && s.col >= 0 {
+					n++
+					if s.done+1 == s.uses {
+						n += 2
+					}
+				}
+			}
+			return n
+		}
+		sort.SliceStable(pool, func(i, j int) bool {
+			si, sj := score(pool[i]), score(pool[j])
+			if si != sj {
+				return si > sj
+			}
+			return pool[i].order < pool[j].order
+		})
+		var rows [2][][2]int
+		var rest []*Gate
+		for _, g := range pool {
+			sum, n := 0, 0
+			for _, s := range sigs(g) {
+				if s.col >= 0 {
+					sum += s.col
+					n++
+				}
+			}
+			anchor := cursor
+			if n > 0 {
+				anchor = sum / n
+			}
+			anchor = min(anchor, max(width-1, 0))
+			newTracks := map[*Sig]int{}
+			taken := map[int]bool{}
+			for _, s := range sigs(g) {
+				if !s.fold || s.col >= 0 {
+					continue
+				}
+				if _, ok := newTracks[s]; ok {
+					continue
+				}
+				ok := func(c int) bool {
+					return !taken[c] && !pinned[c] && holder[c] == nil && freeFrom[c] <= slot
+				}
+				t := -1
+				for dist := 0; dist < width && t < 0; dist++ {
+					for _, c := range []int{anchor - dist, anchor + dist} {
+						if c >= 0 && c < width && ok(c) {
+							t = c
+							break
+						}
+					}
+				}
+				for c := width; t < 0; c++ {
+					if ok(c) {
+						t = c
+					}
+				}
+				newTracks[s], taken[t] = t, true
+			}
+			xl, xr := g.footprint(func(s *Sig) int {
+				if t, ok := newTracks[s]; ok {
+					return t
+				}
+				return s.col
+			})
+			fit := -1
+			for r := range 2 {
+				ok := true
+				for _, iv := range rows[r] {
+					if xl <= iv[1]+1 && iv[0] <= xr+1 {
+						ok = false
+						break
+					}
+				}
+				if ok {
+					fit = r
+					break
+				}
+			}
+			if fit < 0 {
+				rest = append(rest, g)
+				continue
+			}
+			for s, t := range newTracks {
+				s.col, s.first = t, slot
+				holder[t] = s
+				cursor = t
+			}
+			for _, s := range sigs(g) {
+				if s.fold {
+					s.done++
+				}
+			}
+			g.row = 2*slot + fit
+			rows[fit] = append(rows[fit], [2]int{xl, xr})
+		}
+		for t, s := range holder {
+			if s.done == s.uses {
+				s.last = slot
+				delete(holder, t)
+				freeFrom[t] = slot + 2
+			}
+		}
+		pool = rest
+		slot++
+	}
+	return 2 * slot
 }

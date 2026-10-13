@@ -67,8 +67,8 @@ func (d *Design) Verify(dc *doc.Document, l *Layout, off image.Point) (*netlist.
 		if g.row%2 == 1 {
 			ty = ry - 1
 		}
-		for _, s := range g.In {
-			p := image.Pt(trackX(s.col)+1+off.X, ty+off.Y)
+		for i, s := range g.In {
+			p := image.Pt(trackX(g.tin[i].col)+1+off.X, ty+off.Y)
 			t, ok := byPos[p]
 			if !ok {
 				return nil, fmt.Errorf("gate %s: no transistor for input %s at %v", g.Out.Name, s.Name, p)

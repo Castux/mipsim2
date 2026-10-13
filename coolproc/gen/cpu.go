@@ -44,6 +44,9 @@ func (c *cpu) inv(block int, unit, s string) string {
 		return n
 	}
 	n := s + "_n"
+	if o := c.S(s); o.drv != nil {
+		unit = o.Unit // next to the signal it inverts
+	}
 	c.Not(block, unit, n, s)
 	c.pair(s, n)
 	return n
@@ -64,7 +67,7 @@ func (c *cpu) and(block int, unit, out string, lits ...string) string {
 func (c *cpu) latch(block int, unit, q, qn, d, dn, wn string) {
 	c.NOR(block, unit, q+"_s", dn, wn) // d and w
 	c.NOR(block, unit, q+"_r", d, wn)  // not d and w
-	c.NOR(block, unit, q, q+"_r", qn, "reset")
+	c.NOR(block, unit, q, q+"_r", qn, "rst")
 	c.NOR(block, unit, qn, q+"_s", q)
 	c.pair(q, qn)
 }
@@ -79,7 +82,7 @@ func (c *cpu) sop(block int, unit, out, outn string, products ...[]string) {
 			terms = append(terms, p[0])
 			continue
 		}
-		terms = append(terms, c.and(block, "", name, p...))
+		terms = append(terms, c.and(block, unit, name, p...))
 	}
 	c.NOR(block, unit, outn, terms...)
 	if out != "" {
@@ -132,15 +135,21 @@ func cat(parts ...[]string) []string {
 // BuildCPU returns the processor design.
 func BuildCPU() *cpu {
 	c := &cpu{Design: NewDesign(), comp: map[string]string{}}
-	for _, u := range []string{"ir", "imm", "c", "d", "x", "y", "bus", "zero", "a", "b", "alu_in", "logic", "adder", "result", "shift", "pc", "inc", "tmp"} {
+	for _, u := range []string{"ir", "imm", "c", "d", "x", "y", "bus", "zero", "a", "b", "alu_in", "logic", "adder", "result", "shift", "pc", "inc", "tmp", "ctl"} {
 		c.Unit(u)
 	}
 	c.ctl = c.Block("control")
+	c.Fold(c.ctl)
+	c.NoTap("ctl")
+	c.NoTap("ir")
 	for i := 15; i >= 0; i-- {
 		c.bits[i] = c.Block(fmt.Sprintf("bit%d", i))
 	}
-	c.Ext("clock", "", c.ctl)
-	c.Ext("reset", "pc", c.ctl)
+	c.Ext("clock", "ctl")
+	c.Ext("reset", "ctl")
+	// Reset, buffered so that its row can reach every unit with a tap.
+	c.Not(c.ctl, "ctl", "reset_n", "reset")
+	c.Not(c.ctl, "pc", "rst", "reset_n")
 	c.datapath()
 	c.control()
 	return c
@@ -176,9 +185,11 @@ func (c *cpu) datapath() {
 
 		// Instruction register, from the ROM.
 		rom := bitName("rom", i)
-		c.Ext(rom, "ir", b)
-		romn := c.inv(b, "ir", rom)
-		c.latch(b, "ir", bitName("ir", i), bitName("ir_n", i), rom, romn, "ir_wn")
+		c.Ext(rom, "ir")
+		// It sits in the control block, which decodes it: the ROM's data
+		// pins have no position.
+		romn := c.inv(c.ctl, "ir", rom)
+		c.latch(c.ctl, "ir", bitName("ir", i), bitName("ir_n", i), rom, romn, "ir_wn")
 
 		// Immediates: setl puts ir[7:0] on bus[7:0] and zeros on
 		// bus[15:8]; seth puts ir[7:0] on bus[15:8].
@@ -360,9 +371,9 @@ func (c *cpu) shifter() {
 func (c *cpu) control() {
 	b := c.ctl
 	// Clock gated by halt, and its complement.
-	c.Not(b, "", "clock_n", "clock")
-	c.NOR(b, "", "clk", "clock_n", "halted") // clock and not halted
-	c.Not(b, "", "clk_n", "clk")
+	c.Not(b, "ctl", "clock_n", "clock")
+	c.NOR(b, "ctl", "clk", "clock_n", "halted") // clock and not halted
+	c.Not(b, "ctl", "clk_n", "clk")
 	// Johnson counter: q0 takes not q5, q1..q5 shift. Master latches are
 	// open while the clock is low, slaves while it is high.
 	for i := range 6 {
@@ -370,8 +381,8 @@ func (c *cpu) control() {
 		if i == 0 {
 			d, dn = "q_n_5", "q_5"
 		}
-		c.latch(b, "", bitName("m", i), bitName("m_n", i), d, dn, "clk")
-		c.latch(b, "", bitName("q", i), bitName("q_n", i), bitName("m", i), bitName("m_n", i), "clk_n")
+		c.latch(b, "ctl", bitName("m", i), bitName("m_n", i), d, dn, "clk")
+		c.latch(b, "ctl", bitName("q", i), bitName("q_n", i), bitName("m", i), bitName("m_n", i), "clk_n")
 	}
 	q := func(i int, v bool) string {
 		if v {
@@ -380,33 +391,33 @@ func (c *cpu) control() {
 		return bitName("q_n", i)
 	}
 	// Steps and write states.
-	c.and(b, "", "step_f", q(2, false), q(5, false))
-	c.and(b, "", "step_i", q(2, true), q(5, false))
-	c.and(b, "", "step_e", q(2, true), q(5, true))
-	c.and(b, "", "step_p", q(2, false), q(5, true))
-	c.and(b, "", "w_f", q(0, true), q(1, false))
-	c.and(b, "", "w_i", q(3, true), q(4, false))
-	c.and(b, "", "w_e", q(0, false), q(1, true))
-	c.and(b, "", "w_p", q(3, false), q(4, true))
-	c.Not(b, "", "ir_wn", "w_f")
-	c.Not(b, "", "tmp_wn", "w_i")
-	c.Not(b, "", "pc_wn", "w_p")
+	c.and(b, "ctl", "step_f", q(2, false), q(5, false))
+	c.and(b, "ctl", "step_i", q(2, true), q(5, false))
+	c.and(b, "ctl", "step_e", q(2, true), q(5, true))
+	c.and(b, "ctl", "step_p", q(2, false), q(5, true))
+	c.and(b, "ctl", "w_f", q(0, true), q(1, false))
+	c.and(b, "ctl", "w_i", q(3, true), q(4, false))
+	c.and(b, "ctl", "w_e", q(0, false), q(1, true))
+	c.and(b, "ctl", "w_p", q(3, false), q(4, true))
+	c.Not(b, "ctl", "ir_wn", "w_f")
+	c.Not(b, "tmp", "tmp_wn", "w_i")
+	c.Not(b, "pc", "pc_wn", "w_p")
 	c.pair("w_f", "ir_wn")
 	c.pair("w_i", "tmp_wn")
 	c.pair("w_p", "pc_wn")
 
 	// Instruction groups (opcode = ir[15:8]).
-	c.and(b, "", "is_alu", op("01")...)
-	c.and(b, "", "is_jump", op("00010")...)
-	c.and(b, "", "is_jumpc", op("00011")...)
-	c.and(b, "", "is_halt", op("00000000")...)
-	c.and(b, "", "is_move", op("00000001")...)
-	c.and(b, "", "is_load", op("00000010")...)
-	c.and(b, "", "is_store", op("00000011")...)
-	c.sop(b, "", "reads_src", "reads_src_n", []string{"is_move"}, []string{"is_store"}, []string{"is_jump"})
-	c.sop(b, "", "writes_dst", "writes_dst_n", []string{"is_move"}, []string{"is_load"})
-	c.and(b, "", "is_setl", cat(op("10"))...)
-	c.and(b, "", "is_seth", cat(op("11"))...)
+	c.and(b, "ctl", "is_alu", op("01")...)
+	c.and(b, "ctl", "is_jump", op("00010")...)
+	c.and(b, "ctl", "is_jumpc", op("00011")...)
+	c.and(b, "ctl", "is_halt", op("00000000")...)
+	c.and(b, "ctl", "is_move", op("00000001")...)
+	c.and(b, "ctl", "is_load", op("00000010")...)
+	c.and(b, "ctl", "is_store", op("00000011")...)
+	c.sop(b, "ctl", "reads_src", "reads_src_n", []string{"is_move"}, []string{"is_store"}, []string{"is_jump"})
+	c.sop(b, "ctl", "writes_dst", "writes_dst_n", []string{"is_move"}, []string{"is_load"})
+	c.and(b, "ctl", "is_setl", cat(op("10"))...)
+	c.and(b, "ctl", "is_seth", cat(op("11"))...)
 
 	// Carry: written in state 7 of add and shift. Its input is the adder's
 	// carry out or the last bit shifted out.
@@ -422,7 +433,7 @@ func (c *cpu) control() {
 
 	// Jump condition, latched in state 7 of every instruction (src is on
 	// the bus in step E). mm = ir[9:8].
-	c.sop(b, "", "taken", "taken_n",
+	c.sop(b, "ctl", "taken", "taken_n",
 		cat([]string{"is_jump"}, op("xxxxxx00")),
 		cat([]string{"is_jump", "nz_n_15"}, op("xxxxxx01")),
 		cat([]string{"is_jump", "nz_15"}, op("xxxxxx10")),
@@ -431,38 +442,47 @@ func (c *cpu) control() {
 		cat([]string{"is_jumpc", "carry_n"}, op("xxxxxx01")),
 		cat([]string{"is_jumpc", "carry"}, op("xxxxxx10")),
 	)
-	c.latch(b, "", "take", "take_n", "taken", "taken_n", "w_e_n")
-	c.inv(b, "", "w_e")
+	c.latch(b, "ctl", "take", "take_n", "taken", "taken_n", "w_e_n")
+	c.inv(b, "ctl", "w_e")
 
 	// Halt: set in state 7 of a halt, cleared only by reset.
-	c.NOR(b, "", "halted_s", "is_halt_n", "w_e_n")
-	c.NOR(b, "", "halted", "halted_n", "reset")
-	c.NOR(b, "", "halted_n", "halted_s", "halted")
+	c.NOR(b, "ctl", "halted_s", "is_halt_n", "w_e_n")
+	c.NOR(b, "ctl", "halted", "halted_n", "rst")
+	c.NOR(b, "ctl", "halted_n", "halted_s", "halted")
 	c.pair("halted", "halted_n")
-	c.inv(b, "", "is_halt")
+	c.inv(b, "ctl", "is_halt")
 
-	// Register reads and writes.
+	// Register reads and writes. Enables and decoded register fields are
+	// computed once; each register's unit reads them through taps.
+	c.and(b, "ctl", "rd_src", "step_e", "reads_src")
+	c.and(b, "ctl", "wr_dst", "w_e", "writes_dst")
+	c.and(b, "ctl", "wr_setl", "w_e", "is_setl")
+	c.and(b, "ctl", "wr_seth", "w_e", "is_seth")
+	c.and(b, "ctl", "wr_alu_x", cat([]string{"w_e", "is_alu"}, op("xxxxxxx0"))...)
+	c.and(b, "ctl", "wr_alu_y", cat([]string{"w_e", "is_alu"}, op("xxxxxxx1"))...)
+	c.and(b, "ctl", "rd_jump", "step_p", "take")
 	for code_, r := range regs {
-		src := code(4, code_)
-		dst := code(0, code_)
-		set := code(8, code_)
-		reads := [][]string{cat([]string{"step_e", "reads_src"}, src)}
+		c.and(b, "ctl", "src_"+r, code(4, code_)...)
+		c.and(b, "ctl", "dst_"+r, code(0, code_)...)
+		c.and(b, "ctl", "set_"+r, code(8, code_)...)
+		reads := []string{c.and(b, r, r+"_rd_p0", "rd_src", "src_"+r)}
 		if r == "y" {
-			reads = append(reads, []string{"step_p", "take"})
+			reads = append(reads, "rd_jump")
 		}
-		c.sop(b, r, "", r+"_rdn", reads...)
-		both := [][]string{
-			cat([]string{"w_e", "writes_dst"}, dst),
-			cat([]string{"w_e", "is_setl"}, set),
+		c.NOR(b, r, r+"_rdn", reads...)
+		lo := []string{
+			c.and(b, r, r+"_wr_p0", "wr_dst", "dst_"+r),
+			c.and(b, r, r+"_wr_p1", "wr_setl", "set_"+r),
 		}
 		switch r {
 		case "x":
-			both = append(both, cat([]string{"w_e", "is_alu"}, op("xxxxxxx0")))
+			lo = append(lo, "wr_alu_x")
 		case "y":
-			both = append(both, cat([]string{"w_e", "is_alu"}, op("xxxxxxx1")))
+			lo = append(lo, "wr_alu_y")
 		}
-		c.sop(b, r, "", r+"_wn_lo", both...)
-		c.sop(b, r, "", r+"_wn_hi", append(both, cat([]string{"w_e", "is_seth"}, set))...)
+		hi := append(append([]string{}, lo...), c.and(b, r, r+"_wr_p2", "wr_seth", "set_"+r))
+		c.NOR(b, r, r+"_wn_lo", lo...)
+		c.NOR(b, r, r+"_wn_hi", hi...)
 	}
 	c.sop(b, "tmp", "", "tmp_rdn", []string{"step_p", "take_n"})
 	c.sop(b, "imm", "imm_lo", "imm_lo_n", []string{"step_e", "is_setl"})
