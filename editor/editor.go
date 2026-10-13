@@ -154,11 +154,19 @@ type stroke struct {
 	value  bitmap.Kind // what the stroke paints (Empty: it erases)
 	start  image.Point
 	last   image.Point
-	axis   int // 0 free, 1 horizontal, 2 vertical (alt line lock)
+	axis   int // 0 free, 1 horizontal, 2 vertical (alt or shift line lock)
 	locked bool
 	edit   *pixelEdit
 	done   map[image.Point]bool // world cells visited by this stroke (lookups only)
 	cells  []image.Point        // world cells changed by this stroke, in order
+
+	// A shift stroke always draws wire and turns every wire it crosses
+	// straight over into a bridge, so a line can be drawn across others
+	// without joining them. prev is the cell before last on its path.
+	bridges bool
+	prev    image.Point
+	hasPrev bool
+	fresh   map[image.Point]bool // world cells this stroke filled from empty
 }
 
 // selection is a rectangle in one definition, its context.
@@ -446,12 +454,14 @@ func (e *Editor) PointerDown(p image.Point, b Button, m Mods) {
 	case Pencil:
 		loc := e.Doc.Locate(p)
 		// A stroke starting on an empty cell paints wire; one starting on
-		// any other cell erases.
+		// any other cell erases. With shift it always paints wire, so a
+		// connection can start from an existing wire.
 		value := bitmap.Wire
-		if e.Doc.Defs[loc.Def].Pixels.Get(loc.Local.X, loc.Local.Y) {
+		if !m.Shift && e.Doc.Defs[loc.Def].Pixels.Get(loc.Local.X, loc.Local.Y) {
 			value = bitmap.Empty
 		}
-		e.stroke = &stroke{value: value, start: p, last: p, edit: &pixelEdit{}, done: map[image.Point]bool{}}
+		e.stroke = &stroke{value: value, start: p, last: p, edit: &pixelEdit{}, done: map[image.Point]bool{},
+			bridges: m.Shift, fresh: map[image.Point]bool{}}
 		e.paint(p)
 		e.afterPaint()
 	case Select:
@@ -477,7 +487,7 @@ func (e *Editor) PointerMove(p image.Point, m Mods) {
 	if s == nil {
 		return
 	}
-	if m.Alt {
+	if m.Alt || m.Shift {
 		p = s.lockTo(p)
 	} else {
 		s.axis, s.locked = 0, false
@@ -487,14 +497,45 @@ func (e *Editor) PointerMove(p image.Point, m Mods) {
 	}
 	for _, q := range line4(s.last, p)[1:] {
 		e.paint(q)
+		if s.bridges && s.hasPrev && s.last != s.start {
+			e.bridgeCrossing(s.prev, s.last, q)
+		}
+		s.prev, s.hasPrev, s.last = s.last, true, q
 	}
-	s.last = p
 	e.afterPaint()
+}
+
+// bridgeCrossing turns mid, now between before and after on a shift
+// stroke's path, into a bridge if the path crosses an existing wire there:
+// the path goes straight through mid, mid was a wire before the stroke, and
+// both its cells across the path are filled. A wire that only meets the
+// path (a T, a corner, or one running along it) stays joined.
+func (e *Editor) bridgeCrossing(before, mid, after image.Point) {
+	if after.Sub(mid) != mid.Sub(before) || e.stroke.fresh[mid] {
+		return
+	}
+	loc := e.Doc.Locate(mid)
+	if e.Doc.Defs[loc.Def].Pixels.At(loc.Local.X, loc.Local.Y) != bitmap.Wire {
+		return
+	}
+	d := mid.Sub(before)
+	side := image.Pt(d.Y, d.X) // across the path
+	if !e.filled(mid.Add(side)) || !e.filled(mid.Sub(side)) {
+		return
+	}
+	e.strokePut(mid, bitmap.Bridge)
+}
+
+// filled reports whether the world cell p is not empty, looking inside
+// instances.
+func (e *Editor) filled(p image.Point) bool {
+	loc := e.Doc.Locate(p)
+	return e.Doc.Defs[loc.Def].Pixels.Get(loc.Local.X, loc.Local.Y)
 }
 
 // lockTo constrains p to a horizontal or vertical line through the stroke
 // start, choosing the axis of the dominant movement once the cursor has moved
-// 2 pixels, and keeping it until release (or until alt is let go).
+// 2 pixels, and keeping it until release (or until alt or shift is let go).
 func (s *stroke) lockTo(p image.Point) image.Point {
 	if !s.locked {
 		dx, dy := abs(p.X-s.start.X), abs(p.Y-s.start.Y)
@@ -508,6 +549,7 @@ func (s *stroke) lockTo(p image.Point) image.Point {
 			s.axis = 2
 		}
 		s.last = s.start // continue from the start so the line is straight
+		s.hasPrev = false
 	}
 	if s.axis == 1 {
 		return image.Pt(p.X, s.start.Y)
@@ -570,15 +612,25 @@ func (e *Editor) paint(p image.Point) {
 	if !doc.InRange(p) {
 		return // beyond the canvas limit; Validate would refuse the document
 	}
+	if old := e.strokePut(p, s.value); old == bitmap.Empty {
+		s.fresh[p] = true
+	}
+}
+
+// strokePut sets the world cell p to k as part of the stroke, and returns
+// what it was.
+func (e *Editor) strokePut(p image.Point, k bitmap.Kind) bitmap.Kind {
+	s := e.stroke
 	loc := e.Doc.Locate(p)
 	px := e.Doc.Defs[loc.Def].Pixels
 	old := px.At(loc.Local.X, loc.Local.Y)
-	if old == s.value {
-		return
+	if old == k {
+		return old
 	}
-	px.Put(loc.Local.X, loc.Local.Y, s.value)
+	px.Put(loc.Local.X, loc.Local.Y, k)
 	s.cells = append(s.cells, p)
-	s.edit.changes = append(s.edit.changes, pixelChange{def: loc.Def, p: loc.Local, old: old, new: s.value})
+	s.edit.changes = append(s.edit.changes, pixelChange{def: loc.Def, p: loc.Local, old: old, new: k})
+	return old
 }
 
 // cycleCell steps the cell at world p through the kinds that make sense for

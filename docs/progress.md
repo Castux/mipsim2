@@ -469,3 +469,14 @@ Circuits are no longer limited to 8192 pixels in either direction (the known lim
 ## Memory with read and write enables (owner request)
 
 The memory device now has the same interface as the registers in the `coolproc` design: a `read` enable, a `write` enable, the address bus and the data bus, modelled as gated D latches. Read high drives the data bus from the next settle; write high stores the data bus at every settle while it stays high and keeps the last value when it drops (level-sensitive). Both high is a short, silently allowed: the memory drives the word and stores what the bus settles to (low wins, so the word is ANDed with what the circuit drives). Floating enables mean idle; unstable enables, and floating address or data bits while needed, are errors. The `select` field is gone; a configuration that still has it is rejected with a message pointing to `read`. `testdata/runner/ram.mip` uses `re` and `we`, the Devices tab's default names.
+
+## Shift lines with automatic bridges (owner request)
+
+Shift+drag with the pencil draws a straight line like alt+drag, for drawing connections across existing wiring:
+
+- Every wire the line crosses straight over becomes a bridge, so the line passes without joining it. A wire that only meets the line (a T, a corner, a wire running along it) stays joined, and so does the cell the line starts or ends on.
+- A crossing is a cell that was a wire before the stroke, that the line goes straight through, and whose two cells across the line are filled. It is checked once the line has moved past the cell, so the cell under the pointer is still the end of the line and joins.
+- A shift stroke always paints wire, even when it starts on a filled cell, so a connection can start from an existing wire. Without shift, starting on a filled cell still erases.
+- The bridges are part of the stroke: one undo step.
+- Crossing two adjacent parallel wires makes two touching bridges, which the compiler reports as an error, as for any bridge drawn by hand.
+- Shift was the planned fallback for alt as the line modifier (PLAN, keys); alt stays the plain line, and shift is now taken.

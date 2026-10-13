@@ -162,7 +162,7 @@ func (e *Editor) Hint() string {
 	case e.tool == LabelTool:
 		return "click a cell to name its wire · click a label to rename it · " + view
 	}
-	return "left: wire or erase · right: cycle kind · 1-5: set kind · alt+drag: line · " + view
+	return "left: wire or erase · right: cycle kind · 1-5: set kind · alt+drag: line · shift+drag: line that bridges the wires it crosses · " + view
 }
 
 // Settle runs the simulation's settle loop. A device error (a memory reading

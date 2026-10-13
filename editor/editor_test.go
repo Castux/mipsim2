@@ -102,6 +102,45 @@ func TestAltLocksAxis(t *testing.T) {
 	}
 }
 
+func TestShiftLineBridgesCrossings(t *testing.T) {
+	e := New(doc.New())
+	drag(e, Mods{}, pt(2, 0), pt(2, 6)) // a wire the line crosses
+	drag(e, Mods{}, pt(5, 3), pt(5, 6)) // one it meets in a T
+	drag(e, Mods{}, pt(8, 0), pt(8, 6)) // one it ends on
+	shift := Mods{Shift: true}
+	// Starting on a wire draws (it does not erase), and wobble is ignored.
+	drag(e, shift, pt(0, 3), pt(1, 4), pt(4, 2), pt(8, 3))
+	want := []string{
+		"..#.....#",
+		"..#.....#",
+		"..#.....#",
+		"##B######",
+		"..#..#..#",
+		"..#..#..#",
+		"..#..#..#",
+	}
+	if got, want := strings.Join(rootRows(e), "\n"), strings.Join(want, "\n"); got != want {
+		t.Errorf("rows:\n%s\nwant:\n%s", got, want)
+	}
+	nl := e.Netlist()
+	id := func(x, y int) netlist.NetID { return nl.NetAt(x, y) }
+	if id(2, 0) == id(0, 3) {
+		t.Error("the crossed wire joined the line")
+	}
+	if id(5, 6) != id(0, 3) || id(8, 0) != id(0, 3) {
+		t.Error("the T or the end did not join the line")
+	}
+	if len(e.undo) != 4 {
+		t.Errorf("%d undo steps, want 4: the bridge belongs to the stroke", len(e.undo))
+	}
+
+	// Starting on a filled cell without shift still erases.
+	drag(e, Mods{}, pt(0, 3), pt(1, 3))
+	if e.Doc.RootDef().Pixels.Get(0, 3) {
+		t.Error("a plain stroke from a wire did not erase")
+	}
+}
+
 func TestStrokeIsOneUndoableCommand(t *testing.T) {
 	e := New(doc.New())
 	drag(e, Mods{}, pt(0, 0), pt(5, 0))
