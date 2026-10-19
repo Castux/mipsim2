@@ -1,3 +1,7 @@
+// Package isatest checks a coolproc processor against the reference
+// emulator (coolproc/isa): every instruction in every form, random
+// programs, and real programs (multiplication, division, sorting...). Both
+// generated processors run it from their tests.
 package isatest
 
 import (
@@ -6,348 +10,359 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Castux/mipsim2/coolproc/asm"
+	"github.com/Castux/mipsim2/coolproc/isa"
 )
 
 // Machine is a processor booted with a program, after reset.
 type Machine interface {
 	// Run runs until the processor halts, at most limit instructions, and
-	// returns the number of instructions run (-1 if it did not halt).
+	// returns the number of instructions run, the halt included (-1 if it
+	// did not halt).
 	Run(limit int) int
-	Reg(name string) uint16 // a b x y c d, or pc
+	Register(r isa.Register) uint16
+	ProgramCounter() uint16
 	Carry() bool
-	RAM() []uint64
+	Memory() []uint64
 }
 
 // Boot loads a program into a processor and resets it.
-type Boot func(t *testing.T, prog []uint16) Machine
+type Boot func(tb testing.TB, program []uint16) Machine
 
-// Run checks the processor booted by boot against the emulator.
+// Run checks the processor that boot starts against the emulator.
 func Run(t *testing.T, boot Boot) {
-	t.Run("set", func(t *testing.T) { check(t, boot, setProgram()) })
-	t.Run("move", func(t *testing.T) { check(t, boot, moveProgram()) })
-	t.Run("load_store", func(t *testing.T) { check(t, boot, memoryProgram()) })
-	for _, op := range []string{"add", "and", "or", "xor"} {
-		for m := range 4 {
-			for _, d := range []string{"x", "y"} {
-				name := fmt.Sprintf("%s_mode%d_%s", op, m, d)
-				t.Run(name, func(t *testing.T) { check(t, boot, aluProgram(op, m, d, operands, operands)) })
+	t.Run("set", func(t *testing.T) { compare(t, boot, setProgram()) })
+	t.Run("move", func(t *testing.T) { compare(t, boot, moveProgram()) })
+	t.Run("load_and_store", func(t *testing.T) { compare(t, boot, memoryProgram()) })
+	for _, operation := range []isa.Operation{isa.Add, isa.And, isa.Or, isa.Xor} {
+		for modes := isa.Modes(0); modes <= isa.InvertA|isa.InvertB; modes++ {
+			for _, destination := range []isa.Register{isa.X, isa.Y} {
+				in := isa.Instruction{Kind: isa.Arithmetic, Operation: operation, Modes: modes, Destination: destination}
+				t.Run(strings.ReplaceAll(in.String(), " ", "_"), func(t *testing.T) {
+					compare(t, boot, arithmeticProgram(in, interestingValues, interestingValues))
+				})
 			}
 		}
 	}
-	for _, dir := range []string{"left", "right"} {
-		for _, d := range []string{"x", "y"} {
-			t.Run("shift_"+dir+"_"+d, func(t *testing.T) {
-				check(t, boot, aluProgram("shift", map[string]int{"left": 0, "right": 1}[dir], d, operands, amounts))
+	for _, modes := range []isa.Modes{0, isa.ShiftRight} {
+		for _, destination := range []isa.Register{isa.X, isa.Y} {
+			in := isa.Instruction{Kind: isa.Arithmetic, Operation: isa.Shift, Modes: modes, Destination: destination}
+			t.Run(strings.ReplaceAll(in.String(), " ", "_"), func(t *testing.T) {
+				compare(t, boot, arithmeticProgram(in, interestingValues, shiftAmounts))
 			})
 		}
 	}
-	t.Run("jumps", func(t *testing.T) { check(t, boot, jumpProgram()) })
-	t.Run("jumps_on_carry", func(t *testing.T) { check(t, boot, carryJumpProgram()) })
+	t.Run("jumps", func(t *testing.T) { compare(t, boot, jumpProgram()) })
+	t.Run("jumps_on_carry", func(t *testing.T) { compare(t, boot, carryJumpProgram()) })
 	for seed := int64(1); seed <= 8; seed++ {
-		t.Run(fmt.Sprintf("random_%d", seed), func(t *testing.T) { check(t, boot, randomProgram(seed, 300)) })
+		t.Run(fmt.Sprintf("random_%d", seed), func(t *testing.T) { compare(t, boot, randomProgram(seed, 300)) })
 	}
 	for _, p := range Programs {
 		t.Run(p.Name, func(t *testing.T) {
-			s := check(t, boot, p.Source)
-			if p.Check != nil {
-				if err := p.Check(s); err != nil {
-					t.Error(err)
-				}
+			e := compare(t, boot, p.Source)
+			if err := p.Check(e); err != nil {
+				t.Error(err)
 			}
 		})
 	}
 }
 
-// check runs src on the emulator and the processor, and compares what they
-// leave: registers, carry, program counter, memory, instruction count.
-func check(t *testing.T, boot Boot, src string) State {
-	t.Helper()
-	prog, err := asm.Assemble(src)
+// Assemble assembles a program, failing the test on errors.
+func Assemble(tb testing.TB, source string) []uint16 {
+	tb.Helper()
+	words, err := isa.Assemble(source)
 	if err != nil {
-		t.Fatalf("assembling: %v", err)
+		tb.Fatalf("assembling: %v", err)
 	}
+	return words
+}
+
+// compare runs a program on the emulator and the processor, and compares
+// what they leave: registers, program counter, carry, memory, and the
+// number of instructions run. It returns the emulator.
+func compare(t *testing.T, boot Boot, source string) *isa.Emulator {
+	t.Helper()
+	program := Assemble(t, source)
 	const limit = 200000
-	want, ok := Emulate(prog, limit)
-	if !ok {
+	want := isa.NewEmulator(program)
+	if !want.Run(limit) {
 		t.Fatalf("the emulator did not halt")
 	}
-	m := boot(t, prog)
+	m := boot(t, program)
 	if n := m.Run(want.Steps + 2); n != want.Steps {
 		t.Fatalf("halted after %d instructions, want %d", n, want.Steps)
 	}
-	for k, r := range Registers {
-		if got := m.Reg(r); got != want.Reg[k] {
-			t.Errorf("register %s = %#04x, want %#04x", r, got, want.Reg[k])
+	for _, r := range isa.Registers {
+		if got := m.Register(r); got != want.Register(r) {
+			t.Errorf("register %s = %#04x, want %#04x", r, got, want.Register(r))
 		}
 	}
-	if got := m.Reg("pc"); got != want.PC {
-		t.Errorf("pc = %#04x, want %#04x", got, want.PC)
+	if got := m.ProgramCounter(); got != want.ProgramCounter {
+		t.Errorf("program counter = %#04x, want %#04x", got, want.ProgramCounter)
 	}
 	if got := m.Carry(); got != want.Carry {
 		t.Errorf("carry = %v, want %v", got, want.Carry)
 	}
-	bad := 0
-	for addr, v := range m.RAM() {
-		if w := want.RAM[uint16(addr)]; uint64(w) != v {
-			if bad++; bad <= 10 {
-				t.Errorf("ram[%#04x] = %#04x, want %#04x", addr, v, w)
+	differences := 0
+	for address, value := range m.Memory() {
+		if expected := want.Memory[address]; uint64(expected) != value {
+			if differences++; differences <= 10 {
+				t.Errorf("memory[%#04x] = %#04x, want %#04x", address, value, expected)
 			}
 		}
 	}
-	if bad > 10 {
-		t.Errorf("... %d words differ", bad)
+	if differences > 10 {
+		t.Errorf("... %d words differ", differences)
 	}
 	return want
 }
 
-// operands are interesting 16-bit values: zero, one, signs, all ones,
-// patterns.
-var operands = []uint16{0, 1, 2, 0x7fff, 0x8000, 0x8001, 0xffff, 0x1234, 0xabcd, 0x5555, 0x00ff, 0xff00}
+// interestingValues are 16-bit operands at the edges: zero, one, the signs,
+// all ones, patterns.
+var interestingValues = []uint16{0, 1, 2, 0x7fff, 0x8000, 0x8001, 0xffff, 0x1234, 0xabcd, 0x5555, 0x00ff, 0xff00}
 
-// amounts are shift amounts: all of B[3:0], and values above 15 (only the
-// low four bits count).
-var amounts = []uint16{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 0x8003, 0xffff}
+// shiftAmounts are every amount B[3:0] can give, and values above 15 (only
+// their low four bits count).
+var shiftAmounts = []uint16{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 0x8003, 0xffff}
 
-// prog builds an assembly program.
-type prog struct {
-	b     strings.Builder
-	label int
+// programBuilder writes an assembly program.
+type programBuilder struct {
+	text   strings.Builder
+	labels int
 }
 
-func (p *prog) f(format string, a ...any) { fmt.Fprintf(&p.b, format+"\n", a...) }
-
-func (p *prog) newLabel() string {
-	p.label++
-	return fmt.Sprintf("l%d", p.label)
+func (p *programBuilder) line(format string, arguments ...any) {
+	fmt.Fprintf(&p.text, format+"\n", arguments...)
 }
 
-// keep stores register r at address addr (Y is used for the address, so Y
-// itself goes through C).
-func (p *prog) keep(r string, addr int) {
-	if r == "y" {
-		p.f("move y, c")
-		r = "c"
+func (p *programBuilder) instruction(in isa.Instruction) { p.line("%s", in) }
+
+func (p *programBuilder) newLabel() string {
+	p.labels++
+	return fmt.Sprintf("label_%d", p.labels)
+}
+
+func (p *programBuilder) String() string { return p.text.String() }
+
+// storeRegister writes register r to memory at address. Y holds the
+// address, so Y itself is copied to C first.
+func (p *programBuilder) storeRegister(r isa.Register, address int) {
+	if r == isa.Y {
+		p.line("move y, c")
+		r = isa.C
 	}
-	p.f("set y, %d", addr)
-	p.f("store %s", r)
+	p.line("set y, %d", address)
+	p.line("store %s", r)
 }
 
-// keepCarry stores the carry (0 or 1) at addr, using D and Y.
-func (p *prog) keepCarry(addr int) {
-	l := p.newLabel()
-	p.f("setl d, 0")
-	p.f("set y, %s", l)
-	p.f("jumpcz")
-	p.f("setl d, 1")
-	p.f("%s:", l)
-	p.keep("d", addr)
+// storeCarry writes the carry (0 or 1) to memory at address, using D and Y.
+func (p *programBuilder) storeCarry(address int) {
+	clear := p.newLabel()
+	p.line("setl d, 0")
+	p.line("set y, %s", clear)
+	p.line("jumpcz")
+	p.line("setl d, 1")
+	p.line("%s:", clear)
+	p.storeRegister(isa.D, address)
+}
+
+// giveDistinctValues gives every register a value of its own.
+func (p *programBuilder) giveDistinctValues() {
+	for k, r := range isa.Registers {
+		p.line("set %s, %d", r, 0x1111*(k+1)+3)
+	}
+}
+
+// setCarry makes the carry 1 or 0 (with an addition into X).
+func (p *programBuilder) setCarry(carry bool) {
+	if carry {
+		p.line("set a, 0xffff")
+	} else {
+		p.line("setl a, 0")
+	}
+	p.line("setl b, 1")
+	p.line("add x")
 }
 
 // setProgram writes every register with setl and seth, alone and combined.
 func setProgram() string {
-	var p prog
-	for k, r := range Registers {
-		p.f("setl %s, %d", r, 0x11*(k+1))
-		p.keep(r, 0x100+3*k)
-		p.f("seth %s, %d", r, 0xa0+k) // keeps the low byte
-		p.keep(r, 0x101+3*k)
-		p.f("setl %s, 0xfe", r) // clears the high byte
-		p.keep(r, 0x102+3*k)
+	var p programBuilder
+	for k, r := range isa.Registers {
+		p.line("setl %s, %d", r, 0x11*(k+1))
+		p.storeRegister(r, 0x100+3*k)
+		p.line("seth %s, %d", r, 0xa0+k) // keeps the low byte
+		p.storeRegister(r, 0x101+3*k)
+		p.line("setl %s, 0xfe", r) // clears the high byte
+		p.storeRegister(r, 0x102+3*k)
 	}
-	p.f("halt")
-	return p.b.String()
-}
-
-// distinct gives every register its own value.
-func (p *prog) distinct() {
-	for k, r := range Registers {
-		p.f("set %s, %d", r, 0x1111*(k+1)+3)
-	}
+	p.line("halt")
+	return p.String()
 }
 
 // moveProgram copies every register into every register.
 func moveProgram() string {
-	var p prog
-	addr := 0x200
-	for _, s := range Registers {
-		for _, d := range Registers {
-			p.distinct()
-			p.f("move %s, %s", s, d)
-			p.keep(d, addr)
-			addr++
+	var p programBuilder
+	address := 0x200
+	for _, source := range isa.Registers {
+		for _, destination := range isa.Registers {
+			p.giveDistinctValues()
+			p.instruction(isa.Instruction{Kind: isa.Move, Source: source, Destination: destination})
+			p.storeRegister(destination, address)
+			address++
 		}
 	}
-	p.f("halt")
-	return p.b.String()
+	p.line("halt")
+	return p.String()
 }
 
 // memoryProgram stores every register and loads into every register but Y
 // (load y is forbidden: the address would change while loading).
 func memoryProgram() string {
-	var p prog
-	for k, s := range Registers {
-		p.distinct()
-		p.f("set y, %d", 0x300+k)
-		p.f("store %s", s) // store y stores the address itself
+	var p programBuilder
+	for k, source := range isa.Registers {
+		p.giveDistinctValues()
+		p.line("set y, %d", 0x300+k)
+		p.line("store %s", source) // store y stores the address itself
 	}
-	for k, d := range Registers {
-		if d == "y" {
+	for k, destination := range isa.Registers {
+		if destination == isa.Y {
 			continue
 		}
-		p.distinct()
-		p.f("set y, %d", 0x300+(k+1)%6)
-		p.f("load %s", d)
-		p.keep(d, 0x310+k)
+		p.giveDistinctValues()
+		p.line("set y, %d", 0x300+(k+1)%len(isa.Registers))
+		p.line("load %s", destination)
+		p.storeRegister(destination, 0x310+k)
 	}
-	p.f("halt")
-	return p.b.String()
+	p.line("halt")
+	return p.String()
 }
 
-// aluProgram runs one ALU instruction (op, mode m = m1 m0, destination d)
-// on every pair of operands, keeping the result and the carry.
-func aluProgram(op string, m int, d string, as, bs []uint16) string {
-	var p prog
-	addr := 0x400
-	// Every instruction starts from a known carry: 1, so that a carry left
-	// unchanged by and, or, xor shows.
-	ins := fmt.Sprintf("word %d", (0x40|map[string]int{"add": 0, "shift": 1, "and": 2, "or": 3, "xor": 4}[op]<<3|m<<1|map[string]int{"x": 0, "y": 1}[d])<<8)
+// arithmeticProgram runs one arithmetic instruction on every pair of
+// operands, keeping the result and the carry. The carry is set before each
+// one, so an operation that must leave it alone and does not shows.
+func arithmeticProgram(in isa.Instruction, as, bs []uint16) string {
+	var p programBuilder
+	address := 0x400
 	for _, a := range as {
 		for _, b := range bs {
-			p.f("set a, 0xffff")
-			p.f("setl b, 1")
-			p.f("add x") // carry 1
-			p.f("set a, %d", a)
-			p.f("set b, %d", b)
-			p.f("%s ; %s mode %d to %s", ins, op, m, d)
-			p.keep(d, addr)
-			p.keepCarry(addr + 1)
-			addr += 2
+			p.setCarry(true)
+			p.line("set a, %d", a)
+			p.line("set b, %d", b)
+			p.instruction(in)
+			p.storeRegister(in.Destination, address)
+			p.storeCarry(address + 1)
+			address += 2
 		}
 	}
-	p.f("halt")
-	return p.b.String()
+	p.line("halt")
+	return p.String()
 }
 
 // jumpProgram tries every jump condition on every register, with values
-// that make it true and false, and keeps whether it was taken.
+// that make it true and false, and keeps whether it jumped.
 func jumpProgram() string {
-	var p prog
-	addr := 0x600
-	for mm, j := range []string{"jump", "jumpz", "jumpnz", "jumpn"} {
-		for _, r := range Registers {
-			for _, v := range []uint16{0, 1, 0x7fff, 0x8000, 0xffff} {
-				mark := "c"
-				if r == "c" {
-					mark = "d"
+	var p programBuilder
+	address := 0x600
+	for condition := isa.Always; condition <= isa.IfNegative; condition++ {
+		for _, source := range isa.Registers {
+			for _, value := range []uint16{0, 1, 0x7fff, 0x8000, 0xffff} {
+				marker := isa.C
+				if source == isa.C {
+					marker = isa.D
 				}
-				taken, end := p.newLabel(), p.newLabel()
-				p.f("set %s, %d", r, v)
-				p.f("set y, %s", taken) // Y is the target: as the source, its value is the target
-				if mm == 0 {
-					p.f("jump")
-				} else {
-					p.f("%s %s", j, r)
+				p.line("set %s, %d", source, value)
+				jump := isa.Instruction{Kind: isa.Jump, Condition: condition, Source: source}
+				if condition == isa.Always {
+					jump.Source = 0
 				}
-				p.f("setl %s, 1", mark)
-				p.f("set y, %s", end)
-				p.f("jump")
-				p.f("%s:", taken)
-				p.f("setl %s, 2", mark)
-				p.f("%s:", end)
-				p.keep(mark, addr)
-				addr++
+				p.jumpOrNot(jump.String(), marker, address)
+				address++
 			}
 		}
 	}
-	p.f("halt")
-	return p.b.String()
+	p.line("halt")
+	return p.String()
 }
 
-// carryJumpProgram tries jumpc, jumpcz and jumpcnz with the carry set and
-// clear.
+// jumpOrNot runs a jump instruction, then writes 2 to memory at address if
+// it jumped, 1 if not, through marker. Y is the jump target, so when the
+// jump tests Y, its value is the target.
+func (p *programBuilder) jumpOrNot(jump string, marker isa.Register, address int) {
+	jumped, end := p.newLabel(), p.newLabel()
+	p.line("set y, %s", jumped)
+	p.line("%s", jump)
+	p.line("setl %s, 1", marker)
+	p.line("set y, %s", end)
+	p.line("jump")
+	p.line("%s:", jumped)
+	p.line("setl %s, 2", marker)
+	p.line("%s:", end)
+	p.storeRegister(marker, address)
+}
+
+// carryJumpProgram tries the jumps on carry with the carry set and clear.
 func carryJumpProgram() string {
-	var p prog
-	addr := 0x700
-	for _, j := range []string{"jumpc", "jumpcz", "jumpcnz"} {
+	var p programBuilder
+	address := 0x700
+	for condition := isa.Always; condition <= isa.IfCarrySet; condition++ {
 		for _, carry := range []bool{false, true} {
-			if carry {
-				p.f("set a, 0xffff")
-			} else {
-				p.f("setl a, 0")
-			}
-			p.f("setl b, 1")
-			p.f("add x")
-			taken, end := p.newLabel(), p.newLabel()
-			p.f("set y, %s", taken)
-			p.f("%s", j)
-			p.f("setl c, 1")
-			p.f("set y, %s", end)
-			p.f("jump")
-			p.f("%s:", taken)
-			p.f("setl c, 2")
-			p.f("%s:", end)
-			p.keep("c", addr)
-			addr++
+			p.setCarry(carry)
+			p.jumpOrNot(isa.Instruction{Kind: isa.JumpOnCarry, Condition: condition}.String(), isa.C, address)
+			address++
 		}
 	}
-	p.f("halt")
-	return p.b.String()
+	p.line("halt")
+	return p.String()
 }
 
 // randomProgram is a random program without loops: sets, moves, loads and
-// stores, every ALU instruction, and forward jumps of every kind.
-func randomProgram(seed int64, n int) string {
-	rng := rand.New(rand.NewSource(seed))
-	var p prog
-	reg := func() string { return Registers[rng.Intn(6)] }
-	notY := func() string { return []string{"a", "b", "x", "c", "d"}[rng.Intn(5)] }
-	pending := map[int][]string{} // instruction index -> labels to place there
-	for i := range n {
-		for _, l := range pending[i] {
-			p.f("%s:", l)
+// stores, every arithmetic instruction, and forward jumps of every kind.
+func randomProgram(seed int64, length int) string {
+	random := rand.New(rand.NewSource(seed))
+	var p programBuilder
+	anyRegister := func() isa.Register { return isa.Registers[random.Intn(len(isa.Registers))] }
+	notY := func() isa.Register { return []isa.Register{isa.A, isa.B, isa.X, isa.C, isa.D}[random.Intn(5)] }
+	labelsAt := map[int][]string{} // instruction index -> labels placed there
+	for i := range length + 5 {
+		for _, label := range labelsAt[i] {
+			p.line("%s:", label)
 		}
-		switch k := rng.Intn(20); {
+		if i >= length {
+			continue
+		}
+		switch k := random.Intn(20); {
 		case k < 4:
-			p.f("setl %s, %d", reg(), rng.Intn(256))
+			p.instruction(isa.Instruction{Kind: isa.SetLow, Destination: anyRegister(), Value: uint8(random.Intn(256))})
 		case k < 6:
-			p.f("seth %s, %d", reg(), rng.Intn(256))
+			p.instruction(isa.Instruction{Kind: isa.SetHigh, Destination: anyRegister(), Value: uint8(random.Intn(256))})
 		case k < 8:
-			p.f("move %s, %s", reg(), reg())
+			p.instruction(isa.Instruction{Kind: isa.Move, Source: anyRegister(), Destination: anyRegister()})
 		case k < 9:
-			p.f("store %s", reg())
+			p.instruction(isa.Instruction{Kind: isa.Store, Source: anyRegister()})
 		case k < 10:
-			p.f("load %s", notY())
+			p.instruction(isa.Instruction{Kind: isa.Load, Destination: notY()})
 		case k < 17:
-			op := []string{"add", "shift", "and", "or", "xor"}[rng.Intn(5)]
-			m, d := rng.Intn(4), rng.Intn(2)
-			p.f("word %d", (0x40|map[string]int{"add": 0, "shift": 1, "and": 2, "or": 3, "xor": 4}[op]<<3|m<<1|d)<<8)
+			p.instruction(isa.Instruction{
+				Kind:        isa.Arithmetic,
+				Operation:   isa.Operation(random.Intn(int(isa.Xor) + 1)),
+				Modes:       isa.Modes(random.Intn(4)),
+				Destination: []isa.Register{isa.X, isa.Y}[random.Intn(2)],
+			})
 		default:
-			l := p.newLabel()
-			at := i + 1 + rng.Intn(4)
-			pending[at] = append(pending[at], l)
-			p.f("set y, %s", l)
-			switch rng.Intn(6) {
-			case 0:
-				p.f("jump")
-			case 1:
-				p.f("jumpz %s", reg())
-			case 2:
-				p.f("jumpnz %s", reg())
-			case 3:
-				p.f("jumpn %s", reg())
-			case 4:
-				p.f("jumpcz")
-			default:
-				p.f("jumpcnz")
+			label := p.newLabel()
+			target := i + 1 + random.Intn(4)
+			labelsAt[target] = append(labelsAt[target], label)
+			p.line("set y, %s", label)
+			if random.Intn(3) == 0 {
+				p.instruction(isa.Instruction{Kind: isa.JumpOnCarry, Condition: isa.Condition(random.Intn(3))})
+			} else {
+				jump := isa.Instruction{Kind: isa.Jump, Condition: isa.Condition(random.Intn(4)), Source: anyRegister()}
+				if jump.Condition == isa.Always {
+					jump.Source = 0
+				}
+				p.instruction(jump)
 			}
 		}
 	}
-	for i := n; i < n+5; i++ {
-		for _, l := range pending[i] {
-			p.f("%s:", l)
-		}
-	}
-	p.f("halt")
-	return p.b.String()
+	p.line("halt")
+	return p.String()
 }

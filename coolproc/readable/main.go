@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Castux/mipsim2/coolproc/asm"
+	"github.com/Castux/mipsim2/coolproc/isa"
 	"github.com/Castux/mipsim2/doc"
 	"github.com/Castux/mipsim2/netlist"
 )
@@ -41,7 +41,7 @@ func run(out, prog string) error {
 	if err != nil {
 		return err
 	}
-	words, err := asm.Assemble(string(src))
+	words, err := isa.Assemble(string(src))
 	if err != nil {
 		return fmt.Errorf("%s: %w", prog, err)
 	}

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"image"
 
+	"github.com/Castux/mipsim2/coolproc/isa"
+
 	"github.com/Castux/mipsim2/bitmap"
 	"github.com/Castux/mipsim2/doc"
 )
@@ -166,14 +168,18 @@ func (l *Library) processor() *Def {
 			c(n, "opcode_decoder", n)
 		}
 	}
-	for _, fb := range []struct {
-		f    string
-		bits int
-	}{{"source_decoder", 4}, {"destination_decoder", 0}, {"set_target_decoder", 8}} {
-		f, bits := fb.f, fb.bits
+	// The three register fields, each into its own decoder.
+	for _, field := range []struct {
+		decoder string
+		first   int // the field's first bit in the instruction
+	}{
+		{"source_decoder", isa.SourceFieldBit},
+		{"destination_decoder", isa.DestinationFieldBit},
+		{"set_target_decoder", isa.SetRegisterFieldBit},
+	} {
 		for k := range 3 {
 			for _, s := range []string{"", "_inverted"} {
-				c(fmt.Sprintf("instruction_%d%s", bits+k, s), f, fmt.Sprintf("field_%d%s", k, s))
+				c(instructionBit(field.first+k)+s, field.decoder, fmt.Sprintf("field_%d%s", k, s))
 			}
 		}
 	}
@@ -191,9 +197,9 @@ func (l *Library) processor() *Def {
 	c("is_halt", "status_registers", "is_halt")
 	c("is_jump", "jump_decision", "is_jump")
 	c("is_jump_on_carry", "jump_decision", "is_jump_on_carry")
-	c("instruction_8", "control_signals", "instruction_8")
-	c("instruction_9", "control_signals", "instruction_9")
-	for _, n := range []string{"instruction_8", "instruction_8_inverted", "instruction_9", "instruction_9_inverted"} {
+	c(resultToY, "control_signals", resultToY)
+	c(modeLow, "control_signals", modeLow)
+	for _, n := range []string{conditionLow, conditionLow + "_inverted", conditionHigh, conditionHigh + "_inverted"} {
 		c(n, "jump_decision", n)
 	}
 	// Registers.
@@ -252,9 +258,9 @@ func (l *Library) processor() *Def {
 	// The ALU.
 	c("invert_a", "control_signals", "invert_a")
 	c("invert_a", "alu", "invert_a")
-	c("instruction_10", "alu", "invert_b")
-	c("instruction_9", "alu", "carry_in_0")
-	c("instruction_9", "shifter", "shift_right")
+	c(modeHigh, "alu", "invert_b")
+	c(modeLow, "alu", "carry_in_0")
+	c(modeLow, "shifter", "shift_right")
 	for _, op := range []string{"add", "shift", "and", "or", "xor"} {
 		c("operation_"+op, "alu", "select_"+op)
 	}

@@ -45,3 +45,9 @@ func romImage(words []uint16) []byte {
 	}
 	return b
 }
+
+// CPUDocumentOnly is CPUDocument without the design and layout.
+func CPUDocumentOnly(prog string) (*doc.Document, error) {
+	d, _, _, err := CPUDocument(prog)
+	return d, err
+}

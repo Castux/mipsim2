@@ -4,11 +4,34 @@ import (
 	"fmt"
 	"image"
 
+	"github.com/Castux/mipsim2/coolproc/isa"
+
 	"github.com/Castux/mipsim2/bitmap"
 )
 
-// Registers in instruction order (register numbers 0 to 5).
-var registerNames = []string{"a", "b", "x", "y", "c", "d"}
+// registerNames are the registers' names, in instruction order.
+var registerNames = func() []string {
+	var names []string
+	for _, r := range isa.Registers {
+		names = append(names, r.String())
+	}
+	return names
+}()
+
+// instructionBit is the instruction register's output for bit n of the
+// instruction word, or of its opcode with opcodeBit.
+func instructionBit(n int) string { return fmt.Sprintf("instruction_%d", n) }
+
+func opcodeBit(n int) string { return instructionBit(8 + n) }
+
+// Opcode bits the control reads directly.
+var (
+	resultToY     = opcodeBit(isa.ResultToYBit)  // arithmetic: the destination is Y
+	modeLow       = opcodeBit(isa.ModeLowBit)    // not A, carry in, or shift right
+	modeHigh      = opcodeBit(isa.ModeHighBit)   // not B
+	conditionLow  = opcodeBit(isa.ConditionLow)  // a jump's condition, low bit
+	conditionHigh = opcodeBit(isa.ConditionHigh) // and high bit
+)
 
 // stepDecoder turns the step counter's state into the instruction's
 // steps, and the write pulse in the middle of each step:
@@ -46,20 +69,31 @@ func (l *Library) stepDecoder() *Def {
 	})
 }
 
-// opcode returns the literals matching opcode bits (instruction 15..8) to a
-// pattern such as "01xxxxx0", most significant first.
-func opcode(pattern string) []string {
-	var lits []string
-	for k, ch := range pattern {
-		j := 15 - k
-		switch ch {
+// opcode returns the literals that match an opcode pattern (instruction
+// bits 15 to 8): a bit's line for a 1, its inverted line for a 0.
+func opcode(pattern isa.Pattern) []string {
+	var literals []string
+	for k, bit := range pattern {
+		line := opcodeBit(7 - k)
+		switch bit {
 		case '0':
-			lits = append(lits, fmt.Sprintf("instruction_%d_inverted", j))
+			literals = append(literals, line+"_inverted")
 		case '1':
-			lits = append(lits, fmt.Sprintf("instruction_%d", j))
+			literals = append(literals, line)
 		}
 	}
-	return lits
+	return literals
+}
+
+// condition returns the literals that match a jump condition's two bits.
+func condition(c isa.Condition) []string {
+	literal := func(line string, set bool) string {
+		if set {
+			return line
+		}
+		return line + "_inverted"
+	}
+	return []string{literal(conditionHigh, c&2 != 0), literal(conditionLow, c&1 != 0)}
 }
 
 // opcodeDecoder recognises the instruction groups (proc.md, Opcodes).
@@ -75,20 +109,20 @@ func (l *Library) opcodeDecoder() *Def {
 			"is_alu", "is_set_low", "is_set_high",
 			"operation_add", "operation_shift", "operation_and", "operation_or", "operation_xor"},
 		terms: map[string][][]string{
-			"is_halt":          {opcode("00000000")},
-			"is_move":          {opcode("00000001")},
-			"is_load":          {opcode("00000010")},
-			"is_store":         {opcode("00000011")},
-			"is_jump":          {opcode("00010")},
-			"is_jump_on_carry": {opcode("00011")},
-			"is_alu":           {opcode("01")},
-			"is_set_low":       {opcode("10")},
-			"is_set_high":      {opcode("11")},
-			"operation_add":    {opcode("xx000")},
-			"operation_shift":  {opcode("xx001")},
-			"operation_and":    {opcode("xx010")},
-			"operation_or":     {opcode("xx011")},
-			"operation_xor":    {opcode("xx100")},
+			"is_halt":          {opcode(isa.HaltPattern)},
+			"is_move":          {opcode(isa.MovePattern)},
+			"is_load":          {opcode(isa.LoadPattern)},
+			"is_store":         {opcode(isa.StorePattern)},
+			"is_jump":          {opcode(isa.JumpPattern)},
+			"is_jump_on_carry": {opcode(isa.JumpOnCarryPattern)},
+			"is_alu":           {opcode(isa.ArithmeticPattern)},
+			"is_set_low":       {opcode(isa.SetLowPattern)},
+			"is_set_high":      {opcode(isa.SetHighPattern)},
+			"operation_add":    {opcode(isa.OperationPattern(isa.Add))},
+			"operation_shift":  {opcode(isa.OperationPattern(isa.Shift))},
+			"operation_and":    {opcode(isa.OperationPattern(isa.And))},
+			"operation_or":     {opcode(isa.OperationPattern(isa.Or))},
+			"operation_xor":    {opcode(isa.OperationPattern(isa.Xor))},
 		},
 	})
 }
@@ -129,7 +163,7 @@ func (l *Library) controlSignals() *Def {
 		id: "control_signals",
 		inputs: []string{"executing", "updating_program_counter", "write_result",
 			"is_move", "is_load", "is_store", "is_jump", "is_alu", "is_set_low", "is_set_high",
-			"operation_add", "operation_shift", "instruction_8", "instruction_9", "jump_taken"},
+			"operation_add", "operation_shift", resultToY, modeLow, "jump_taken"},
 		outputs: []string{"reads_source_now", "write_destination", "write_set_low", "write_set_high",
 			"write_alu_to_x", "write_alu_to_y", "alu_to_x", "alu_to_y",
 			"immediate_low_to_bus", "immediate_high_to_bus", "memory_read", "memory_write",
@@ -139,10 +173,10 @@ func (l *Library) controlSignals() *Def {
 			"write_destination":     {{"write_result", "is_move"}, {"write_result", "is_load"}},
 			"write_set_low":         {{"write_result", "is_set_low"}},
 			"write_set_high":        {{"write_result", "is_set_high"}},
-			"write_alu_to_x":        {{"write_result", "is_alu", "!instruction_8"}},
-			"write_alu_to_y":        {{"write_result", "is_alu", "instruction_8"}},
-			"alu_to_x":              {{"is_alu", "!instruction_8"}},
-			"alu_to_y":              {{"is_alu", "instruction_8"}},
+			"write_alu_to_x":        {{"write_result", "is_alu", "!" + resultToY}},
+			"write_alu_to_y":        {{"write_result", "is_alu", resultToY}},
+			"alu_to_x":              {{"is_alu", "!" + resultToY}},
+			"alu_to_y":              {{"is_alu", resultToY}},
 			"immediate_low_to_bus":  {{"executing", "is_set_low"}},
 			"immediate_high_to_bus": {{"executing", "is_set_high"}},
 			"memory_read":           {{"executing", "is_load"}},
@@ -150,7 +184,7 @@ func (l *Library) controlSignals() *Def {
 			"temporary_to_bus":      {{"updating_program_counter", "!jump_taken"}},
 			"jump_target_to_bus":    {{"updating_program_counter", "jump_taken"}},
 			"write_carry":           {{"write_result", "is_alu", "operation_add"}, {"write_result", "is_alu", "operation_shift"}},
-			"invert_a":              {{"instruction_9", "!operation_add"}},
+			"invert_a":              {{modeLow, "!operation_add"}}, // the low mode bit is the carry in for add
 		},
 	})
 }
@@ -178,25 +212,31 @@ func (l *Library) registerControl() *Def {
 	})
 }
 
-// jumpDecision evaluates the jump condition (mm = instruction bits 9, 8)
-// while the source is on the bus.
+// jumpDecision evaluates the jump condition while the source is on the
+// bus.
 func (l *Library) jumpDecision() *Def {
+	var products [][]string
+	for _, t := range []struct {
+		kind      string
+		condition isa.Condition
+		test      []string
+	}{
+		{"is_jump", isa.Always, nil},
+		{"is_jump", isa.IfZero, []string{"bus_is_zero"}},
+		{"is_jump", isa.IfNotZero, []string{"!bus_is_zero"}},
+		{"is_jump", isa.IfNegative, []string{"bus_is_negative"}},
+		{"is_jump_on_carry", isa.Always, nil},
+		{"is_jump_on_carry", isa.IfCarryClear, []string{"carry_inverted"}},
+		{"is_jump_on_carry", isa.IfCarrySet, []string{"carry"}},
+	} {
+		products = append(products, append(append([]string{t.kind}, condition(t.condition)...), t.test...))
+	}
 	return l.logicBlock(logic{
 		id: "jump_decision",
-		inputs: []string{"is_jump", "is_jump_on_carry", "instruction_8", "instruction_8_inverted",
-			"instruction_9", "instruction_9_inverted", "bus_is_zero", "bus_is_negative", "carry", "carry_inverted"},
+		inputs: []string{"is_jump", "is_jump_on_carry", conditionLow, conditionLow + "_inverted",
+			conditionHigh, conditionHigh + "_inverted", "bus_is_zero", "bus_is_negative", "carry", "carry_inverted"},
 		outputs: []string{"jump_condition"},
-		terms: map[string][][]string{
-			"jump_condition": {
-				{"is_jump", "instruction_9_inverted", "instruction_8_inverted"},
-				{"is_jump", "instruction_9_inverted", "instruction_8", "bus_is_zero"},
-				{"is_jump", "instruction_9", "instruction_8_inverted", "!bus_is_zero"},
-				{"is_jump", "instruction_9", "instruction_8", "bus_is_negative"},
-				{"is_jump_on_carry", "instruction_9_inverted", "instruction_8_inverted"},
-				{"is_jump_on_carry", "instruction_9_inverted", "instruction_8", "carry_inverted"},
-				{"is_jump_on_carry", "instruction_9", "instruction_8_inverted", "carry"},
-			},
-		},
+		terms:   map[string][][]string{"jump_condition": products},
 	})
 }
 

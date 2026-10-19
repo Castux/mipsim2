@@ -105,11 +105,17 @@ Registers are gated D latches, so an instruction must not write a register its o
 - **Halt:** stops the sequencer (the clock keeps running) and raises `halted`.
 - **Memories:** `rom` (64K words of 16 bits, read only) on `pc` and `rom`; `ram` (64K words) on `y` and `bus`, with `mem_read` and `mem_write`.
 
-The assembler (`coolproc/gen/asm.go`) takes `move src, dest`, `load dest`, `store src`, `setl r, n`, `seth r, n`, `set r, n` (two instructions), ALU instructions with their destination and modes (`add x`, `sub y`, `and x na nb`, `shl x`...), the jumps, `goto label` and labels.
+`coolproc/readable` generates the readable version, `coolproc/cpu_readable.mip`, built from components (`go run ./coolproc/readable`).
+
+## Instruction set package
+
+`coolproc/isa` holds the instruction set in code, in one place: the registers, operations, modes and jump conditions as named constants, the encoding (`Instruction.Encode` and `Decode`), the opcode patterns the circuits decode, an assembler (`Assemble`) and disassembler (`Disassemble`), and the reference emulator (`Emulator`). Its tests check that every one of the 65536 words disassembles to text that assembles back to it, and that the patterns match exactly the instructions they name.
+
+The assembler takes `move source, destination`, `load destination`, `store source`, `setl r, n`, `seth r, n`, the jumps (`jump`, `jumpz r`, `jumpnz r`, `jumpn r`, `jumpc`, `jumpcz`, `jumpcnz`) and arithmetic instructions with their destination and modes (`add x`, `add y nb c`, `shift x right`, `and x na nb`). Shorthands: `set r, n` (setl then seth), `goto label`, `word n`, `sub`, `subb`, `inc`, `shl`, `shr`, `nand`, `nor`, `xnor`. See the package documentation for the details.
 
 ## Tests
 
-`coolproc/isatest` checks a processor against a reference emulator of this instruction set (written from this document), comparing registers, program counter, carry, data memory and the number of instructions run. Both generated processors run it (`go test ./coolproc/gen ./coolproc/readable`):
+`coolproc/isatest` checks a processor against the reference emulator, comparing registers, program counter, carry, data memory and the number of instructions run. Both generated processors run it (`go test ./coolproc/gen ./coolproc/readable`):
 
 - every set, move, load and store, between every pair of registers;
 - every ALU operation in every mode and to both destinations, on pairs of interesting operands, keeping the result and the carry after each (the carry is set before each one, so an operation that must leave it alone is caught);
@@ -117,3 +123,5 @@ The assembler (`coolproc/gen/asm.go`) takes `move src, dest`, `load dest`, `stor
 - every jump condition on every register, true and false, and the jumps on carry;
 - random programs of 300 instructions with forward jumps;
 - real programs: multiplication, division (with remainder), bubble sort, population count, copying memory, subroutine calls. Each also checks its own result.
+
+Benchmarks (`go test -run X -bench . ./coolproc/isatest ./coolproc/gen ./coolproc/readable`) run the suite's sort program, about 1650 instructions. On the development machine: the emulator runs about 50 million instructions a second, the readable processor about 6900 (82000 clock ticks), and the first, gate matrix version about 1300 (15500 ticks). The gate matrix is slower although it has fewer transistors, probably because its gates share ground rows, so the simulator walks larger groups of nets on every change.

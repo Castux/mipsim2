@@ -19,10 +19,26 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"github.com/Castux/mipsim2/coolproc/isa"
 )
 
 // Register codes in instructions.
-var regs = []string{"a", "b", "x", "y", "c", "d"}
+var regs = func() []string {
+	var names []string
+	for _, r := range isa.Registers {
+		names = append(names, r.String())
+	}
+	return names
+}()
+
+// Instruction register lines for opcode bits the control reads directly.
+var (
+	modeLow        = bitName("ir", 8+isa.ModeLowBit) // not A, carry in, shift right
+	modeLowInverse = bitName("ir_n", 8+isa.ModeLowBit)
+	modeHigh       = bitName("ir", 8+isa.ModeHighBit) // not B
+	modeHighInv    = bitName("ir_n", 8+isa.ModeHighBit)
+)
 
 type cpu struct {
 	*Design
@@ -101,7 +117,7 @@ func ir(j int, v bool) string {
 
 // op returns literals matching opcode bits (o7..o0 = ir_15..ir_8) to a
 // pattern such as "01xxxxx0", most significant first.
-func op(pattern string) []string {
+func op(pattern isa.Pattern) []string {
 	var lits []string
 	for k, ch := range pattern {
 		j := 15 - k
@@ -259,7 +275,7 @@ func (c *cpu) aluBit(i int) string {
 	for _, o := range []string{"a", "b"} {
 		inv, invn := "ia", "ia_n"
 		if o == "b" {
-			inv, invn = "ir_10", "ir_n_10" // m1: not B, for every operation
+			inv, invn = modeHigh, modeHighInv // not B, for every operation
 		}
 		g1, g2 := n(o+"op_g1"), n(o+"op_g2")
 		c.NOR(b, "alu_in", g1, n(o+"_n"), inv)  // o and not inv
@@ -276,7 +292,7 @@ func (c *cpu) aluBit(i int) string {
 	c.Not(b, "logic", n("and_n"), and)
 
 	// Full adder, carry in from bit i-1 (from the control for bit 0).
-	cin, cinn := "ir_9", "ir_n_9"
+	cin, cinn := modeLow, modeLowInverse // add's carry in
 	if i > 0 {
 		cin, cinn = bitName("co", i-1), bitName("co_n", i-1)
 	}
@@ -328,8 +344,8 @@ func (c *cpu) shifter() {
 	for k := range 4 {
 		bk := c.bits[k]
 		bkn := bitName("b_n", k)
-		c.NOR(bk, "shift", bitName("shl", k), bkn, "ir_9")   // shift left by 2^k
-		c.NOR(bk, "shift", bitName("shr", k), bkn, "ir_n_9") // shift right by 2^k
+		c.NOR(bk, "shift", bitName("shl", k), bkn, modeLow)        // shift left by 2^k
+		c.NOR(bk, "shift", bitName("shr", k), bkn, modeLowInverse) // shift right by 2^k
 		c.Not(bk, "shift", bitName("shl_n", k), bitName("shl", k))
 		c.Not(bk, "shift", bitName("shr_n", k), bitName("shr", k))
 	}
@@ -407,40 +423,40 @@ func (c *cpu) control() {
 	c.pair("w_p", "pc_wn")
 
 	// Instruction groups (opcode = ir[15:8]).
-	c.and(b, "ctl", "is_alu", op("01")...)
-	c.and(b, "ctl", "is_jump", op("00010")...)
-	c.and(b, "ctl", "is_jumpc", op("00011")...)
-	c.and(b, "ctl", "is_halt", op("00000000")...)
-	c.and(b, "ctl", "is_move", op("00000001")...)
-	c.and(b, "ctl", "is_load", op("00000010")...)
-	c.and(b, "ctl", "is_store", op("00000011")...)
+	c.and(b, "ctl", "is_alu", op(isa.ArithmeticPattern)...)
+	c.and(b, "ctl", "is_jump", op(isa.JumpPattern)...)
+	c.and(b, "ctl", "is_jumpc", op(isa.JumpOnCarryPattern)...)
+	c.and(b, "ctl", "is_halt", op(isa.HaltPattern)...)
+	c.and(b, "ctl", "is_move", op(isa.MovePattern)...)
+	c.and(b, "ctl", "is_load", op(isa.LoadPattern)...)
+	c.and(b, "ctl", "is_store", op(isa.StorePattern)...)
 	c.sop(b, "ctl", "reads_src", "reads_src_n", []string{"is_move"}, []string{"is_store"}, []string{"is_jump"})
 	c.sop(b, "ctl", "writes_dst", "writes_dst_n", []string{"is_move"}, []string{"is_load"})
-	c.and(b, "ctl", "is_setl", cat(op("10"))...)
-	c.and(b, "ctl", "is_seth", cat(op("11"))...)
+	c.and(b, "ctl", "is_setl", op(isa.SetLowPattern)...)
+	c.and(b, "ctl", "is_seth", op(isa.SetHighPattern)...)
 
 	// Carry: written in state 7 of add and shift. Its input is the adder's
 	// carry out or the last bit shifted out.
-	c.NOR(b, "shift", "sh_c_l", "ir_9", "sh3_n_hi")   // left: position 16
-	c.NOR(b, "shift", "sh_c_r", "ir_n_9", "sh3_n_lo") // right: position -1
+	c.NOR(b, "shift", "sh_c_l", modeLow, "sh3_n_hi")        // left: position 16
+	c.NOR(b, "shift", "sh_c_r", modeLowInverse, "sh3_n_lo") // right: position -1
 	c.NOR(b, "shift", "sh_c_n", "sh_c_l", "sh_c_r")
 	c.NOR(b, "adder", "carry_add", "sel_add_n", "co_n_15")
 	c.NOR(b, "adder", "carry_sh", "sel_sh_n", "sh_c_n")
 	c.NOR(b, "adder", "carry_d_n", "carry_add", "carry_sh")
 	c.Not(b, "adder", "carry_d", "carry_d_n")
-	c.sop(b, "adder", "", "carry_wn", cat([]string{"w_e", "is_alu"}, op("xx00")))
+	c.sop(b, "adder", "", "carry_wn", cat([]string{"w_e", "is_alu"}, op("xx00xxxx"))) // add or shift: ooo = 00x
 	c.latch(b, "adder", "carry", "carry_n", "carry_d", "carry_d_n", "carry_wn")
 
 	// Jump condition, latched in state 7 of every instruction (src is on
 	// the bus in step E). mm = ir[9:8].
 	c.sop(b, "ctl", "taken", "taken_n",
-		cat([]string{"is_jump"}, op("xxxxxx00")),
-		cat([]string{"is_jump", "nz_n_15"}, op("xxxxxx01")),
-		cat([]string{"is_jump", "nz_15"}, op("xxxxxx10")),
-		cat([]string{"is_jump", "bus_15"}, op("xxxxxx11")),
-		cat([]string{"is_jumpc"}, op("xxxxxx00")),
-		cat([]string{"is_jumpc", "carry_n"}, op("xxxxxx01")),
-		cat([]string{"is_jumpc", "carry"}, op("xxxxxx10")),
+		cat([]string{"is_jump"}, op(isa.ConditionPattern(isa.Always))),
+		cat([]string{"is_jump", "nz_n_15"}, op(isa.ConditionPattern(isa.IfZero))),
+		cat([]string{"is_jump", "nz_15"}, op(isa.ConditionPattern(isa.IfNotZero))),
+		cat([]string{"is_jump", "bus_15"}, op(isa.ConditionPattern(isa.IfNegative))),
+		cat([]string{"is_jumpc"}, op(isa.ConditionPattern(isa.Always))),
+		cat([]string{"is_jumpc", "carry_n"}, op(isa.ConditionPattern(isa.IfCarryClear))),
+		cat([]string{"is_jumpc", "carry"}, op(isa.ConditionPattern(isa.IfCarrySet))),
 	)
 	c.latch(b, "ctl", "take", "take_n", "taken", "taken_n", "w_e_n")
 	c.inv(b, "ctl", "w_e")
@@ -458,8 +474,8 @@ func (c *cpu) control() {
 	c.and(b, "ctl", "wr_dst", "w_e", "writes_dst")
 	c.and(b, "ctl", "wr_setl", "w_e", "is_setl")
 	c.and(b, "ctl", "wr_seth", "w_e", "is_seth")
-	c.and(b, "ctl", "wr_alu_x", cat([]string{"w_e", "is_alu"}, op("xxxxxxx0"))...)
-	c.and(b, "ctl", "wr_alu_y", cat([]string{"w_e", "is_alu"}, op("xxxxxxx1"))...)
+	c.and(b, "ctl", "wr_alu_x", cat([]string{"w_e", "is_alu"}, op(isa.ResultToXPattern))...)
+	c.and(b, "ctl", "wr_alu_y", cat([]string{"w_e", "is_alu"}, op(isa.ResultToYPattern))...)
 	c.and(b, "ctl", "rd_jump", "step_p", "take")
 	for code_, r := range regs {
 		c.and(b, "ctl", "src_"+r, code(4, code_)...)
@@ -492,9 +508,14 @@ func (c *cpu) control() {
 	c.sop(b, "result", "", "alu_rdn", []string{"step_e", "is_alu"})
 
 	// ALU control, from the opcode alone: ooo = ir[13:11], mm = ir[10:9].
+	// Invert A: the low mode bit, except for add (operation 000), where it
+	// is the carry in.
 	c.sop(b, "alu_in", "ia", "ia_n", op("xx1xxx1x"), op("xxx1xx1x"), op("xxxx1x1x"))
-	for name, pat := range map[string]string{"add": "xx000", "sh": "xx001", "and": "xx010", "or": "xx011", "xor": "xx100"} {
-		c.sop(b, "result", "", "sel_"+name+"_n", op(pat))
+	for _, sel := range []struct {
+		name      string
+		operation isa.Operation
+	}{{"add", isa.Add}, {"sh", isa.Shift}, {"and", isa.And}, {"or", isa.Or}, {"xor", isa.Xor}} {
+		c.sop(b, "result", "", "sel_"+sel.name+"_n", op(isa.OperationPattern(sel.operation)))
 	}
 
 	// ROM: always reading. Constants for its enables.

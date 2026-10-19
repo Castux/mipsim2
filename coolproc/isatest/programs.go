@@ -2,6 +2,8 @@ package isatest
 
 import (
 	"fmt"
+
+	"github.com/Castux/mipsim2/coolproc/isa"
 	"math/bits"
 	"sort"
 	"strings"
@@ -12,7 +14,7 @@ import (
 type Program struct {
 	Name   string
 	Source string
-	Check  func(State) error
+	Check  func(*isa.Emulator) error
 }
 
 // Programs use loops, memory, the carry and every kind of jump.
@@ -29,9 +31,10 @@ var Programs = []Program{
 	subroutines(),
 }
 
-func want(s State, addr uint16, v uint16) error {
-	if s.RAM[addr] != v {
-		return fmt.Errorf("ram[%#x] = %d, want %d", addr, s.RAM[addr], v)
+// expectMemory checks a word the program left in memory.
+func expectMemory(e *isa.Emulator, address uint16, want uint16) error {
+	if got := e.Memory[address]; got != want {
+		return fmt.Errorf("memory[%#x] = %d, want %d", address, got, want)
 	}
 	return nil
 }
@@ -70,7 +73,7 @@ func multiply(m, n uint16) Program {
 		jump
 	done:
 		halt`, m, n),
-		Check: func(s State) error { return want(s, 0x13, m*n) },
+		Check: func(e *isa.Emulator) error { return expectMemory(e, 0x13, m*n) },
 	}
 }
 
@@ -125,11 +128,11 @@ func divide(n, d uint16) Program {
 		set y, 0x22
 		store c
 		halt`, n, d),
-		Check: func(s State) error {
-			if err := want(s, 0x20, n/d); err != nil {
+		Check: func(e *isa.Emulator) error {
+			if err := expectMemory(e, 0x20, n/d); err != nil {
 				return err
 			}
-			return want(s, 0x22, n%d)
+			return expectMemory(e, 0x22, n%d)
 		},
 	}
 }
@@ -193,9 +196,9 @@ func sortProgram(vs []uint16) Program {
 		set y, pass
 		jumpnz x
 		halt`, n, n-1),
-		Check: func(s State) error {
+		Check: func(e *isa.Emulator) error {
 			for k, v := range sorted {
-				if err := want(s, uint16(0x40+k), v); err != nil {
+				if err := expectMemory(e, uint16(0x40+k), v); err != nil {
 					return err
 				}
 			}
@@ -236,7 +239,7 @@ func popcount(v uint16) Program {
 		set y, 0x51
 		store d
 		halt`, v),
-		Check: func(s State) error { return want(s, 0x51, uint16(bits.OnesCount16(v))) },
+		Check: func(e *isa.Emulator) error { return expectMemory(e, 0x51, uint16(bits.OnesCount16(v))) },
 	}
 }
 
@@ -281,9 +284,9 @@ func copyProgram(n int) Program {
 		set y, copy
 		jumpnz x
 		halt`, 0x80+n, 0x80+n),
-		Check: func(s State) error {
+		Check: func(e *isa.Emulator) error {
 			for k := range n {
-				if err := want(s, uint16(0x90+k), uint16(3*(k+1))); err != nil {
+				if err := expectMemory(e, uint16(0x90+k), uint16(3*(k+1))); err != nil {
 					return err
 				}
 			}
@@ -318,11 +321,11 @@ func subroutines() Program {
 		move x, c
 		move d, y
 		jump`,
-		Check: func(s State) error {
-			if err := want(s, 0x60, 42); err != nil {
+		Check: func(e *isa.Emulator) error {
+			if err := expectMemory(e, 0x60, 42); err != nil {
 				return err
 			}
-			return want(s, 0x61, 84)
+			return expectMemory(e, 0x61, 84)
 		},
 	}
 }

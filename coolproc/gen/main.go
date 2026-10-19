@@ -10,7 +10,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/Castux/mipsim2/coolproc/asm"
+	"github.com/Castux/mipsim2/coolproc/isa"
 	"os"
 	"path/filepath"
 )
@@ -30,7 +30,7 @@ func run(out, prog string) error {
 	if err != nil {
 		return err
 	}
-	words, err := asm.Assemble(string(src))
+	words, err := isa.Assemble(string(src))
 	if err != nil {
 		return fmt.Errorf("%s: %w", prog, err)
 	}

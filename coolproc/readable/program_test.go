@@ -6,74 +6,72 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Castux/mipsim2/coolproc/asm"
+	"github.com/Castux/mipsim2/coolproc/isa"
+	"github.com/Castux/mipsim2/coolproc/isatest"
 	"github.com/Castux/mipsim2/devices"
 	"github.com/Castux/mipsim2/doc"
 	"github.com/Castux/mipsim2/netlist"
 	"github.com/Castux/mipsim2/runner"
+	"github.com/Castux/mipsim2/sim"
 )
 
+// The processor is built once for all tests and benchmarks (it takes a
+// few seconds). Set QUICK to skip the tests that run it.
 var (
-	cpuOnce sync.Once
-	cpuDoc  *doc.Document
-	cpuNL   *netlist.Netlist
-	cpuErr  error
+	processorOnce     sync.Once
+	processorDocument *doc.Document
+	processorNetlist  *netlist.Netlist
+	processorError    error
 )
 
-type machine struct {
-	t   *testing.T
-	r   *runner.Runner
-	ram *devices.Memory
-}
-
-// boot assembles src and boots it.
-func boot(t *testing.T, src string) *machine {
-	t.Helper()
-	words, err := asm.Assemble(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return bootWords(t, words)
-}
-
-// bootWords loads a program, resets, and returns the machine before the
-// first instruction. The processor is built once for all tests (it takes a
-// while); set QUICK to skip these tests.
-func bootWords(t *testing.T, words []uint16) *machine {
-	t.Helper()
+func processor(tb testing.TB) (*doc.Document, *netlist.Netlist) {
+	tb.Helper()
 	if os.Getenv("QUICK") != "" {
-		t.Skip("QUICK")
+		tb.Skip("QUICK")
 	}
-	cpuOnce.Do(func() {
-		cpuDoc, cpuErr = build("prog.bin")
-		if cpuErr == nil {
-			cpuNL = netlist.CompileDoc(cpuDoc, netlist.Options{})
-			for _, dg := range cpuNL.Diagnostics {
-				cpuErr = fmt.Errorf("%v", dg)
+	processorOnce.Do(func() {
+		processorDocument, processorError = build("prog.bin")
+		if processorError == nil {
+			processorNetlist = netlist.CompileDoc(processorDocument, netlist.Options{})
+			for _, d := range processorNetlist.Diagnostics {
+				processorError = fmt.Errorf("%v", d)
 			}
 		}
 	})
-	if cpuErr != nil {
-		t.Fatal(cpuErr)
+	if processorError != nil {
+		tb.Fatal(processorError)
 	}
-	devs, err := runner.DevicesFromDoc(cpuDoc, func(name string) ([]byte, error) {
-		b := make([]byte, 0, 2*len(words))
-		for _, w := range words {
-			b = append(b, byte(w), byte(w>>8))
-		}
-		return b, nil
-	})
+	return processorDocument, processorNetlist
+}
+
+// machine is the processor running a program.
+type machine struct {
+	tb     testing.TB
+	runner *runner.Runner
+	data   *devices.Memory
+}
+
+// boot loads a program into the program memory and resets the processor:
+// reset high for a tick, then low.
+func boot(tb testing.TB, program []uint16) *machine {
+	tb.Helper()
+	document, nets := processor(tb)
+	image := make([]byte, 0, 2*len(program))
+	for _, word := range program {
+		image = append(image, byte(word), byte(word>>8)) // little-endian, as the memory reads it
+	}
+	memories, err := runner.DevicesFromDoc(document, func(string) ([]byte, error) { return image, nil })
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	r, err := runner.New(cpuNL, runner.Options{Devices: devs})
+	r, err := runner.New(nets, runner.Options{Devices: memories})
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	m := &machine{t: t, r: r}
-	for _, d := range devs {
-		if mem, ok := d.(*devices.Memory); ok && mem.Name() == "data" {
-			m.ram = mem
+	m := &machine{tb: tb, runner: r}
+	for _, d := range memories {
+		if memory, ok := d.(*devices.Memory); ok && memory.Name() == "data" {
+			m.data = memory
 		}
 	}
 	m.set("reset", "high")
@@ -82,145 +80,84 @@ func bootWords(t *testing.T, words []uint16) *machine {
 	return m
 }
 
-func (m *machine) set(name, v string) {
-	m.t.Helper()
-	if err := m.r.Set(name, v); err != nil {
-		m.t.Fatal(err)
+func (m *machine) set(name, value string) {
+	m.tb.Helper()
+	if err := m.runner.Set(name, value); err != nil {
+		m.tb.Fatal(err)
 	}
-	if err := m.r.Settle(); err != nil {
-		m.t.Fatal(err)
+	if err := m.runner.Settle(); err != nil {
+		m.tb.Fatal(err)
 	}
 }
 
 func (m *machine) tick(n int) {
-	m.t.Helper()
-	if err := m.r.Tick(n); err != nil {
-		m.t.Fatal(err)
+	m.tb.Helper()
+	if err := m.runner.Tick(n); err != nil {
+		m.tb.Fatal(err)
 	}
 }
 
-func (m *machine) run(limit int) int {
-	m.t.Helper()
+// ticksPerInstruction: four steps of three states (proc.md, Implementation).
+const ticksPerInstruction = 12
+
+// The suite's view of the machine (isatest.Machine).
+
+func (m *machine) Run(limit int) int {
 	for n := range limit {
-		m.tick(12)
-		if m.r.Format("halted") == "1" {
+		m.tick(ticksPerInstruction)
+		if v, _ := m.runner.Value("halted"); v == sim.High {
 			return n + 1
 		}
 	}
-	m.t.Fatalf("not halted after %d instructions (pc %s)", limit, m.r.Format("program_counter.value"))
-	return 0
+	return -1
 }
 
-// reg reads a register: a, b, c, d, x, y or program_counter.
-func (m *machine) reg(name string) uint64 {
-	m.t.Helper()
-	full := "register_" + name + ".value"
-	if name == "program_counter" {
-		full = "program_counter.value"
-	}
-	v, err := m.r.Number(full)
+func (m *machine) number(name string) uint16 {
+	m.tb.Helper()
+	v, err := m.runner.Number(name)
 	if err != nil {
-		m.t.Fatalf("%s: %v", name, err)
+		m.tb.Fatalf("%s: %v", name, err)
 	}
-	return v
+	return uint16(v)
 }
 
-func (m *machine) expect(want map[string]uint64) {
-	m.t.Helper()
-	for name, v := range want {
-		if got := m.reg(name); got != v {
-			m.t.Errorf("%s = %#x, want %#x", name, got, v)
-		}
-	}
+func (m *machine) Register(r isa.Register) uint16 {
+	return m.number("register_" + r.String() + ".value")
+}
+func (m *machine) ProgramCounter() uint16 { return m.number("program_counter.value") }
+func (m *machine) Memory() []uint64       { return m.data.Words() }
+
+func (m *machine) Carry() bool {
+	v, _ := m.runner.Value("carry")
+	return v == sim.High
 }
 
-func TestProgramHalt(t *testing.T) {
-	m := boot(t, "halt")
-	if n := m.run(3); n != 1 {
-		t.Errorf("ran %d instructions", n)
-	}
-}
+func bootForSuite(tb testing.TB, program []uint16) isatest.Machine { return boot(tb, program) }
 
-func TestProgramSetAndMove(t *testing.T) {
-	m := boot(t, `
-		setl a, 0x34
-		seth a, 0x12
-		setl b, 0xff
-		seth c, 0xab
-		setl c, 0x01
-		seth c, 0xcd
-		move a, d
-		move d, x
-		set y, 0xbeef
-		halt`)
-	m.run(20)
-	m.expect(map[string]uint64{"a": 0x1234, "b": 0xff, "c": 0xcd01, "d": 0x1234, "x": 0x1234, "y": 0xbeef, "program_counter": 10})
-}
+// TestInstructionSet runs the shared suite (coolproc/isatest): every
+// instruction in every form, random programs and real programs, each
+// compared with the reference emulator.
+func TestInstructionSet(t *testing.T) { isatest.Run(t, bootForSuite) }
 
-func TestProgramALU(t *testing.T) {
-	for _, tc := range []struct {
-		ins        string
-		a, b, want uint16
-		dest       string
-	}{
-		{"add x", 0x1234, 0x0f0f, 0x2143, "x"},
-		{"add y", 0xffff, 1, 0, "y"},
-		{"sub x", 3, 10, 0xfff9, "x"},
-		{"and x na", 0xff0f, 0x0ff0, 0x00f0, "x"},
-		{"nand y", 0xff00, 0x0ff0, 0xf0ff, "y"},
-		{"xor x", 0xff00, 0x0ff0, 0xf0f0, "x"},
-		{"shl x", 0x8421, 4, 0x4210, "x"},
-		{"shr y", 0x8421, 4, 0x0842, "y"},
-	} {
-		m := boot(t, fmt.Sprintf("set a, %d\n set b, %d\n %s\n halt", tc.a, tc.b, tc.ins))
-		m.run(10)
-		if got := m.reg(tc.dest); got != uint64(tc.want) {
-			t.Errorf("%s %#x %#x = %#x, want %#x", tc.ins, tc.a, tc.b, got, tc.want)
-		}
-	}
-}
+// BenchmarkProcessor measures the processor on the suite's benchmark
+// program.
+func BenchmarkProcessor(b *testing.B) { isatest.Benchmark(b, bootForSuite) }
 
-func TestProgramJumpsAndMemory(t *testing.T) {
-	m := boot(t, `
-		set y, 0x1234
-		set a, 0xcafe
-		store a
-		load c
-		setl a, 1
-		setl b, 1
-		add x            ; carry 0
-		set y, no_carry
-		jumpcz
-		setl d, 99
-		halt
-	no_carry:
-		setl a, 0
-		set y, zero
-		jumpz a
-		setl d, 98
-		halt
-	zero:
-		setl d, 7
-		halt`)
-	m.run(40)
-	m.expect(map[string]uint64{"c": 0xcafe, "d": 7})
-	if w := m.ram.Words(); w[0x1234] != 0xcafe {
-		t.Errorf("ram[0x1234] = %#x", w[0x1234])
-	}
-}
-
-func TestProgramDemo(t *testing.T) {
-	src, err := os.ReadFile("../demo.asm")
+// TestDemo runs the demo the document's program memory loads: the
+// Fibonacci numbers.
+func TestDemo(t *testing.T) {
+	source, err := os.ReadFile("../demo.asm")
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := boot(t, string(src))
-	m.run(1000)
-	w := m.ram.Words()
+	m := boot(t, isatest.Assemble(t, string(source)))
+	if m.Run(1000) < 0 {
+		t.Fatal("the demo did not halt")
+	}
 	a, b := uint64(0), uint64(1)
-	for i := range 20 {
-		if w[i] != b {
-			t.Fatalf("ram[%d] = %d, want %d", i, w[i], b)
+	for k := range 20 {
+		if got := m.Memory()[k]; got != b {
+			t.Fatalf("memory[%d] = %d, want %d", k, got, b)
 		}
 		a, b = b, a+b
 	}
