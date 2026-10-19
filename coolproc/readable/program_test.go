@@ -26,10 +26,20 @@ type machine struct {
 	ram *devices.Memory
 }
 
-// boot assembles src, loads it, resets, and returns the machine before the
+// boot assembles src and boots it.
+func boot(t *testing.T, src string) *machine {
+	t.Helper()
+	words, err := asm.Assemble(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bootWords(t, words)
+}
+
+// bootWords loads a program, resets, and returns the machine before the
 // first instruction. The processor is built once for all tests (it takes a
 // while); set QUICK to skip these tests.
-func boot(t *testing.T, src string) *machine {
+func bootWords(t *testing.T, words []uint16) *machine {
 	t.Helper()
 	if os.Getenv("QUICK") != "" {
 		t.Skip("QUICK")
@@ -45,10 +55,6 @@ func boot(t *testing.T, src string) *machine {
 	})
 	if cpuErr != nil {
 		t.Fatal(cpuErr)
-	}
-	words, err := asm.Assemble(src)
-	if err != nil {
-		t.Fatal(err)
 	}
 	devs, err := runner.DevicesFromDoc(cpuDoc, func(name string) ([]byte, error) {
 		b := make([]byte, 0, 2*len(words))

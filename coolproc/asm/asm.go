@@ -14,8 +14,10 @@ package asm
 //	set R, N              setl and seth (two instructions; N may be a label)
 //	jump                  PC = Y
 //	jumpz R, jumpnz R, jumpn R      PC = Y if R is 0, not 0, negative
+//	jumpc                 PC = Y (the jump on carry form, unconditional)
 //	jumpcz, jumpcnz       PC = Y if carry is 0, 1
 //	goto L                set y, L then jump (three instructions)
+//	word N                the 16-bit word N, as is
 //
 // ALU instructions take the destination (x or y), then optional modes:
 //
@@ -133,6 +135,12 @@ func encode(f []string, labels map[string]int) ([]uint16, error) {
 	switch f[0] {
 	case "halt":
 		return []uint16{0}, nil
+	case "word":
+		v, err := num(1, 1<<16)
+		if err != nil {
+			return nil, err
+		}
+		return []uint16{uint16(v)}, nil
 	case "move":
 		s, err := reg(1)
 		if err != nil {
@@ -186,8 +194,8 @@ func encode(f []string, labels map[string]int) ([]uint16, error) {
 			}
 		}
 		return []uint16{w(0x10|mm, s<<4)}, nil
-	case "jumpcz", "jumpcnz":
-		mm := map[string]int{"jumpcz": 1, "jumpcnz": 2}[f[0]]
+	case "jumpc", "jumpcz", "jumpcnz":
+		mm := map[string]int{"jumpc": 0, "jumpcz": 1, "jumpcnz": 2}[f[0]]
 		return []uint16{w(0x18|mm, 0)}, nil
 	case "goto":
 		v, err := num(1, 1<<16)

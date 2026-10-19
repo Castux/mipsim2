@@ -106,3 +106,14 @@ Registers are gated D latches, so an instruction must not write a register its o
 - **Memories:** `rom` (64K words of 16 bits, read only) on `pc` and `rom`; `ram` (64K words) on `y` and `bus`, with `mem_read` and `mem_write`.
 
 The assembler (`coolproc/gen/asm.go`) takes `move src, dest`, `load dest`, `store src`, `setl r, n`, `seth r, n`, `set r, n` (two instructions), ALU instructions with their destination and modes (`add x`, `sub y`, `and x na nb`, `shl x`...), the jumps, `goto label` and labels.
+
+## Tests
+
+`coolproc/isatest` checks a processor against a reference emulator of this instruction set (written from this document), comparing registers, program counter, carry, data memory and the number of instructions run. Both generated processors run it (`go test ./coolproc/gen ./coolproc/readable`):
+
+- every set, move, load and store, between every pair of registers;
+- every ALU operation in every mode and to both destinations, on pairs of interesting operands, keeping the result and the carry after each (the carry is set before each one, so an operation that must leave it alone is caught);
+- every shift amount (and amounts above 15) in both directions;
+- every jump condition on every register, true and false, and the jumps on carry;
+- random programs of 300 instructions with forward jumps;
+- real programs: multiplication, division (with remainder), bubble sort, population count, copying memory, subroutine calls. Each also checks its own result.

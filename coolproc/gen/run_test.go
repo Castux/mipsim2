@@ -26,9 +26,19 @@ type machine struct {
 	ram *devices.Memory
 }
 
-// boot assembles src, loads it into the ROM, resets and returns the
-// machine, before the first instruction.
+// boot assembles src and boots it.
 func boot(t *testing.T, src string) *machine {
+	t.Helper()
+	words, err := asm.Assemble(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bootWords(t, words)
+}
+
+// bootWords loads a program into the ROM, resets and returns the
+// machine, before the first instruction.
+func bootWords(t *testing.T, words []uint16) *machine {
 	t.Helper()
 	cpuOnce.Do(func() {
 		cpuDoc, _, _, cpuErr = CPUDocument("prog.bin")
@@ -38,10 +48,6 @@ func boot(t *testing.T, src string) *machine {
 	})
 	if cpuErr != nil {
 		t.Fatal(cpuErr)
-	}
-	words, err := asm.Assemble(src)
-	if err != nil {
-		t.Fatal(err)
 	}
 	devs, err := runner.DevicesFromDoc(cpuDoc, func(name string) ([]byte, error) {
 		if name != "prog.bin" {
