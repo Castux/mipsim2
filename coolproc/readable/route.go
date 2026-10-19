@@ -1,11 +1,11 @@
 package main
 
 import (
-	"container/heap"
 	"fmt"
 	"image"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/Castux/mipsim2/bitmap"
 )
@@ -119,10 +119,11 @@ type grid struct {
 	exports map[image.Point]*net
 	// search buffers, reused: a state's best cost and previous state are
 	// valid when its stamp is the current generation.
-	best  []int32
-	prev  []int32
-	stamp []uint32
-	gen   uint32
+	best   []int32
+	prev   []int32
+	stamp  []uint32
+	closed []uint32
+	gen    uint32
 }
 
 func (g *grid) in(p image.Point) bool { return p.X >= 0 && p.Y >= 0 && p.X < g.w && p.Y < g.h }
@@ -130,9 +131,81 @@ func (g *grid) i(p image.Point) int   { return p.Y*g.w + p.X }
 
 var dirs = [4]image.Point{{1, 0}, {0, 1}, {-1, 0}, {0, -1}}
 
-// Route wires every net and finishes the component.
+// Route wires every net and finishes the component. When a net cannot be
+// routed, it starts over with that net first, a few times.
 func (b *Builder) Route() *Def {
 	d := b.def
+	order := append([]*net(nil), b.nets...)
+	// Nets with more terminals first, then in order.
+	sort.SliceStable(order, func(i, j int) bool { return len(order[i].terms) > len(order[j].terms) })
+	var g *grid
+	start := time.Now()
+	for attempt := 0; ; attempt++ {
+		var failed *net
+		var targets []image.Point
+		g, failed, targets = b.routeAll(order)
+		if os.Getenv("ROUTE_TIMES") != "" {
+			fmt.Fprintf(os.Stderr, "%s attempt %d: %v failed %v\n", d.ID, attempt, time.Since(start), failed != nil)
+		}
+		if failed == nil {
+			break
+		}
+		if attempt == 10 {
+			b.debugDump(g, failed, targets)
+			panic(fmt.Sprintf("%s: cannot route %s to %v", d.ID, failed.name, targets))
+		}
+		for k, n := range order {
+			if n == failed {
+				order = append(append([]*net{failed}, order[:k]...), order[k+1:]...)
+				break
+			}
+		}
+	}
+	// Draw.
+	for _, n := range b.nets {
+		for p := range n.cells {
+			d.cells[p] = bitmap.Wire
+		}
+	}
+	for i, br := range g.bridge {
+		if br {
+			d.cells[image.Pt(i%g.w, i/g.w)] = bitmap.Bridge
+		}
+	}
+	for _, n := range b.nets {
+		if n.source != bitmap.Empty {
+			d.cells[n.terms[0]] = n.source
+		}
+		if !n.label || len(n.ports) > 0 {
+			continue // an exported net is named by its port
+		}
+		// Label the net on one of its wire cells, top-left first.
+		var cs []image.Point
+		for p := range n.cells {
+			if k := d.cells[p]; k == bitmap.Wire || k == bitmap.Power || k == bitmap.Ground {
+				cs = append(cs, p)
+			}
+		}
+		sort.Slice(cs, func(i, j int) bool {
+			if cs[i].Y != cs[j].Y {
+				return cs[i].Y < cs[j].Y
+			}
+			return cs[i].X < cs[j].X
+		})
+		if len(cs) > 0 {
+			d.labels[cs[0]] = n.name
+		}
+	}
+	return b.lib.add(d)
+}
+
+// routeAll routes the nets in order on a fresh grid. It returns the net
+// that failed, if any, and where it was going.
+func (b *Builder) routeAll(order []*net) (*grid, *net, []image.Point) {
+	d := b.def
+	for _, n := range b.nets {
+		n.cells = map[image.Point]bool{}
+	}
 	g := &grid{w: d.W, h: d.H, edge: !b.root, exports: map[image.Point]*net{}}
 	g.blocked = make([]bool, d.W*d.H)
 	g.owner = make([]*net, d.W*d.H)
@@ -177,9 +250,6 @@ func (b *Builder) Route() *Def {
 			n.cells[t] = true
 		}
 	}
-	// Route nets with more terminals first, then in order.
-	order := append([]*net(nil), b.nets...)
-	sort.SliceStable(order, func(i, j int) bool { return len(order[i].terms) > len(order[j].terms) })
 	for _, n := range order {
 		groups := n.groups()
 		if len(groups) < 2 {
@@ -203,8 +273,7 @@ func (b *Builder) Route() *Def {
 			rest = append(rest[:best], rest[best+1:]...)
 			path, bridges, ok := g.search(n, tree, grp)
 			if !ok {
-				b.debugDump(g, n, grp)
-				panic(fmt.Sprintf("%s: cannot route %s to %v", d.ID, n.name, grp))
+				return g, n, grp
 			}
 			tree = append(tree, grp...)
 			for _, p := range path {
@@ -217,42 +286,7 @@ func (b *Builder) Route() *Def {
 			}
 		}
 	}
-	// Draw.
-	for _, n := range b.nets {
-		for p := range n.cells {
-			d.cells[p] = bitmap.Wire
-		}
-	}
-	for i, br := range g.bridge {
-		if br {
-			d.cells[image.Pt(i%g.w, i/g.w)] = bitmap.Bridge
-		}
-	}
-	for _, n := range b.nets {
-		if n.source != bitmap.Empty {
-			d.cells[n.terms[0]] = n.source
-		}
-		if !n.label || len(n.ports) > 0 {
-			continue // an exported net is named by its port
-		}
-		// Label the net on one of its wire cells, top-left first.
-		var cs []image.Point
-		for p := range n.cells {
-			if k := d.cells[p]; k == bitmap.Wire || k == bitmap.Power || k == bitmap.Ground {
-				cs = append(cs, p)
-			}
-		}
-		sort.Slice(cs, func(i, j int) bool {
-			if cs[i].Y != cs[j].Y {
-				return cs[i].Y < cs[j].Y
-			}
-			return cs[i].X < cs[j].X
-		})
-		if len(cs) > 0 {
-			d.labels[cs[0]] = n.name
-		}
-	}
-	return b.lib.add(d)
+	return g, nil, nil
 }
 
 func abs(x int) int {
@@ -379,7 +413,12 @@ func (g *grid) search(n *net, tree []image.Point, targets []image.Point) ([]imag
 	full := image.Rect(0, 0, g.w, g.h)
 	for margin := 24; ; margin *= 4 {
 		win := box.Inset(-margin).Intersect(full)
-		if path, bridges, ok := g.searchIn(win, n, tree, targets); ok {
+		t0 := time.Now()
+		path, bridges, ok := g.searchIn(win, n, tree, targets)
+		if os.Getenv("ROUTE_TIMES") != "" && time.Since(t0) > 200*time.Millisecond {
+			fmt.Fprintf(os.Stderr, "  slow search %s window %v ok %v: %v\n", n.name, win.Size(), ok, time.Since(t0))
+		}
+		if ok {
 			return path, bridges, true
 		}
 		if win == full {
@@ -399,9 +438,10 @@ func (g *grid) searchIn(win image.Rectangle, n *net, tree []image.Point, targets
 		g.best = make([]int32, size)
 		g.prev = make([]int32, size)
 		g.stamp = make([]uint32, size)
+		g.closed = make([]uint32, size)
 	}
 	g.gen++
-	best, prev, stamp := g.best[:size], g.prev[:size], g.stamp[:size]
+	best, prev, stamp, closed := g.best[:size], g.prev[:size], g.stamp[:size], g.closed[:size]
 	seen := func(k int) bool { return stamp[k] == g.gen }
 	h := func(p image.Point) int {
 		b := 1 << 30
@@ -418,6 +458,9 @@ func (g *grid) searchIn(win image.Rectangle, n *net, tree []image.Point, targets
 		}
 		return false
 	}
+	// Weighted A*: the heuristic counts double, so the search heads for
+	// the target and settles for a near-shortest path.
+	const weight = 2
 	open := &pq{}
 	for _, p := range tree {
 		if !p.In(win) {
@@ -425,14 +468,15 @@ func (g *grid) searchIn(win image.Rectangle, n *net, tree []image.Point, targets
 		}
 		k := idx(p, 4)
 		stamp[k], best[k], prev[k] = g.gen, 0, -1
-		heap.Push(open, &item{k: k, p: p, d: 4, f: h(p)})
+		open.push(item{k: k, p: p, d: 4, f: weight * h(p)})
 	}
 	const bend, cross, diag = 3, 4, 2
-	for open.Len() > 0 {
-		it := heap.Pop(open).(*item)
-		if it.c > int(best[it.k]) {
+	for len(*open) > 0 {
+		it := open.pop()
+		if it.c > int(best[it.k]) || closed[it.k] == g.gen {
 			continue
 		}
+		closed[it.k] = g.gen // expanded once: weighted A* never reopens
 		if isTarget(it.p) {
 			// Walk back: each move is a straight run from the previous state.
 			var path, bridges []image.Point
@@ -484,11 +528,11 @@ func (g *grid) searchIn(win image.Rectangle, n *net, tree []image.Point, targets
 				continue
 			}
 			k := idx(cur, nd)
-			if seen(k) && int(best[k]) <= cost {
+			if closed[k] == g.gen || seen(k) && int(best[k]) <= cost {
 				continue
 			}
 			stamp[k], best[k], prev[k] = g.gen, int32(cost), int32(it.k)
-			heap.Push(open, &item{k: k, p: cur, d: nd, c: cost, f: cost + h(cur)})
+			open.push(item{k: k, p: cur, d: nd, c: cost, f: cost + weight*h(cur)})
 		}
 	}
 	return nil, nil, false
@@ -501,13 +545,52 @@ type item struct {
 	f, c int
 }
 
-type pq []*item
+// pq is a binary min-heap of items by f, deeper items first on ties.
+type pq []item
 
-func (q pq) Len() int           { return len(q) }
-func (q pq) Less(i, j int) bool { return q[i].f < q[j].f }
-func (q pq) Swap(i, j int)      { q[i], q[j] = q[j], q[i] }
-func (q *pq) Push(x any)        { *q = append(*q, x.(*item)) }
-func (q *pq) Pop() any          { old := *q; it := old[len(old)-1]; *q = old[:len(old)-1]; return it }
+func (q pq) less(i, j int) bool {
+	if q[i].f != q[j].f {
+		return q[i].f < q[j].f
+	}
+	return q[i].c > q[j].c
+}
+
+func (q *pq) push(it item) {
+	*q = append(*q, it)
+	h := *q
+	for i := len(h) - 1; i > 0; {
+		p := (i - 1) / 2
+		if !h.less(i, p) {
+			break
+		}
+		h[i], h[p] = h[p], h[i]
+		i = p
+	}
+}
+
+func (q *pq) pop() item {
+	h := *q
+	top := h[0]
+	n := len(h) - 1
+	h[0] = h[n]
+	h = h[:n]
+	for i := 0; ; {
+		l, r, m := 2*i+1, 2*i+2, i
+		if l < n && h.less(l, m) {
+			m = l
+		}
+		if r < n && h.less(r, m) {
+			m = r
+		}
+		if m == i {
+			break
+		}
+		h[i], h[m] = h[m], h[i]
+		i = m
+	}
+	*q = h
+	return top
+}
 
 // debugDump writes the component as routed so far, with the failing
 // targets marked by labels, to the file named by ROUTE_DEBUG.

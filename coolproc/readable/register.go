@@ -1,9 +1,6 @@
 package main
 
-import (
-	"fmt"
-	"image"
-)
+import "image"
 
 // Datapath geometry. Every datapath unit is a column of 16 bit slices, bit
 // 15 at the top, and every slice is bitPitch cells tall. Data runs across
@@ -20,6 +17,9 @@ const (
 	lane4    = 10           // the shifted value to the ALU
 	parts    = 14           // components start here
 )
+
+// laneName names the lanes passing through a unit.
+var laneName = map[int]string{lane1: "operand_a", lane2: "operand_b", lane3: "alu_result", lane4: "shifted"}
 
 // slice describes one bit slice of a register unit.
 type slice struct {
@@ -84,7 +84,7 @@ func (l *Library) registerSlice(s slice) *Def {
 	b.Export("write", "write", image.Pt(0, 36))
 	b.Export("not_reset", "not_reset", image.Pt(0, 52))
 	for _, lane := range s.pass {
-		name := fmt.Sprintf("lane_%d", lane)
+		name := laneName[lane]
 		b.Export(name, name+"_left", image.Pt(0, lane))
 		b.Export(name, name+"_right", image.Pt(w-1, lane))
 	}
@@ -97,7 +97,7 @@ func (l *Library) registerSlice(s slice) *Def {
 		sel := b.Place(l.selector(), "source_selector", 16, parts)
 		alt := "alternative"
 		if s.passes(s.selectAlt) {
-			alt = fmt.Sprintf("lane_%d", s.selectAlt) // tapped from the lane passing through
+			alt = laneName[s.selectAlt] // tapped from the lane passing through
 		} else {
 			b.Export(alt, alt, image.Pt(0, s.selectAlt))
 		}
@@ -136,8 +136,8 @@ func (l *Library) registerUnit(name string, s slice) *Def {
 	return l.stackUnit(stack{
 		name:  name,
 		slice: func(int) *Def { return l.registerSlice(s) },
-		left:  40,
-		right: 12,
+		left:  90, // room for the control lines, and for the unit's name
+		right: 40,
 		control: map[string]func(int) string{
 			"write": func(i int) string {
 				if s.whole {

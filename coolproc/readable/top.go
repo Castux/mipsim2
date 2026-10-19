@@ -82,10 +82,10 @@ func (l *Library) processor() *Def {
 		ports [][2]string // unit, port prefix (port is prefix_i_left/right)
 	}{
 		{"bus", nil}, // every unit
-		{"operand_a", [][2]string{{"register_a", "value"}, {"register_b", "lane_4"}, {"shifter", "operand_a"}, {"alu", "operand_a"}}},
+		{"operand_a", [][2]string{{"register_a", "value"}, {"register_b", "operand_a"}, {"shifter", "operand_a"}, {"alu", "operand_a"}}},
 		{"operand_b", [][2]string{{"register_b", "value"}, {"shifter", "operand_b"}, {"alu", "operand_b"}}},
 		{"shifted", [][2]string{{"shifter", "shifted"}, {"alu", "shifted"}}},
-		{"alu_result", [][2]string{{"alu", "result"}, {"register_x", "lane_8"}, {"register_y", "alternative"}}},
+		{"alu_result", [][2]string{{"alu", "result"}, {"register_x", "alu_result"}, {"register_y", "alternative"}}},
 		{"program_counter_value", [][2]string{{"program_counter", "value"}, {"incrementer", "value"}}},
 		{"program_counter_plus_one", [][2]string{{"incrementer", "plus_one"}, {"temporary_register", "data"}}},
 	}
