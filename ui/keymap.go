@@ -17,9 +17,10 @@ const (
 	uiFit
 	uiFilter
 	uiScreenshot
-	uiSetWatch  // prompt: set a watched bus
-	uiSetWord   // prompt: set a memory word (target "device:index")
-	uiSetDevice // prompt: set a device field (target "index:field")
+	uiSetWatch    // prompt: set a watched bus
+	uiSetWord     // prompt: set a memory word (target "device:index")
+	uiSetDevice   // prompt: set a device field (target "index:field")
+	uiGoToAddress // prompt: show a memory from an address (target: the memory)
 )
 
 // place says where a binding's button goes.

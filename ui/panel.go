@@ -382,10 +382,7 @@ func (a *app) panelHint(l layout, p image.Point) string {
 		}
 		return devicesHint(r)
 	case tabMemory:
-		if i := a.rowAt(l, p); i >= 0 && i < len(a.memLines()) && a.memLines()[i].start < 0 {
-			return "click to reload the init file (after rebuilding it)"
-		}
-		return "click a word to type a new value (while paused) · wheel scroll · highlighted: last access (blue read, pink write)"
+		return a.memoryHint(l, p)
 	case tabComponents:
 		if a.rowAt(l, p) == importRow(a.ed.Definitions()) {
 			return "copy components (and the ones they use) from another document"

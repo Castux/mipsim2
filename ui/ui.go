@@ -84,6 +84,9 @@ type app struct {
 	imp         *importDialog        // the import checklist, when shown
 	tab         panelTab
 	panelScroll int
+	memFolded   map[string]bool // Memory tab: folded sections, by memory name
+	memScroll   map[string]int  // Memory tab: first row shown, by memory name
+	memBody     image.Rectangle // Memory tab: where it was last drawn
 	watch       watchState
 	lastFrame   time.Time
 
@@ -299,7 +302,7 @@ func (a *app) handleKeys() {
 }
 
 func (a *app) runPrompt(p *prompt) {
-	if (p.kind == uiSetWatch || p.kind == uiSetWord || p.kind == uiSetDevice) && !p.edited {
+	if (p.kind == uiSetWatch || p.kind == uiSetWord || p.kind == uiSetDevice || p.kind == uiGoToAddress) && !p.edited {
 		return // the field was opened and left without typing
 	}
 	if p.kind == uiSetDevice {
@@ -314,6 +317,8 @@ func (a *app) runPrompt(p *prompt) {
 	switch p.kind {
 	case uiSetWord:
 		a.setWord(p.target, value)
+	case uiGoToAddress:
+		a.goToAddress(p.target, value)
 	case uiSetWatch:
 		if a.ed.SetName(p.target, value) {
 			a.ed.Status = p.target + " = " + value
@@ -366,7 +371,7 @@ func (a *app) handlePointer(l layout) {
 	inCanvas := cur.In(l.canvas)
 
 	// Clicking anywhere applies a watch value or memory word being edited.
-	if p := a.prompt; p != nil && (p.kind == uiSetWatch || p.kind == uiSetWord || p.kind == uiSetDevice) {
+	if p := a.prompt; p != nil && (p.kind == uiSetWatch || p.kind == uiSetWord || p.kind == uiSetDevice || p.kind == uiGoToAddress) {
 		for _, b := range mouseButtons {
 			if inpututil.IsMouseButtonJustPressed(b) {
 				a.prompt = nil
@@ -384,6 +389,8 @@ func (a *app) handlePointer(l layout) {
 		switch {
 		case inCanvas:
 			a.view.Zoom(n, float64(cx), float64(cy))
+		case cur.In(l.right) && a.currentTab() == tabMemory:
+			a.memoryWheel(l, cur, n)
 		case cur.In(l.right):
 			a.panelScroll -= n
 		}
@@ -512,6 +519,8 @@ func (a *app) drawStatus(screen *ebiten.Image, l layout, hover string) {
 		hint = browserHint()
 	} else if p := a.prompt; p != nil && p.kind == uiSetDevice {
 		hint = "type a value · enter or click elsewhere applies · esc cancels"
+	} else if p := a.prompt; p != nil && p.kind == uiGoToAddress {
+		hint = "show " + p.target + " from address: type it (hex; or 0x, 0b, 0d) · enter or click elsewhere applies · esc cancels"
 	} else if p := a.prompt; p != nil && p.kind == uiSetWord {
 		hint = "set " + p.target + ": type a value (hex; or 0x, 0b, 0d) · enter or click elsewhere applies · esc cancels"
 	} else if p := a.prompt; p != nil && p.kind == uiSetWatch {
