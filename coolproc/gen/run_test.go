@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/Castux/mipsim2/coolproc/asm"
 	"sync"
 	"testing"
 
@@ -38,7 +39,7 @@ func boot(t *testing.T, src string) *machine {
 	if cpuErr != nil {
 		t.Fatal(cpuErr)
 	}
-	words, err := Assemble(src)
+	words, err := asm.Assemble(src)
 	if err != nil {
 		t.Fatal(err)
 	}

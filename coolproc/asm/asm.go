@@ -1,4 +1,5 @@
-package main
+// Package asm assembles coolproc programs (proc.md) into ROM words.
+package asm
 
 // A small assembler for coolproc (proc.md), to make ROM images for tests
 // and demos. One instruction per line; ";" starts a comment; "name:" defines

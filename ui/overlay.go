@@ -121,25 +121,46 @@ var (
 	instColor   = color.RGBA{208, 161, 208, 255} // v1's drain-source purple
 	cueColor    = color.RGBA{128, 0, 128, 255}   // v1's transistor purple
 	handleColor = color.RGBA{255, 140, 0, 255}   // resize handles: orange, used nowhere else
-	maxOutline  = 3000                           // skip plain outlines beyond this many
+	tagColor    = color.RGBA{150, 105, 150, 255} // instance names written in their box
+	minOutline  = 12                             // screen pixels: smaller instances are not outlined
+	minTag      = 90                             // screen pixels: wider instances show their name
+	maxOutline  = 4000                           // plain outlines drawn per frame, at most
 )
 
 // drawInstances outlines component instances. The instance under the
 // pointer is labelled, and every other instance of the same definition is
 // highlighted, so an edit that changes them all is visible.
+//
+// Instances big enough on screen are outlined, and the biggest show their
+// instance name in their top-left corner, so a large design reads as named
+// boxes at any zoom. In simulate mode only the names are drawn.
 func (a *app) drawInstances(dst *ebiten.Image) {
 	cues := a.ed.Instances()
-	if a.ed.Mode() == editor.SimulateMode {
-		return
-	}
-	plain := len(cues) <= maxOutline && a.view.Scale >= 0.5
+	simulating := a.ed.Mode() == editor.SimulateMode
+	b := dst.Bounds()
+	view := image.Rectangle{Min: a.view.ToWorld(float64(b.Min.X), float64(b.Min.Y)), Max: a.view.ToWorld(float64(b.Max.X), float64(b.Max.Y)).Add(image.Pt(1, 1))}
+	drawn := 0
 	for _, c := range cues {
+		if !c.Rect.Overlaps(view) {
+			continue
+		}
+		sw, sh := float64(c.Rect.Dx())*a.view.Scale, float64(c.Rect.Dy())*a.view.Scale
 		switch {
+		case simulating:
 		case c.Hovered || c.Sibling:
 			strokeWorldRect(dst, &a.view, c.Rect, float32(2*a.scale), cueColor)
-		case plain:
+		case sw >= float64(minOutline)*a.scale && sh >= float64(minOutline)*a.scale && drawn < maxOutline:
 			strokeWorldRect(dst, &a.view, c.Rect, 1, instColor)
+			drawn++
 		}
+		if sw >= float64(minTag)*a.scale && sh >= 2*a.lineHeight() && !(c.Hovered && !simulating) {
+			name := c.Path[strings.LastIndexByte(c.Path, '.')+1:]
+			x, y := a.view.ToScreen(c.Rect.Min)
+			a.drawText(dst, a.fitText(name, sw-6*a.scale), x+3*a.scale, y+2*a.scale, 0, tagColor)
+		}
+	}
+	if simulating {
+		return
 	}
 	for _, c := range cues {
 		if !c.Hovered {
