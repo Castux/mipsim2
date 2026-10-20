@@ -2,27 +2,27 @@ package main
 
 import (
 	"encoding/json"
-	"image"
 
 	"github.com/Castux/mipsim2/doc"
 )
 
-// CPUDocument lays out the processor and adds its memories: the program
-// ROM on the PC, and the data RAM on Y and the bus. prog is the ROM's init
-// file, relative to the document.
-func CPUDocument(prog string) (*doc.Document, *cpu, *Layout, error) {
-	c := BuildCPU()
-	l, err := c.Lay()
+// ProcessorDocument lays out the processor and adds its memories: the
+// program memory on the program counter, and the data memory on Y and the
+// bus. program is the program memory's init file, relative to the
+// document.
+func ProcessorDocument(program string) (*doc.Document, *processor, *Layout, error) {
+	p := BuildProcessor()
+	layout, err := p.LayOut()
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	d := l.Document(image.Point{})
-	if _, err := c.Verify(d, l, image.Point{}); err != nil {
+	d := layout.Document()
+	if _, err := p.Verify(d, layout); err != nil {
 		return nil, nil, nil, err
 	}
 	for _, m := range []map[string]any{
-		{"kind": "memory", "name": "rom", "addr": "pc", "data": "rom", "read": "rom_read", "write": "rom_write", "words": 65536, "width": 16, "init": prog, "readonly": true},
-		{"kind": "memory", "name": "ram", "addr": "y", "data": "bus", "read": "mem_read", "write": "mem_write", "words": 65536, "width": 16},
+		{"kind": "memory", "name": "program", "addr": "program_counter", "data": "instruction_from_memory", "read": "program_memory_read", "write": "program_memory_write", "words": 65536, "width": 16, "init": program, "readonly": true},
+		{"kind": "memory", "name": "data", "addr": "register_y", "data": "bus", "read": "memory_read", "write": "memory_write", "words": 65536, "width": 16},
 	} {
 		raw, err := json.Marshal(m)
 		if err != nil {
@@ -34,11 +34,12 @@ func CPUDocument(prog string) (*doc.Document, *cpu, *Layout, error) {
 		}
 		d.Devices = append(d.Devices, dc)
 	}
-	return d, c, l, nil
+	return d, p, layout, nil
 }
 
-// romImage encodes words as the ROM's init file: little-endian.
-func romImage(words []uint16) []byte {
+// programImage encodes words as the program memory's init file:
+// little-endian.
+func programImage(words []uint16) []byte {
 	b := make([]byte, 0, 2*len(words))
 	for _, w := range words {
 		b = append(b, byte(w), byte(w>>8))
@@ -46,8 +47,9 @@ func romImage(words []uint16) []byte {
 	return b
 }
 
-// CPUDocumentOnly is CPUDocument without the design and layout.
-func CPUDocumentOnly(prog string) (*doc.Document, error) {
-	d, _, _, err := CPUDocument(prog)
+// processorDocumentOnly is ProcessorDocument without the design and
+// layout.
+func processorDocumentOnly(program string) (*doc.Document, error) {
+	d, _, _, err := ProcessorDocument(program)
 	return d, err
 }

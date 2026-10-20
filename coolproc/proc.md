@@ -89,21 +89,22 @@ Registers are gated D latches, so an instruction must not write a register its o
 
 ## Implementation
 
-`coolproc/gen` generates the processor as `coolproc/cpu.mip` (`go run ./coolproc/gen`), with the program `coolproc/demo.asm` assembled into `coolproc/prog.bin` for the ROM. Its tests run programs on the generated circuit in the headless simulator (`go test ./coolproc/gen`).
+`coolproc/gen` generates the processor as `coolproc/cpu.mip` (`go run ./coolproc/gen`), with the program `coolproc/demo.asm` assembled into `coolproc/prog.bin` for the program memory. Its tests run programs on the generated circuit in the headless simulator (`go test ./coolproc/gen`).
 
 - **Gates:** everything is NOR gates (a pull-up power cell and one pull-down transistor per input), laid out as a gate matrix: signals are vertical lines, gates are horizontal rows, crossings are bridges. Data only drives transistor gates, never channels, so "low wins" never corrupts a value.
 - **Layout:** the control block (instruction register, sequencer, decoder) on top, then 16 bit slices, bit 15 first. Each register bit is a gated D latch of four NOR gates.
 - **Bus:** one NOR gate per bit, pulled up, with a pull-down per driver, so it reads all ones when nothing drives it. The ALU result goes to X or Y over the bus (the bus is free during ALU instructions), not over separate wiring.
 - **ALU:** A and B each go through an inverter and mux (the not A and not B modes), then nand, nor and xor gates and a ripple-carry adder. `and` is the nor of the inverted operands, `or` the nand, so the instruction set is unchanged. The shifter is a barrel shifter over positions -1 to 16, so the last bit shifted out lands in position 16 (left) or -1 (right) for the carry.
-- **Instruction word:** the opcode is the high byte. The ROM init file holds little-endian 16-bit words.
+- **Instruction word:** the opcode is the high byte. The program memory's init file holds little-endian 16-bit words.
 - **Timing:** a Johnson counter of 6 master-slave flip-flops gives 12 states, so an instruction takes 12 clock ticks, in 4 steps of 3 states (route, route and write, route):
-  - fetch: the ROM word into IR
-  - PC + 1 into TMP
-  - execute
-  - TMP into PC, or Y for a taken jump (the jump condition is latched during execute)
+  - fetching: the program word into the instruction register
+  - incrementing: program counter + 1 into the temporary register
+  - executing
+  - updating the program counter: from the temporary register, or Y for a taken jump (the jump condition is latched during execute)
 - **Reset:** pin `reset` high for a tick, then release it. It clears every register, PC and the sequencer.
 - **Halt:** stops the sequencer (the clock keeps running) and raises `halted`.
-- **Memories:** `rom` (64K words of 16 bits, read only) on `pc` and `rom`; `ram` (64K words) on `y` and `bus`, with `mem_read` and `mem_write`.
+- **Memories:** `program` (64K words of 16 bits, read only) on `program_counter` and `instruction_from_memory`; `data` (64K words) on `register_y` and `bus`, with `memory_read` and `memory_write`.
+- **Names:** signals have long names, a bus as `name_0` to `name_15` (`register_a_3`, `bus_inverted_7`, `carry_out_15`); a NOR output that is active low ends in `_inverted`.
 
 `coolproc/readable` generates the readable version, `coolproc/cpu_readable.mip`, built from components (`go run ./coolproc/readable`).
 

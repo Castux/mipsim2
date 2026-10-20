@@ -24,13 +24,13 @@ var (
 	processorError    error
 )
 
-func processor(tb testing.TB) (*doc.Document, *netlist.Netlist) {
+func builtProcessor(tb testing.TB) (*doc.Document, *netlist.Netlist) {
 	tb.Helper()
 	if os.Getenv("QUICK") != "" {
 		tb.Skip("QUICK")
 	}
 	processorOnce.Do(func() {
-		processorDocument, processorError = CPUDocumentOnly("prog.bin")
+		processorDocument, processorError = processorDocumentOnly("prog.bin")
 		if processorError == nil {
 			processorNetlist = netlist.CompileDoc(processorDocument, netlist.Options{})
 			for _, d := range processorNetlist.Diagnostics {
@@ -55,7 +55,7 @@ type machine struct {
 // reset high for a tick, then low.
 func boot(tb testing.TB, program []uint16) *machine {
 	tb.Helper()
-	document, nets := processor(tb)
+	document, nets := builtProcessor(tb)
 	image := make([]byte, 0, 2*len(program))
 	for _, word := range program {
 		image = append(image, byte(word), byte(word>>8)) // little-endian, as the memory reads it
@@ -70,7 +70,7 @@ func boot(tb testing.TB, program []uint16) *machine {
 	}
 	m := &machine{tb: tb, runner: r}
 	for _, d := range memories {
-		if memory, ok := d.(*devices.Memory); ok && memory.Name() == "ram" {
+		if memory, ok := d.(*devices.Memory); ok && memory.Name() == "data" {
 			m.data = memory
 		}
 	}
@@ -122,9 +122,9 @@ func (m *machine) number(name string) uint16 {
 }
 
 func (m *machine) Register(r isa.Register) uint16 {
-	return m.number(r.String())
+	return m.number("register_" + r.String())
 }
-func (m *machine) ProgramCounter() uint16 { return m.number("pc") }
+func (m *machine) ProgramCounter() uint16 { return m.number("program_counter") }
 func (m *machine) Memory() []uint64       { return m.data.Words() }
 
 func (m *machine) Carry() bool {

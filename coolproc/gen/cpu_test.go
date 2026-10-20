@@ -1,19 +1,18 @@
 package main
 
-import (
-	"image"
-	"testing"
-)
+import "testing"
 
-func TestCPULays(t *testing.T) {
-	c := BuildCPU()
-	l, err := c.Lay()
+// TestProcessorLaysOut lays the processor out and checks the drawing is
+// the design, transistor by transistor.
+func TestProcessorLaysOut(t *testing.T) {
+	p := BuildProcessor()
+	layout, err := p.LayOut()
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("%d gates, %d signals, %d tracks, %v", len(c.gates), len(c.sigs), l.Tracks, l.Bounds)
-	dc := l.Document(image.Point{})
-	if _, err := c.Verify(dc, l, image.Point{}); err != nil {
+	t.Logf("%d gates, %d signals, %d tracks, %v", len(p.gates), len(p.signals), layout.Tracks, layout.Bounds)
+	document := layout.Document()
+	if _, err := p.Verify(document, layout); err != nil {
 		t.Fatal(err)
 	}
 }

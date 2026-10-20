@@ -1,30 +1,64 @@
 package main
 
-// The coolproc processor (proc.md) as NOR gates.
+// The coolproc processor (proc.md) as NOR gates, for the gate matrix.
 //
-// Datapath: 16 bit slices, bit 15 at the top, under the control blocks.
-// Every register bit is a gated D latch of four NOR gates; data only ever
-// drives transistor gates. The bus is one NOR gate per bit, pulled up, with
-// one pull-down per possible driver, so it reads as all ones when nothing
-// drives it.
+// The control block (instruction register, step counter, decoding) sits on
+// top, then 16 bit slices of the datapath, bit 15 first. Every register
+// bit is a gated D latch of four NOR gates, and data only ever drives
+// transistor gates. The bus is one NOR gate per bit, pulled up, with one
+// pull-down per driver, so it reads all ones when nothing drives it.
 //
-// Sequencer: a Johnson counter of 6 master-slave flip-flops gives 12 states
-// per instruction, in 4 steps of 3 states: route, route + write, route.
+// Signals named ..._inverted are the complement of the signal without the
+// suffix. Many control lines exist only inverted, because that is what the
+// gates they drive need: a latch takes its write line inverted, a bus
+// driver its read line.
 //
-//	step F  states 0-2   fetch: the ROM word into IR (write in state 1)
-//	step I  states 3-5   PC+1 into TMP (write in state 4)
-//	step E  states 6-8   execute (writes in state 7)
-//	step P  states 9-11  TMP, or Y for a taken jump, into PC (write in 10)
+// The step counter is a Johnson counter of six master-slave flip-flops:
+// twelve states per instruction, in four steps of three states (route,
+// route and write, route):
+//
+//	states 0-2   fetching                  write_instruction in state 1
+//	states 3-5   incrementing              write_temporary in state 4
+//	states 6-8   executing                 write_result in state 7
+//	states 9-11  updating_program_counter  write_program_counter in state 10
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/Castux/mipsim2/coolproc/isa"
 )
 
-// Register codes in instructions.
-var regs = func() []string {
+// processor is the design, with what building it needs to remember.
+type processor struct {
+	*Design
+	complements  map[string]string // a signal's complement, both ways
+	controlBlock int
+	bitBlocks    [16]int // the block of each datapath bit
+}
+
+// bitSignal names bit i of a group of signals: name_i, which the editor
+// reads as one number.
+func bitSignal(name string, i int) string { return fmt.Sprintf("%s_%d", name, i) }
+
+// instructionBit is the instruction register's line for word bit n, true or
+// inverted.
+func instructionBit(n int, set bool) string {
+	if set {
+		return bitSignal("instruction", n)
+	}
+	return bitSignal("instruction_inverted", n)
+}
+
+// Opcode bits the control reads directly, both ways.
+var (
+	modeLow          = instructionBit(8+isa.ModeLowBit, true) // not A, carry in, or shift right
+	modeLowInverted  = instructionBit(8+isa.ModeLowBit, false)
+	modeHigh         = instructionBit(8+isa.ModeHighBit, true) // not B
+	modeHighInverted = instructionBit(8+isa.ModeHighBit, false)
+)
+
+// registerNames are the registers' names, in instruction order.
+var registerNames = func() []string {
 	var names []string
 	for _, r := range isa.Registers {
 		names = append(names, r.String())
@@ -32,501 +66,538 @@ var regs = func() []string {
 	return names
 }()
 
-// Instruction register lines for opcode bits the control reads directly.
-var (
-	modeLow        = bitName("ir", 8+isa.ModeLowBit) // not A, carry in, shift right
-	modeLowInverse = bitName("ir_n", 8+isa.ModeLowBit)
-	modeHigh       = bitName("ir", 8+isa.ModeHighBit) // not B
-	modeHighInv    = bitName("ir_n", 8+isa.ModeHighBit)
-)
-
-type cpu struct {
-	*Design
-	comp map[string]string // complements: name -> its inverse
-	ctl  int               // the control block
-	bits [16]int           // block of each bit
+// recordComplements notes that a and b are each other's complement.
+func (p *processor) recordComplements(a, b string) {
+	p.complements[a], p.complements[b] = b, a
 }
 
-func bitName(name string, i int) string { return fmt.Sprintf("%s_%d", name, i) }
-
-// pair records that a and b are complements.
-func (c *cpu) pair(a, b string) {
-	c.comp[a], c.comp[b] = b, a
-}
-
-// inv returns the complement of a signal, making an inverter if needed.
-func (c *cpu) inv(block int, unit, s string) string {
-	if n, ok := c.comp[s]; ok {
-		return n
+// complement returns a signal's complement, adding an inverter if there is
+// none yet.
+func (p *processor) complement(block int, unit, signal string) string {
+	if c, ok := p.complements[signal]; ok {
+		return c
 	}
-	n := s + "_n"
-	if o := c.S(s); o.drv != nil {
-		unit = o.Unit // next to the signal it inverts
+	inverted := signal + "_inverted"
+	if s := p.Signal(signal); s.driver != nil {
+		unit = s.Unit // next to the signal it inverts
 	}
-	c.Not(block, unit, n, s)
-	c.pair(s, n)
-	return n
+	p.Not(block, unit, inverted, signal)
+	p.recordComplements(signal, inverted)
+	return inverted
 }
 
-// and is out = AND(lits): a NOR of their complements.
-func (c *cpu) and(block int, unit, out string, lits ...string) string {
-	var ins []string
-	for _, l := range lits {
-		ins = append(ins, c.inv(block, unit, l))
+// andGate makes output = AND(literals): a NOR of their complements.
+func (p *processor) andGate(block int, unit, output string, literals ...string) string {
+	var inputs []string
+	for _, l := range literals {
+		inputs = append(inputs, p.complement(block, unit, l))
 	}
-	c.NOR(block, unit, out, ins...)
-	return out
+	p.NOR(block, unit, output, inputs...)
+	return output
 }
 
-// latch is a gated D latch with reset: q follows d while w is high (given
-// as d, dn and wn) and holds when w is low; rst clears it.
-func (c *cpu) latch(block int, unit, q, qn, d, dn, wn string) {
-	c.NOR(block, unit, q+"_s", dn, wn) // d and w
-	c.NOR(block, unit, q+"_r", d, wn)  // not d and w
-	c.NOR(block, unit, q, q+"_r", qn, "rst")
-	c.NOR(block, unit, qn, q+"_s", q)
-	c.pair(q, qn)
+// latchSignals are the names of a latch's signals.
+type latchSignals struct {
+	value, inverted     string
+	storeOne, storeZero string // data and write, not data and write
 }
 
-// sop builds a function as a sum of products: outn = NOR(products), and
-// out = NOT outn when out is not empty. Each product is a list of literals.
-func (c *cpu) sop(block int, unit, out, outn string, products ...[]string) {
+// latchNames names a latch's signals after base, with bit i (or none when
+// i is negative): base_i, base_inverted_i, base_store_one_i...
+func latchNames(base string, i int) latchSignals {
+	name := func(suffix string) string {
+		if i < 0 {
+			return base + suffix
+		}
+		return bitSignal(base+suffix, i)
+	}
+	return latchSignals{value: name(""), inverted: name("_inverted"), storeOne: name("_store_one"), storeZero: name("_store_zero")}
+}
+
+// latch is a gated D latch: its value follows data while the write line is
+// high (given inverted), and holds when it is low. reset_buffered clears
+// it.
+func (p *processor) latch(block int, unit string, l latchSignals, data, dataInverted, writeInverted string) {
+	p.NOR(block, unit, l.storeOne, dataInverted, writeInverted)
+	p.NOR(block, unit, l.storeZero, data, writeInverted)
+	p.NOR(block, unit, l.value, l.storeZero, l.inverted, "reset_buffered")
+	p.NOR(block, unit, l.inverted, l.storeOne, l.value)
+	p.recordComplements(l.value, l.inverted)
+}
+
+// sumOfProducts builds outputInverted = NOR(products), and output = its
+// inverse when output is not empty. A product is a list of literals (an
+// AND); a single literal is used as it is.
+func (p *processor) sumOfProducts(block int, unit, output, outputInverted string, products ...[]string) {
+	base := output
+	if base == "" {
+		base = outputInverted
+	}
 	var terms []string
-	for i, p := range products {
-		name := fmt.Sprintf("%s_p%d", strings.TrimSuffix(outn, "_n"), i)
-		if len(p) == 1 {
-			terms = append(terms, p[0])
+	for k, product := range products {
+		if len(product) == 1 {
+			terms = append(terms, product[0])
 			continue
 		}
-		terms = append(terms, c.and(block, unit, name, p...))
+		terms = append(terms, p.andGate(block, unit, fmt.Sprintf("%s_term_%d", base, k+1), product...))
 	}
-	c.NOR(block, unit, outn, terms...)
-	if out != "" {
-		c.Not(block, unit, out, outn)
-		c.pair(out, outn)
+	p.NOR(block, unit, outputInverted, terms...)
+	if output != "" {
+		p.Not(block, unit, output, outputInverted)
+		p.recordComplements(output, outputInverted)
 	}
 }
 
-// ir returns the literal for instruction bit j (0..15), negated with "!".
-func ir(j int, v bool) string {
-	if v {
-		return bitName("ir", j)
-	}
-	return bitName("ir_n", j)
-}
-
-// op returns literals matching opcode bits (o7..o0 = ir_15..ir_8) to a
-// pattern such as "01xxxxx0", most significant first.
-func op(pattern isa.Pattern) []string {
-	var lits []string
-	for k, ch := range pattern {
-		j := 15 - k
-		switch ch {
+// opcodeLiterals are the literals that match an opcode pattern (word bits
+// 15 to 8).
+func opcodeLiterals(pattern isa.Pattern) []string {
+	var literals []string
+	for k, bit := range pattern {
+		switch bit {
 		case '0':
-			lits = append(lits, ir(j, false))
+			literals = append(literals, instructionBit(15-k, false))
 		case '1':
-			lits = append(lits, ir(j, true))
+			literals = append(literals, instructionBit(15-k, true))
 		}
 	}
-	return lits
+	return literals
 }
 
-// code returns the literals of a 3-bit register code in ir bits lo..lo+2.
-func code(lo, r int) []string {
-	var lits []string
+// registerFieldLiterals are the literals that match register number r in
+// the three-bit field starting at word bit first.
+func registerFieldLiterals(first, r int) []string {
+	var literals []string
 	for k := range 3 {
-		lits = append(lits, ir(lo+k, r>>k&1 == 1))
+		literals = append(literals, instructionBit(first+k, r>>k&1 == 1))
 	}
-	return lits
+	return literals
 }
 
-func cat(parts ...[]string) []string {
+func concatenate(parts ...[]string) []string {
 	var all []string
-	for _, p := range parts {
-		all = append(all, p...)
+	for _, part := range parts {
+		all = append(all, part...)
 	}
 	return all
 }
 
-// BuildCPU returns the processor design.
-func BuildCPU() *cpu {
-	c := &cpu{Design: NewDesign(), comp: map[string]string{}}
-	for _, u := range []string{"ir", "imm", "c", "d", "x", "y", "bus", "zero", "a", "b", "alu_in", "logic", "adder", "result", "shift", "pc", "inc", "tmp", "ctl"} {
-		c.Unit(u)
+// BuildProcessor returns the processor design.
+func BuildProcessor() *processor {
+	p := &processor{Design: NewDesign(), complements: map[string]string{}}
+	// Units, left to right: their lines stay together.
+	for _, u := range []string{"instruction_register", "immediate", "register_c", "register_d", "register_x", "register_y",
+		"bus", "zero_detector", "register_a", "register_b", "operand_selection", "logic", "adder", "result_selection",
+		"shifter", "program_counter", "incrementer", "temporary_register", "control"} {
+		p.Unit(u)
 	}
-	c.ctl = c.Block("control")
-	c.Fold(c.ctl)
-	c.NoTap("ctl")
-	c.NoTap("ir")
+	p.controlBlock = p.Block("control")
+	p.Fold(p.controlBlock)
+	p.NoTap("control")
+	p.NoTap("instruction_register")
 	for i := 15; i >= 0; i-- {
-		c.bits[i] = c.Block(fmt.Sprintf("bit%d", i))
+		p.bitBlocks[i] = p.Block(fmt.Sprintf("bit_%d", i))
 	}
-	c.Ext("clock", "ctl")
-	c.Ext("reset", "ctl")
+	p.External("clock", "control")
+	p.External("reset", "control")
 	// Reset, buffered so that its row can reach every unit with a tap.
-	c.Not(c.ctl, "ctl", "reset_n", "reset")
-	c.Not(c.ctl, "pc", "rst", "reset_n")
-	c.datapath()
-	c.control()
-	return c
+	p.Not(p.controlBlock, "control", "reset_inverted", "reset")
+	p.Not(p.controlBlock, "program_counter", "reset_buffered", "reset_inverted")
+	p.datapath()
+	p.control()
+	return p
 }
 
-func (c *cpu) datapath() {
+func (p *processor) datapath() {
 	for i := range 16 {
-		b := c.bits[i]
-		bus, busn := bitName("bus", i), bitName("bus_n", i)
-		c.Not(b, "bus", busn, bus)
-		c.pair(bus, busn)
+		block := p.bitBlocks[i]
+		bus, busInverted := bitSignal("bus", i), bitSignal("bus_inverted", i)
+		p.Not(block, "bus", busInverted, bus)
+		p.recordComplements(bus, busInverted)
 
-		// Registers on the bus. PC is written from the bus but never
-		// drives it; its outputs address the ROM.
-		var drivers []string
-		for _, r := range append(append([]string{}, regs...), "pc") {
-			half := "lo"
+		// Registers on the bus. The program counter is written from the bus
+		// but never drives it; its value addresses the program memory.
+		var busDrivers []string
+		for _, r := range append(append([]string{}, registerNames...), "program_counter") {
+			unit := "register_" + r
+			half := "low"
 			if i >= 8 {
-				half = "hi"
+				half = "high"
 			}
-			wn := r + "_wn_" + half
-			if r == "pc" {
-				wn = "pc_wn"
+			write := "write_" + r + "_" + half + "_inverted"
+			if r == "program_counter" {
+				unit, write = r, "write_program_counter_inverted"
 			}
-			q, qn := bitName(r, i), bitName(r+"_n", i)
-			c.latch(b, r, q, qn, bus, busn, wn)
-			if r != "pc" {
-				t := bitName(r+"_t", i)
-				c.NOR(b, r, t, r+"_rdn", q) // read and q low
-				drivers = append(drivers, t)
+			p.latch(block, unit, latchNames(unit, i), bus, busInverted, write)
+			if r != "program_counter" {
+				pullsLow := bitSignal(unit+"_pulls_bus_low", i)
+				p.NOR(block, unit, pullsLow, r+"_to_bus_inverted", bitSignal(unit, i)) // read, and the bit is 0
+				busDrivers = append(busDrivers, pullsLow)
 			}
 		}
 
-		// Instruction register, from the ROM.
-		rom := bitName("rom", i)
-		c.Ext(rom, "ir")
-		// It sits in the control block, which decodes it: the ROM's data
-		// pins have no position.
-		romn := c.inv(c.ctl, "ir", rom)
-		c.latch(c.ctl, "ir", bitName("ir", i), bitName("ir_n", i), rom, romn, "ir_wn")
+		// The instruction register sits in the control block, which
+		// decodes it: the program memory's data pins have no position.
+		fromMemory := bitSignal("instruction_from_memory", i)
+		p.External(fromMemory, "instruction_register")
+		fromMemoryInverted := bitSignal("instruction_from_memory_inverted", i)
+		p.Not(p.controlBlock, "instruction_register", fromMemoryInverted, fromMemory)
+		p.recordComplements(fromMemory, fromMemoryInverted)
+		p.latch(p.controlBlock, "instruction_register", latchNames("instruction", i), fromMemory, fromMemoryInverted, "write_instruction_inverted")
 
-		// Immediates: setl puts ir[7:0] on bus[7:0] and zeros on
-		// bus[15:8]; seth puts ir[7:0] on bus[15:8].
+		// Immediates: setl puts the argument byte on bus bits 0-7 and
+		// zeros on bits 8-15; seth puts it on bits 8-15.
+		pullsLow := bitSignal("immediate_pulls_bus_low", i)
 		if i < 8 {
-			t := bitName("imm_t", i)
-			c.NOR(b, "imm", t, "imm_lo_n", bitName("ir", i))
-			drivers = append(drivers, t)
+			p.NOR(block, "immediate", pullsLow, "immediate_low_to_bus_inverted", instructionBit(i, true))
+			busDrivers = append(busDrivers, pullsLow)
 		} else {
-			drivers = append(drivers, "imm_lo")
-			t := bitName("imm_t", i)
-			c.NOR(b, "imm", t, "imm_hi_n", bitName("ir", i-8))
-			drivers = append(drivers, t)
+			busDrivers = append(busDrivers, "immediate_low_to_bus") // zeros up here
+			p.NOR(block, "immediate", pullsLow, "immediate_high_to_bus_inverted", instructionBit(i-8, true))
+			busDrivers = append(busDrivers, pullsLow)
 		}
 
-		// PC + 1 into TMP.
-		pc, pcn := bitName("pc", i), bitName("pc_n", i)
-		var inc, incn string
-		switch i {
-		case 0:
-			inc, incn = pcn, pc
-		default:
-			cin, cinn := bitName("pc", 0), bitName("pc_n", 0)
-			if i > 1 {
-				cin, cinn = bitName("inc_c", i), bitName("inc_c_n", i)
-			}
-			x := bitName("inc_x", i)
-			c.NOR(b, "inc", x, pc, cin) // both low
-			co := bitName("inc_c", i+1)
-			c.NOR(b, "inc", co, pcn, cinn) // both high: carry out
-			if i < 15 {
-				c.Not(b, "inc", bitName("inc_c_n", i+1), co)
-			}
-			inc, incn = bitName("inc", i), bitName("inc_n", i)
-			c.NOR(b, "inc", inc, co, x)
-			c.Not(b, "inc", incn, inc)
-		}
-		c.latch(b, "tmp", bitName("tmp", i), bitName("tmp_n", i), inc, incn, "tmp_wn")
-		t := bitName("tmp_t", i)
-		c.NOR(b, "tmp", t, "tmp_rdn", bitName("tmp", i))
-		drivers = append(drivers, t)
-
-		// ALU.
-		drivers = append(drivers, c.aluBit(i))
+		// The program counter plus one, into the temporary register.
+		plusOne, plusOneInverted := p.incrementerBit(i)
+		temporary := latchNames("temporary_register", i)
+		p.latch(block, "temporary_register", temporary, plusOne, plusOneInverted, "write_temporary_inverted")
+		temporaryPullsLow := bitSignal("temporary_register_pulls_bus_low", i)
+		p.NOR(block, "temporary_register", temporaryPullsLow, "temporary_to_bus_inverted", temporary.value)
+		busDrivers = append(busDrivers, temporaryPullsLow, p.aluBit(i))
 
 		// The bus.
-		c.NOR(b, "bus", bus, drivers...)
+		p.NOR(block, "bus", bus, busDrivers...)
 
-		// Zero detection, chained from bit 0 up: nz_i = bus_0..i not all zero.
+		// Zero detection, chained from bit 0 up: bus_nonzero_up_to_i says
+		// whether bus bits 0 to i are not all zero.
 		if i > 0 {
-			prev := bitName("nz", i-1)
+			below := bitSignal("bus_nonzero_up_to", i-1)
 			if i == 1 {
-				prev = bitName("bus", 0)
+				below = bitSignal("bus", 0)
 			}
-			c.NOR(b, "zero", bitName("nz_n", i), bitName("bus", i), prev)
-			c.Not(b, "zero", bitName("nz", i), bitName("nz_n", i))
-			c.pair(bitName("nz", i), bitName("nz_n", i))
+			nonzero, zero := bitSignal("bus_nonzero_up_to", i), bitSignal("bus_zero_up_to", i)
+			p.NOR(block, "zero_detector", zero, bitSignal("bus", i), below)
+			p.Not(block, "zero_detector", nonzero, zero)
+			p.recordComplements(nonzero, zero)
 		}
 	}
-	c.shifter()
+	p.shifter()
+}
+
+// incrementerBit adds the carry from the bit below to bit i of the program
+// counter (the carry into bit 0 is 1). It returns the sum, both ways.
+func (p *processor) incrementerBit(i int) (string, string) {
+	block := p.bitBlocks[i]
+	counter, counterInverted := bitSignal("program_counter", i), bitSignal("program_counter_inverted", i)
+	if i == 0 {
+		return counterInverted, counter
+	}
+	carry, carryInverted := bitSignal("program_counter", 0), bitSignal("program_counter_inverted", 0)
+	if i > 1 {
+		carry, carryInverted = bitSignal("incrementer_carry", i), bitSignal("incrementer_carry_inverted", i)
+	}
+	bothZero := bitSignal("incrementer_both_zero", i)
+	p.NOR(block, "incrementer", bothZero, counter, carry)
+	carryOut := bitSignal("incrementer_carry", i+1)
+	p.NOR(block, "incrementer", carryOut, counterInverted, carryInverted) // both one
+	if i < 15 {
+		p.Not(block, "incrementer", bitSignal("incrementer_carry_inverted", i+1), carryOut)
+	}
+	sum, sumInverted := bitSignal("program_counter_plus_one", i), bitSignal("program_counter_plus_one_inverted", i)
+	p.NOR(block, "incrementer", sum, carryOut, bothZero) // neither both one nor both zero
+	p.Not(block, "incrementer", sumInverted, sum)
+	return sum, sumInverted
 }
 
 // aluBit builds bit i of the ALU and returns its bus driver.
-func (c *cpu) aluBit(i int) string {
-	b := c.bits[i]
-	n := func(s string) string { return bitName(s, i) }
-	// Operands, inverted on demand: a' = a xor ia, b' = b xor ib.
-	for _, o := range []string{"a", "b"} {
-		inv, invn := "ia", "ia_n"
-		if o == "b" {
-			inv, invn = modeHigh, modeHighInv // not B, for every operation
+func (p *processor) aluBit(i int) string {
+	block := p.bitBlocks[i]
+	bit := func(name string) string { return bitSignal(name, i) }
+	// The operands, inverted by their mode: operand = register xor invert.
+	for _, register := range []string{"a", "b"} {
+		invert, invertInverted := "invert_a", "invert_a_inverted"
+		if register == "b" {
+			invert, invertInverted = modeHigh, modeHighInverted // not B, for every operation
 		}
-		g1, g2 := n(o+"op_g1"), n(o+"op_g2")
-		c.NOR(b, "alu_in", g1, n(o+"_n"), inv)  // o and not inv
-		c.NOR(b, "alu_in", g2, n(o), invn)      // not o and inv
-		c.NOR(b, "alu_in", n(o+"op_n"), g1, g2) // not o'
-		c.Not(b, "alu_in", n(o+"op"), n(o+"op_n"))
+		operand := "operand_" + register
+		value, valueInverted := bit("register_"+register), bit("register_"+register+"_inverted")
+		kept, flipped := bit(operand+"_kept"), bit(operand+"_flipped")
+		p.NOR(block, "operand_selection", kept, valueInverted, invert)    // 1 and not inverting
+		p.NOR(block, "operand_selection", flipped, value, invertInverted) // 0 and inverting
+		p.NOR(block, "operand_selection", bit(operand+"_inverted"), kept, flipped)
+		p.Not(block, "operand_selection", bit(operand), bit(operand+"_inverted"))
 	}
-	ap, apn, bp, bpn := n("aop"), n("aop_n"), n("bop"), n("bop_n")
-	and, nor := n("and"), n("nor")
-	c.NOR(b, "logic", and, apn, bpn)
-	c.NOR(b, "logic", nor, ap, bp)
-	c.NOR(b, "logic", n("xor"), and, nor)
-	c.Not(b, "logic", n("xor_n"), n("xor"))
-	c.Not(b, "logic", n("and_n"), and)
+	and, nor := bit("and"), bit("nor")
+	p.NOR(block, "logic", and, bit("operand_a_inverted"), bit("operand_b_inverted"))
+	p.NOR(block, "logic", nor, bit("operand_a"), bit("operand_b"))
+	p.NOR(block, "logic", bit("xor"), and, nor)
+	p.Not(block, "logic", bit("xor_inverted"), bit("xor"))
+	p.Not(block, "logic", bit("and_inverted"), and)
 
-	// Full adder, carry in from bit i-1 (from the control for bit 0).
-	cin, cinn := modeLow, modeLowInverse // add's carry in
+	// Full adder, the carry from bit i-1 (for bit 0, the carry in mode).
+	carryIn, carryInInverted := modeLow, modeLowInverted
 	if i > 0 {
-		cin, cinn = bitName("co", i-1), bitName("co_n", i-1)
+		carryIn, carryInInverted = bitSignal("carry_out", i-1), bitSignal("carry_out_inverted", i-1)
 	}
-	k1, k2 := n("add_k1"), n("add_k2")
-	c.NOR(b, "adder", k1, n("xor_n"), cinn) // xor and carry
-	c.NOR(b, "adder", k2, n("xor"), cin)    // neither
-	c.NOR(b, "adder", n("sum"), k1, k2)
-	c.Not(b, "adder", n("sum_n"), n("sum"))
-	c.NOR(b, "adder", n("co_n"), and, k1)
-	c.Not(b, "adder", n("co"), n("co_n"))
+	xorAndCarry, neither := bit("sum_xor_and_carry"), bit("sum_neither")
+	p.NOR(block, "adder", xorAndCarry, bit("xor_inverted"), carryInInverted)
+	p.NOR(block, "adder", neither, bit("xor"), carryIn)
+	p.NOR(block, "adder", bit("sum"), xorAndCarry, neither)
+	p.Not(block, "adder", bit("sum_inverted"), bit("sum"))
+	p.NOR(block, "adder", bit("carry_out_inverted"), and, xorAndCarry)
+	p.Not(block, "adder", bit("carry_out"), bit("carry_out_inverted"))
 
-	// Result: the selected function, then onto the bus.
-	terms := []string{
-		c.and0(b, n("res_and"), "sel_and_n", n("and_n")),
-		c.and0(b, n("res_or"), "sel_or_n", nor),
-		c.and0(b, n("res_xor"), "sel_xor_n", n("xor_n")),
-		c.and0(b, n("res_add"), "sel_add_n", n("sum_n")),
-		c.and0(b, n("res_sh"), "sel_sh_n", bitName("sh3_n", i)),
+	// The result: the selected function's value. A term is the AND of a
+	// select line and a value, as a NOR of their complements.
+	terms := []struct{ name, selectInverted, valueInverted string }{
+		{"and", "select_and_inverted", bit("and_inverted")},
+		{"or", "select_or_inverted", nor}, // nor is or, inverted
+		{"xor", "select_xor_inverted", bit("xor_inverted")},
+		{"add", "select_add_inverted", bit("sum_inverted")},
+		{"shift", "select_shift_inverted", bitSignal("shifted_by_8_inverted", i)},
 	}
-	c.NOR(b, "result", n("res_n"), terms...)
-	c.Not(b, "result", n("res"), n("res_n"))
-	t := n("alu_t")
-	c.NOR(b, "result", t, "alu_rdn", n("res"))
-	return t
+	var picked []string
+	for _, t := range terms {
+		name := bit("result_" + t.name)
+		p.NOR(block, "result_selection", name, t.selectInverted, t.valueInverted)
+		picked = append(picked, name)
+	}
+	p.NOR(block, "result_selection", bit("result_inverted"), picked...)
+	p.Not(block, "result_selection", bit("result"), bit("result_inverted"))
+	pullsLow := bit("alu_pulls_bus_low")
+	p.NOR(block, "result_selection", pullsLow, "alu_to_bus_inverted", bit("result"))
+	return pullsLow
 }
 
-// and0 is a NOR of two complements in the result unit: an AND of their
-// true forms.
-func (c *cpu) and0(b int, out, xn, yn string) string {
-	c.NOR(b, "result", out, xn, yn)
-	return out
-}
-
-// shifter is a barrel shifter of A by B[3:0], left (ir_9 low) or right,
-// over positions -1..16 so that the last bit shifted out lands in position
-// 16 (left) or -1 (right). Each stage computes the complement of its
-// output.
-func (c *cpu) shifter() {
-	pos := func(p int) string {
-		switch p {
+// shifter is a barrel shifter of A by B[3:0], left or right (the low mode
+// bit), over positions -1 to 16, so that the last bit shifted out lands in
+// position 16 (left) or -1 (right): the shift's carry. Each stage computes
+// the complement of its output.
+func (p *processor) shifter() {
+	position := func(k int) string {
+		switch k {
 		case -1:
-			return "lo"
+			return "below_0"
 		case 16:
-			return "hi"
+			return "above_15"
 		}
-		return fmt.Sprint(p)
+		return fmt.Sprint(k)
 	}
-	block := func(p int) int { return c.bits[max(0, min(15, p))] }
-	for k := range 4 {
-		bk := c.bits[k]
-		bkn := bitName("b_n", k)
-		c.NOR(bk, "shift", bitName("shl", k), bkn, modeLow)        // shift left by 2^k
-		c.NOR(bk, "shift", bitName("shr", k), bkn, modeLowInverse) // shift right by 2^k
-		c.Not(bk, "shift", bitName("shl_n", k), bitName("shl", k))
-		c.Not(bk, "shift", bitName("shr_n", k), bitName("shr", k))
+	stageOutput := func(stage, k int) string { // inverted
+		return fmt.Sprintf("shifted_by_%d_inverted_%s", 1<<stage, position(k))
 	}
-	// in returns the complement of stage k's input at position q, or "" if
-	// it is a constant zero.
-	in := func(k, q int) string {
-		if k == 0 {
-			if q < 0 || q > 15 {
+	blockOf := func(k int) int { return p.bitBlocks[max(0, min(15, k))] }
+	for stage := range 4 {
+		block := p.bitBlocks[stage] // where bit stage of B is
+		amount := fmt.Sprint(1 << stage)
+		amountInverted := bitSignal("register_b_inverted", stage)
+		p.NOR(block, "shifter", "shift_left_by_"+amount, amountInverted, modeLow)
+		p.NOR(block, "shifter", "shift_right_by_"+amount, amountInverted, modeLowInverted)
+		p.Not(block, "shifter", "shift_left_by_"+amount+"_inverted", "shift_left_by_"+amount)
+		p.Not(block, "shifter", "shift_right_by_"+amount+"_inverted", "shift_right_by_"+amount)
+	}
+	// input is the complement of a stage's input at position k, or "" for
+	// a constant zero.
+	input := func(stage, k int) string {
+		if stage == 0 {
+			if k < 0 || k > 15 {
 				return ""
 			}
-			return bitName("a_n", q)
+			return bitSignal("register_a_inverted", k)
 		}
-		if q < -1 || q > 16 {
+		if k < -1 || k > 16 {
 			return ""
 		}
-		return fmt.Sprintf("sh%d_n_%s", k-1, pos(q))
+		return stageOutput(stage-1, k)
 	}
-	for k := range 4 {
-		s := 1 << k
-		for p := -1; p <= 16; p++ {
-			b := block(p)
+	for stage := range 4 {
+		amount := 1 << stage
+		for k := -1; k <= 16; k++ {
+			block := blockOf(k)
 			var terms []string
-			add := func(name, sel, x string) {
-				if x == "" {
+			term := func(name, selectInverted, valueInverted string) {
+				if valueInverted == "" {
 					return
 				}
-				name = fmt.Sprintf("sh%d_%s_%s", k, name, pos(p))
-				c.NOR(b, "shift", name, sel, x)
+				name = fmt.Sprintf("shift_by_%d_%s_%s", amount, name, position(k))
+				p.NOR(block, "shifter", name, selectInverted, valueInverted)
 				terms = append(terms, name)
 			}
-			add("l", bitName("shl_n", k), in(k, p-s))
-			add("r", bitName("shr_n", k), in(k, p+s))
-			add("k", bitName("b", k), in(k, p)) // keep, when b[k] is low
-			c.NOR(b, "shift", fmt.Sprintf("sh%d_n_%s", k, pos(p)), terms...)
+			term("from_below", fmt.Sprintf("shift_left_by_%d_inverted", amount), input(stage, k-amount))
+			term("from_above", fmt.Sprintf("shift_right_by_%d_inverted", amount), input(stage, k+amount))
+			term("keep", bitSignal("register_b", stage), input(stage, k)) // when bit stage of B is 0
+			p.NOR(block, "shifter", stageOutput(stage, k), terms...)
 		}
 	}
 }
 
-func (c *cpu) control() {
-	b := c.ctl
-	// Clock gated by halt, and its complement.
-	c.Not(b, "ctl", "clock_n", "clock")
-	c.NOR(b, "ctl", "clk", "clock_n", "halted") // clock and not halted
-	c.Not(b, "ctl", "clk_n", "clk")
-	// Johnson counter: q0 takes not q5, q1..q5 shift. Master latches are
-	// open while the clock is low, slaves while it is high.
-	for i := range 6 {
-		d, dn := bitName("q", i-1), bitName("q_n", i-1)
-		if i == 0 {
-			d, dn = "q_n_5", "q_5"
+func (p *processor) control() {
+	block, unit := p.controlBlock, "control"
+	// The clock, stopped once the processor has halted.
+	p.Not(block, unit, "clock_inverted", "clock")
+	p.NOR(block, unit, "running_clock", "clock_inverted", "halted")
+	p.Not(block, unit, "running_clock_inverted", "running_clock")
+	// The step counter: stage 0 takes stage 5 inverted, the others shift.
+	// Master latches are open while the clock is low, slaves while it is
+	// high.
+	for k := range 6 {
+		data, dataInverted := bitSignal("step", k-1), bitSignal("step_inverted", k-1)
+		if k == 0 {
+			data, dataInverted = "step_inverted_5", "step_5"
 		}
-		c.latch(b, "ctl", bitName("m", i), bitName("m_n", i), d, dn, "clk")
-		c.latch(b, "ctl", bitName("q", i), bitName("q_n", i), bitName("m", i), bitName("m_n", i), "clk_n")
+		master := latchNames("step_master", k)
+		p.latch(block, unit, master, data, dataInverted, "running_clock")
+		p.latch(block, unit, latchNames("step", k), master.value, master.inverted, "running_clock_inverted")
 	}
-	q := func(i int, v bool) string {
-		if v {
-			return bitName("q", i)
+	stage := func(k int, set bool) string {
+		if set {
+			return bitSignal("step", k)
 		}
-		return bitName("q_n", i)
+		return bitSignal("step_inverted", k)
 	}
-	// Steps and write states.
-	c.and(b, "ctl", "step_f", q(2, false), q(5, false))
-	c.and(b, "ctl", "step_i", q(2, true), q(5, false))
-	c.and(b, "ctl", "step_e", q(2, true), q(5, true))
-	c.and(b, "ctl", "step_p", q(2, false), q(5, true))
-	c.and(b, "ctl", "w_f", q(0, true), q(1, false))
-	c.and(b, "ctl", "w_i", q(3, true), q(4, false))
-	c.and(b, "ctl", "w_e", q(0, false), q(1, true))
-	c.and(b, "ctl", "w_p", q(3, false), q(4, true))
-	c.Not(b, "ctl", "ir_wn", "w_f")
-	c.Not(b, "tmp", "tmp_wn", "w_i")
-	c.Not(b, "pc", "pc_wn", "w_p")
-	c.pair("w_f", "ir_wn")
-	c.pair("w_i", "tmp_wn")
-	c.pair("w_p", "pc_wn")
+	// Steps, and the write state in the middle of each.
+	p.andGate(block, unit, "fetching", stage(2, false), stage(5, false))
+	p.andGate(block, unit, "incrementing", stage(2, true), stage(5, false))
+	p.andGate(block, unit, "executing", stage(2, true), stage(5, true))
+	p.andGate(block, unit, "updating_program_counter", stage(2, false), stage(5, true))
+	p.andGate(block, unit, "write_instruction", stage(0, true), stage(1, false))
+	p.andGate(block, unit, "write_temporary", stage(3, true), stage(4, false))
+	p.andGate(block, unit, "write_result", stage(0, false), stage(1, true))
+	p.andGate(block, unit, "write_program_counter", stage(3, false), stage(4, true))
+	p.Not(block, "instruction_register", "write_instruction_inverted", "write_instruction")
+	p.Not(block, "temporary_register", "write_temporary_inverted", "write_temporary")
+	p.Not(block, "program_counter", "write_program_counter_inverted", "write_program_counter")
+	p.recordComplements("write_instruction", "write_instruction_inverted")
+	p.recordComplements("write_temporary", "write_temporary_inverted")
+	p.recordComplements("write_program_counter", "write_program_counter_inverted")
 
-	// Instruction groups (opcode = ir[15:8]).
-	c.and(b, "ctl", "is_alu", op(isa.ArithmeticPattern)...)
-	c.and(b, "ctl", "is_jump", op(isa.JumpPattern)...)
-	c.and(b, "ctl", "is_jumpc", op(isa.JumpOnCarryPattern)...)
-	c.and(b, "ctl", "is_halt", op(isa.HaltPattern)...)
-	c.and(b, "ctl", "is_move", op(isa.MovePattern)...)
-	c.and(b, "ctl", "is_load", op(isa.LoadPattern)...)
-	c.and(b, "ctl", "is_store", op(isa.StorePattern)...)
-	c.sop(b, "ctl", "reads_src", "reads_src_n", []string{"is_move"}, []string{"is_store"}, []string{"is_jump"})
-	c.sop(b, "ctl", "writes_dst", "writes_dst_n", []string{"is_move"}, []string{"is_load"})
-	c.and(b, "ctl", "is_setl", op(isa.SetLowPattern)...)
-	c.and(b, "ctl", "is_seth", op(isa.SetHighPattern)...)
+	// Instruction kinds.
+	for _, k := range []struct {
+		name    string
+		pattern isa.Pattern
+	}{
+		{"is_arithmetic", isa.ArithmeticPattern}, {"is_jump", isa.JumpPattern}, {"is_jump_on_carry", isa.JumpOnCarryPattern},
+		{"is_halt", isa.HaltPattern}, {"is_move", isa.MovePattern}, {"is_load", isa.LoadPattern}, {"is_store", isa.StorePattern},
+		{"is_set_low", isa.SetLowPattern}, {"is_set_high", isa.SetHighPattern},
+	} {
+		p.andGate(block, unit, k.name, opcodeLiterals(k.pattern)...)
+	}
+	p.sumOfProducts(block, unit, "reads_source", "reads_source_inverted", []string{"is_move"}, []string{"is_store"}, []string{"is_jump"})
+	p.sumOfProducts(block, unit, "writes_destination", "writes_destination_inverted", []string{"is_move"}, []string{"is_load"})
 
-	// Carry: written in state 7 of add and shift. Its input is the adder's
-	// carry out or the last bit shifted out.
-	c.NOR(b, "shift", "sh_c_l", modeLow, "sh3_n_hi")        // left: position 16
-	c.NOR(b, "shift", "sh_c_r", modeLowInverse, "sh3_n_lo") // right: position -1
-	c.NOR(b, "shift", "sh_c_n", "sh_c_l", "sh_c_r")
-	c.NOR(b, "adder", "carry_add", "sel_add_n", "co_n_15")
-	c.NOR(b, "adder", "carry_sh", "sel_sh_n", "sh_c_n")
-	c.NOR(b, "adder", "carry_d_n", "carry_add", "carry_sh")
-	c.Not(b, "adder", "carry_d", "carry_d_n")
-	c.sop(b, "adder", "", "carry_wn", cat([]string{"w_e", "is_alu"}, op("xx00xxxx"))) // add or shift: ooo = 00x
-	c.latch(b, "adder", "carry", "carry_n", "carry_d", "carry_d_n", "carry_wn")
+	p.carry()
+	p.jumpAndHalt()
+	p.registerControl()
 
-	// Jump condition, latched in state 7 of every instruction (src is on
-	// the bus in step E). mm = ir[9:8].
-	c.sop(b, "ctl", "taken", "taken_n",
-		cat([]string{"is_jump"}, op(isa.ConditionPattern(isa.Always))),
-		cat([]string{"is_jump", "nz_n_15"}, op(isa.ConditionPattern(isa.IfZero))),
-		cat([]string{"is_jump", "nz_15"}, op(isa.ConditionPattern(isa.IfNotZero))),
-		cat([]string{"is_jump", "bus_15"}, op(isa.ConditionPattern(isa.IfNegative))),
-		cat([]string{"is_jumpc"}, op(isa.ConditionPattern(isa.Always))),
-		cat([]string{"is_jumpc", "carry_n"}, op(isa.ConditionPattern(isa.IfCarryClear))),
-		cat([]string{"is_jumpc", "carry"}, op(isa.ConditionPattern(isa.IfCarrySet))),
+	// Bus and memory routing.
+	p.sumOfProducts(block, "temporary_register", "", "temporary_to_bus_inverted", []string{"updating_program_counter", "jump_taken_inverted"})
+	p.sumOfProducts(block, "immediate", "immediate_low_to_bus", "immediate_low_to_bus_inverted", []string{"executing", "is_set_low"})
+	p.sumOfProducts(block, "immediate", "", "immediate_high_to_bus_inverted", []string{"executing", "is_set_high"})
+	p.andGate(block, "bus", "memory_read", "executing", "is_load")
+	p.andGate(block, "bus", "memory_write", "write_result", "is_store")
+	p.sumOfProducts(block, "result_selection", "", "alu_to_bus_inverted", []string{"executing", "is_arithmetic"})
+
+	// The ALU's controls, from the opcode alone. Invert A is the low mode
+	// bit, except for add (operation 000), where that bit is the carry in.
+	p.sumOfProducts(block, "operand_selection", "invert_a", "invert_a_inverted",
+		opcodeLiterals("xx1xxx1x"), opcodeLiterals("xxx1xx1x"), opcodeLiterals("xxxx1x1x"))
+	for _, s := range []struct {
+		name      string
+		operation isa.Operation
+	}{{"add", isa.Add}, {"shift", isa.Shift}, {"and", isa.And}, {"or", isa.Or}, {"xor", isa.Xor}} {
+		p.sumOfProducts(block, "result_selection", "", "select_"+s.name+"_inverted", opcodeLiterals(isa.OperationPattern(s.operation)))
+	}
+
+	// The program memory is always reading: constants for its enables.
+	p.NOR(block, "program_counter", "program_memory_read")
+	p.Not(block, "program_counter", "program_memory_write", "program_memory_read")
+}
+
+// carry builds the carry register: written in the write state of add and
+// shift, from the adder's carry out or the last bit shifted out.
+func (p *processor) carry() {
+	block := p.controlBlock
+	p.NOR(block, "shifter", "shift_carry_left", modeLow, "shifted_by_8_inverted_above_15")         // left: position 16
+	p.NOR(block, "shifter", "shift_carry_right", modeLowInverted, "shifted_by_8_inverted_below_0") // right: position -1
+	p.NOR(block, "shifter", "shift_carry_inverted", "shift_carry_left", "shift_carry_right")
+	p.NOR(block, "adder", "carry_from_add", "select_add_inverted", "carry_out_inverted_15")
+	p.NOR(block, "adder", "carry_from_shift", "select_shift_inverted", "shift_carry_inverted")
+	p.NOR(block, "adder", "carry_input_inverted", "carry_from_add", "carry_from_shift")
+	p.Not(block, "adder", "carry_input", "carry_input_inverted")
+	addOrShift := opcodeLiterals("xx00xxxx") // operation 000 or 001
+	p.sumOfProducts(block, "adder", "", "write_carry_inverted", concatenate([]string{"write_result", "is_arithmetic"}, addOrShift))
+	p.latch(block, "adder", latchNames("carry", -1), "carry_input", "carry_input_inverted", "write_carry_inverted")
+}
+
+// jumpAndHalt builds the jump decision, latched in the write state of every
+// instruction (while the source register is on the bus), and the halt.
+func (p *processor) jumpAndHalt() {
+	block, unit := p.controlBlock, "control"
+	condition := func(c isa.Condition) []string { return opcodeLiterals(isa.ConditionPattern(c)) }
+	p.recordComplements("bus_zero_up_to_15", "bus_nonzero_up_to_15")
+	p.sumOfProducts(block, unit, "jump_condition", "jump_condition_inverted",
+		concatenate([]string{"is_jump"}, condition(isa.Always)),
+		concatenate([]string{"is_jump", "bus_zero_up_to_15"}, condition(isa.IfZero)),
+		concatenate([]string{"is_jump", "bus_nonzero_up_to_15"}, condition(isa.IfNotZero)),
+		concatenate([]string{"is_jump", "bus_15"}, condition(isa.IfNegative)),
+		concatenate([]string{"is_jump_on_carry"}, condition(isa.Always)),
+		concatenate([]string{"is_jump_on_carry", "carry_inverted"}, condition(isa.IfCarryClear)),
+		concatenate([]string{"is_jump_on_carry", "carry"}, condition(isa.IfCarrySet)),
 	)
-	c.latch(b, "ctl", "take", "take_n", "taken", "taken_n", "w_e_n")
-	c.inv(b, "ctl", "w_e")
+	p.complement(block, unit, "write_result")
+	p.latch(block, unit, latchNames("jump_taken", -1), "jump_condition", "jump_condition_inverted", "write_result_inverted")
 
-	// Halt: set in state 7 of a halt, cleared only by reset.
-	c.NOR(b, "ctl", "halted_s", "is_halt_n", "w_e_n")
-	c.NOR(b, "ctl", "halted", "halted_n", "rst")
-	c.NOR(b, "ctl", "halted_n", "halted_s", "halted")
-	c.pair("halted", "halted_n")
-	c.inv(b, "ctl", "is_halt")
+	// Halt: set in the write state of a halt, cleared only by reset (the
+	// step counter stops there, so the write state lasts).
+	p.complement(block, unit, "is_halt")
+	p.NOR(block, unit, "halt_now", "is_halt_inverted", "write_result_inverted")
+	p.NOR(block, unit, "halted", "halted_inverted", "reset_buffered")
+	p.NOR(block, unit, "halted_inverted", "halt_now", "halted")
+	p.recordComplements("halted", "halted_inverted")
+}
 
-	// Register reads and writes. Enables and decoded register fields are
-	// computed once; each register's unit reads them through taps.
-	c.and(b, "ctl", "rd_src", "step_e", "reads_src")
-	c.and(b, "ctl", "wr_dst", "w_e", "writes_dst")
-	c.and(b, "ctl", "wr_setl", "w_e", "is_setl")
-	c.and(b, "ctl", "wr_seth", "w_e", "is_seth")
-	c.and(b, "ctl", "wr_alu_x", cat([]string{"w_e", "is_alu"}, op(isa.ResultToXPattern))...)
-	c.and(b, "ctl", "wr_alu_y", cat([]string{"w_e", "is_alu"}, op(isa.ResultToYPattern))...)
-	c.and(b, "ctl", "rd_jump", "step_p", "take")
-	for code_, r := range regs {
-		c.and(b, "ctl", "src_"+r, code(4, code_)...)
-		c.and(b, "ctl", "dst_"+r, code(0, code_)...)
-		c.and(b, "ctl", "set_"+r, code(8, code_)...)
-		reads := []string{c.and(b, r, r+"_rd_p0", "rd_src", "src_"+r)}
+// registerControl builds each register's read and write lines. The enables
+// and the decoded register fields are computed once; each register's unit
+// reads them through taps.
+func (p *processor) registerControl() {
+	block, unit := p.controlBlock, "control"
+	p.andGate(block, unit, "read_source_now", "executing", "reads_source")
+	p.andGate(block, unit, "write_destination_now", "write_result", "writes_destination")
+	p.andGate(block, unit, "write_set_low_now", "write_result", "is_set_low")
+	p.andGate(block, unit, "write_set_high_now", "write_result", "is_set_high")
+	p.andGate(block, unit, "write_alu_to_x_now", concatenate([]string{"write_result", "is_arithmetic"}, opcodeLiterals(isa.ResultToXPattern))...)
+	p.andGate(block, unit, "write_alu_to_y_now", concatenate([]string{"write_result", "is_arithmetic"}, opcodeLiterals(isa.ResultToYPattern))...)
+	p.andGate(block, unit, "jump_target_to_bus_now", "updating_program_counter", "jump_taken")
+	for number, r := range registerNames {
+		registerUnit := "register_" + r
+		p.andGate(block, unit, "source_is_"+r, registerFieldLiterals(isa.SourceFieldBit, number)...)
+		p.andGate(block, unit, "destination_is_"+r, registerFieldLiterals(isa.DestinationFieldBit, number)...)
+		p.andGate(block, unit, "set_target_is_"+r, registerFieldLiterals(isa.SetRegisterFieldBit, number)...)
+		reads := []string{p.andGate(block, registerUnit, r+"_read_as_source", "read_source_now", "source_is_"+r)}
 		if r == "y" {
-			reads = append(reads, "rd_jump")
+			reads = append(reads, "jump_target_to_bus_now")
 		}
-		c.NOR(b, r, r+"_rdn", reads...)
-		lo := []string{
-			c.and(b, r, r+"_wr_p0", "wr_dst", "dst_"+r),
-			c.and(b, r, r+"_wr_p1", "wr_setl", "set_"+r),
+		p.NOR(block, registerUnit, r+"_to_bus_inverted", reads...)
+		both := []string{
+			p.andGate(block, registerUnit, r+"_written_as_destination", "write_destination_now", "destination_is_"+r),
+			p.andGate(block, registerUnit, r+"_written_by_set_low", "write_set_low_now", "set_target_is_"+r),
 		}
 		switch r {
 		case "x":
-			lo = append(lo, "wr_alu_x")
+			both = append(both, "write_alu_to_x_now")
 		case "y":
-			lo = append(lo, "wr_alu_y")
+			both = append(both, "write_alu_to_y_now")
 		}
-		hi := append(append([]string{}, lo...), c.and(b, r, r+"_wr_p2", "wr_seth", "set_"+r))
-		c.NOR(b, r, r+"_wn_lo", lo...)
-		c.NOR(b, r, r+"_wn_hi", hi...)
+		high := append(append([]string{}, both...), p.andGate(block, registerUnit, r+"_written_by_set_high", "write_set_high_now", "set_target_is_"+r))
+		p.NOR(block, registerUnit, "write_"+r+"_low_inverted", both...)
+		p.NOR(block, registerUnit, "write_"+r+"_high_inverted", high...)
 	}
-	c.sop(b, "tmp", "", "tmp_rdn", []string{"step_p", "take_n"})
-	c.sop(b, "imm", "imm_lo", "imm_lo_n", []string{"step_e", "is_setl"})
-	c.sop(b, "imm", "", "imm_hi_n", []string{"step_e", "is_seth"})
-	c.and(b, "bus", "mem_read", "step_e", "is_load")
-	c.and(b, "bus", "mem_write", "w_e", "is_store")
-	c.sop(b, "result", "", "alu_rdn", []string{"step_e", "is_alu"})
-
-	// ALU control, from the opcode alone: ooo = ir[13:11], mm = ir[10:9].
-	// Invert A: the low mode bit, except for add (operation 000), where it
-	// is the carry in.
-	c.sop(b, "alu_in", "ia", "ia_n", op("xx1xxx1x"), op("xxx1xx1x"), op("xxxx1x1x"))
-	for _, sel := range []struct {
-		name      string
-		operation isa.Operation
-	}{{"add", isa.Add}, {"sh", isa.Shift}, {"and", isa.And}, {"or", isa.Or}, {"xor", isa.Xor}} {
-		c.sop(b, "result", "", "sel_"+sel.name+"_n", op(isa.OperationPattern(sel.operation)))
-	}
-
-	// ROM: always reading. Constants for its enables.
-	c.NOR(b, "pc", "rom_read")
-	c.Not(b, "pc", "rom_write", "rom_read")
 }
 
-func (c *cpu) transistors() int {
+// transistors counts the design's transistors: one per gate input.
+func (p *processor) transistors() int {
 	n := 0
-	for _, g := range c.gates {
-		n += len(g.In)
+	for _, g := range p.gates {
+		n += len(g.Inputs)
 	}
 	return n
 }

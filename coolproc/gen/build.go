@@ -9,88 +9,89 @@ import (
 	"github.com/Castux/mipsim2/netlist"
 )
 
-// Document turns a layout into a document whose root holds every cell,
-// shifted by off.
-func (l *Layout) Document(off image.Point) *doc.Document {
+// Document turns a layout into a document whose root holds every cell and
+// label.
+func (l *Layout) Document() *doc.Document {
 	d := doc.New()
 	root := d.RootDef()
-	for p, k := range l.Cells {
-		root.Pixels.Put(p.X+off.X, p.Y+off.Y, k)
+	for p, kind := range l.Cells {
+		root.Pixels.Put(p.X, p.Y, kind)
 	}
-	var pts []image.Point
+	var positions []image.Point
 	for p := range l.Labels {
-		pts = append(pts, p)
+		positions = append(positions, p)
 	}
-	sort.Slice(pts, func(i, j int) bool {
-		if pts[i].Y != pts[j].Y {
-			return pts[i].Y < pts[j].Y
+	sort.Slice(positions, func(i, j int) bool { // raster order, for a stable file
+		if positions[i].Y != positions[j].Y {
+			return positions[i].Y < positions[j].Y
 		}
-		return pts[i].X < pts[j].X
+		return positions[i].X < positions[j].X
 	})
-	for _, p := range pts {
-		root.Labels = append(root.Labels, doc.Label{X: p.X + off.X, Y: p.Y + off.Y, Name: l.Labels[p]})
+	for _, p := range positions {
+		root.Labels = append(root.Labels, doc.Label{X: p.X, Y: p.Y, Name: l.Labels[p]})
 	}
 	return d
 }
 
 // Verify compiles the document and checks that the circuit is the design:
-// no errors, one net per signal, and every transistor where a gate input
-// should be, gated by that input, between the gate's output and ground.
-func (d *Design) Verify(dc *doc.Document, l *Layout, off image.Point) (*netlist.Netlist, error) {
-	nl := netlist.CompileDoc(dc, netlist.Options{})
-	for _, dg := range nl.Diagnostics {
-		if dg.Level == netlist.Error {
-			return nil, fmt.Errorf("layout error: %v", dg)
+// no errors, one net per signal, every transistor where a gate input
+// should be, gated by that input, between the gate's output and ground,
+// and every output pulled up.
+func (d *Design) Verify(document *doc.Document, layout *Layout) (*netlist.Netlist, error) {
+	nets := netlist.CompileDoc(document, netlist.Options{})
+	for _, diagnostic := range nets.Diagnostics {
+		if diagnostic.Level == netlist.Error {
+			return nil, fmt.Errorf("layout error: %v", diagnostic)
 		}
 	}
-	netOf := map[*Sig]netlist.NetID{}
-	owner := map[netlist.NetID]*Sig{}
-	for _, s := range d.sigs {
-		id, ok := nl.Lookup(s.Name)
+	netOf := map[*Signal]netlist.NetID{}
+	signalOf := map[netlist.NetID]*Signal{}
+	for _, s := range d.signals {
+		id, ok := nets.Lookup(s.Name)
 		if !ok {
 			return nil, fmt.Errorf("signal %s has no net", s.Name)
 		}
-		if o, dup := owner[id]; dup {
-			return nil, fmt.Errorf("signals %s and %s are one net", o.Name, s.Name)
+		if other, shared := signalOf[id]; shared {
+			return nil, fmt.Errorf("signals %s and %s are one net", other.Name, s.Name)
 		}
-		owner[id] = s
+		signalOf[id] = s
 		netOf[s] = id
 	}
-	byPos := map[image.Point]netlist.Transistor{}
-	for _, t := range nl.Transistors {
-		byPos[t.Pos] = t
+	transistorAt := map[image.Point]netlist.Transistor{}
+	for _, t := range nets.Transistors {
+		transistorAt[t.Pos] = t
 	}
-	n := 0
+	checked := 0
 	for _, g := range d.gates {
-		ry := l.rowY[g.Block][g.row]
-		ty := ry + 1
+		rowY := layout.gateRowY[g.Block][g.row]
+		transistorY := rowY + 1
 		if g.row%2 == 1 {
-			ty = ry - 1
+			transistorY = rowY - 1
 		}
-		for i, s := range g.In {
-			p := image.Pt(trackX(g.tin[i].col)+1+off.X, ty+off.Y)
-			t, ok := byPos[p]
+		for k, input := range g.Inputs {
+			p := image.Pt(trackColumn(g.inputLines[k].track)+1, transistorY)
+			t, ok := transistorAt[p]
 			if !ok {
-				return nil, fmt.Errorf("gate %s: no transistor for input %s at %v", g.Out.Name, s.Name, p)
+				return nil, fmt.Errorf("gate %s: no transistor for input %s at %v", g.Output.Name, input.Name, p)
 			}
-			if t.Gate != netOf[s] {
-				return nil, fmt.Errorf("gate %s: transistor at %v not gated by %s", g.Out.Name, p, s.Name)
+			if t.Gate != netOf[input] {
+				return nil, fmt.Errorf("gate %s: the transistor at %v is not gated by %s", g.Output.Name, p, input.Name)
 			}
-			out, gnd := t.A, t.B
-			if out != netOf[g.Out] {
-				out, gnd = gnd, out
+			output, ground := t.A, t.B
+			if output != netOf[g.Output] {
+				output, ground = ground, output
 			}
-			if out != netOf[g.Out] || nl.Nets[gnd].Drive != netlist.DriveLow || owner[gnd] != nil {
-				return nil, fmt.Errorf("gate %s: transistor at %v is not between the output and ground", g.Out.Name, p)
+			if output != netOf[g.Output] || nets.Nets[ground].Drive != netlist.DriveLow || signalOf[ground] != nil {
+				return nil, fmt.Errorf("gate %s: the transistor at %v is not between the output and ground", g.Output.Name, p)
 			}
-			n++
+			checked++
 		}
-		if nl.Nets[netOf[g.Out]].Drive != netlist.DriveHigh {
-			return nil, fmt.Errorf("gate %s: output is not pulled up", g.Out.Name)
+		if nets.Nets[netOf[g.Output]].Drive != netlist.DriveHigh {
+			return nil, fmt.Errorf("gate %s: the output is not pulled up", g.Output.Name)
 		}
 	}
-	if n != len(nl.Transistors) {
-		return nil, fmt.Errorf("%d transistors, the design has %d", len(nl.Transistors), n)
+	if checked != len(nets.Transistors) {
+		return nil, fmt.Errorf("%d transistors, the design has %d", len(nets.Transistors), checked)
 	}
-	return nl, nil
+	return nets, nil
 }
